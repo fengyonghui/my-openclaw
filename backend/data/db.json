@@ -1,0 +1,1006 @@
+{
+  "projects": [
+    {
+      "id": "my-openclaw",
+      "name": "my-openclaw",
+      "description": "OpenClaw 项目化改造，引入 Project 作用域。",
+      "workspace": "/mnt/d/workspace/my-openclaw",
+      "defaultAgentId": "1",
+      "defaultModel": "1774231103978",
+      "createdAt": "2026-03-23T08:30:00Z"
+    },
+    {
+      "id": "openclaw-test",
+      "name": "openclaw-test",
+      "description": "openclaw-test",
+      "workspace": "\\workspace\\fengyonghui\\openclaw-test",
+      "defaultAgentId": "1",
+      "defaultModel": "1774231104774",
+      "createdAt": "2026-03-23T01:34:01.536Z"
+    }
+  ],
+  "availableModels": [
+    {
+      "name": "Veo 3.1",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "Veo 3.1",
+      "id": "1774231103846",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "claude-opus-4-6-thinking",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "claude-opus-4-6-thinking",
+      "id": "1774231103863",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "gemini-3.1-pro-low",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "gemini-3.1-pro-low",
+      "id": "1774231103873",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "gpt-5.4-mini-2026-03-17",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "gpt-5.4-mini-2026-03-17",
+      "id": "1774231103881",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "Gemini 3.1 Flash Lite Preview",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "Gemini 3.1 Flash Lite Preview",
+      "id": "1774231103903",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "gemini-3.1-flash-lite-preview",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "gemini-3.1-flash-lite-preview",
+      "id": "1774231103917",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "gpt-5-codex-mini",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "gpt-5-codex-mini",
+      "id": "1774231103927",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "Gemma 3 27B",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "Gemma 3 27B",
+      "id": "1774231103939",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "Veo 3.1 fast",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "Veo 3.1 fast",
+      "id": "1774231103949",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "deepseek-ai/deepseek-v3.2",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "deepseek-ai/deepseek-v3.2",
+      "id": "1774231103960",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "z-ai/glm5",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "z-ai/glm5",
+      "id": "1774231103978",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "gpt-5.4-mini",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "gpt-5.4-mini",
+      "id": "1774231104000",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "qwen3-coder-plus",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "qwen3-coder-plus",
+      "id": "1774231104023",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "Nano Banana Pro",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "Nano Banana Pro",
+      "id": "1774231104036",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "Imagen 4 Fast",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "Imagen 4 Fast",
+      "id": "1774231104049",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "glm-4-7-251222",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "glm-4-7-251222",
+      "id": "1774231104064",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "gpt-5.4",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "gpt-5.4",
+      "id": "1774231104079",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "gemini-3-pro-preview",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "gemini-3-pro-preview",
+      "id": "1774231104092",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "Claude Opus 4.6",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "Claude Opus 4.6",
+      "id": "1774231104105",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "gemini-3-pro-high",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "gemini-3-pro-high",
+      "id": "1774231104118",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "gemini-3.1-flash-image",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "gemini-3.1-flash-image",
+      "id": "1774231104133",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "gemini-3.1-pro-high",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "gemini-3.1-pro-high",
+      "id": "1774231104150",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "Gemini 2.0 Flash-Lite 001",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "Gemini 2.0 Flash-Lite 001",
+      "id": "1774231104163",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "Gemini 2.5 Computer Use Preview 10-2025",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "Gemini 2.5 Computer Use Preview 10-2025",
+      "id": "1774231104176",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "gemini-3-flash",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "gemini-3-flash",
+      "id": "1774231104188",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "gemini-3.1-pro-preview",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "gemini-3.1-pro-preview",
+      "id": "1774231104199",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "gpt-5.2-codex",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "gpt-5.2-codex",
+      "id": "1774231104209",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "gpt-5-codex",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "gpt-5-codex",
+      "id": "1774231104219",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "gpt-5.3-codex",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "gpt-5.3-codex",
+      "id": "1774231104239",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "Gemini 2.5 Flash-Lite",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "Gemini 2.5 Flash-Lite",
+      "id": "1774231104251",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "Nano Banana 2",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "Nano Banana 2",
+      "id": "1774231104266",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "gpt-5.4-nano-2026-03-17",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "gpt-5.4-nano-2026-03-17",
+      "id": "1774231104280",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "gpt-5.4-nano",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "gpt-5.4-nano",
+      "id": "1774231104292",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "gemini-3-flash-preview",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "gemini-3-flash-preview",
+      "id": "1774231104305",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "Gemini 2.5 Flash",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "Gemini 2.5 Flash",
+      "id": "1774231104321",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "Gemini 3 Flash Preview",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "Gemini 3 Flash Preview",
+      "id": "1774231104342",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "Imagen 4",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "Imagen 4",
+      "id": "1774231104358",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "minimaxai/minimax-m2.5",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "minimaxai/minimax-m2.5",
+      "id": "1774231104375",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "Gemini 2.5 Pro",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "Gemini 2.5 Pro",
+      "id": "1774231104391",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "Gemini Pro Latest",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "Gemini Pro Latest",
+      "id": "1774231104403",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "Gemini Flash Latest",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "Gemini Flash Latest",
+      "id": "1774231104415",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "Gemini 2.5 Flash Native Audio Preview 09-2025",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "Gemini 2.5 Flash Native Audio Preview 09-2025",
+      "id": "1774231104432",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "glm-5",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "glm-5",
+      "id": "1774231104444",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "Gemini 3.1 Pro Preview Custom Tools",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "Gemini 3.1 Pro Preview Custom Tools",
+      "id": "1774231104454",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "coder-model",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "coder-model",
+      "id": "1774231104465",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "gpt-5",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "gpt-5",
+      "id": "1774231104477",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "gpt-5.1-codex-max",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "gpt-5.1-codex-max",
+      "id": "1774231104486",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "Gemini 2.0 Flash",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "Gemini 2.0 Flash",
+      "id": "1774231104495",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "Gemma 3 4B",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "Gemma 3 4B",
+      "id": "1774231104504",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "gemini-3-pro-low",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "gemini-3-pro-low",
+      "id": "1774231104514",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "Gemma 3n E2B",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "Gemma 3n E2B",
+      "id": "1774231104538",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "Imagen 4 Ultra",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "Imagen 4 Ultra",
+      "id": "1774231104548",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "Gemini 2.0 Flash 001",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "Gemini 2.0 Flash 001",
+      "id": "1774231104562",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "Gemma 3 12B",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "Gemma 3 12B",
+      "id": "1774231104575",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "Nano Banana",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "Nano Banana",
+      "id": "1774231104585",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "Gemini 2.5 Flash-Lite Preview Sep 2025",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "Gemini 2.5 Flash-Lite Preview Sep 2025",
+      "id": "1774231104597",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "Gemini 2.5 Flash Native Audio Latest",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "Gemini 2.5 Flash Native Audio Latest",
+      "id": "1774231104611",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "Claude Sonnet 4.6",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "Claude Sonnet 4.6",
+      "id": "1774231104627",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "gpt-oss-120b-medium",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "gpt-oss-120b-medium",
+      "id": "1774231104638",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "gpt-5.1-codex",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "gpt-5.1-codex",
+      "id": "1774231104653",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "qwen3-coder-flash",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "qwen3-coder-flash",
+      "id": "1774231104666",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "mx27-h",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "mx27-h",
+      "id": "1774231104695",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "gpt-5.1",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "gpt-5.1",
+      "id": "1774231104711",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "qwen3.5-flash-2026-02-23",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "qwen3.5-flash-2026-02-23",
+      "id": "1774231104725",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "claude-sonnet-4-6",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "claude-sonnet-4-6",
+      "id": "1774231104742",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "Gemini Embedding 2 Preview",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "Gemini Embedding 2 Preview",
+      "id": "1774231104754",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "MiniMax-M2.5",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "MiniMax-M2.5",
+      "id": "1774231104764",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "mx27",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "mx27",
+      "id": "1774231104774",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "vision-model",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "vision-model",
+      "id": "1774231104783",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "Gemini 2.0 Flash-Lite",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "Gemini 2.0 Flash-Lite",
+      "id": "1774231104792",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "Gemini 3.1 Pro Preview",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "Gemini 3.1 Pro Preview",
+      "id": "1774231104810",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "Veo 3",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "Veo 3",
+      "id": "1774231104825",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "qwen3.5-plus",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "qwen3.5-plus",
+      "id": "1774231104841",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "gpt-5.2",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "gpt-5.2",
+      "id": "1774231104860",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "gemini-2.5-pro",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "gemini-2.5-pro",
+      "id": "1774231104872",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "gemini-2.5-flash",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "gemini-2.5-flash",
+      "id": "1774231104884",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "gemini-2.5-flash-lite",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "gemini-2.5-flash-lite",
+      "id": "1774231104898",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "Gemini 2.5 Flash Preview TTS",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "Gemini 2.5 Flash Preview TTS",
+      "id": "1774231104911",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "Gemma 3 1B",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "Gemma 3 1B",
+      "id": "1774231104925",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "Gemma 3n E4B",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "Gemma 3n E4B",
+      "id": "1774231104937",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "Veo 3 fast",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "Veo 3 fast",
+      "id": "1774231104955",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "deepseek-v3-1-250821",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "deepseek-v3-1-250821",
+      "id": "1774231104972",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "gpt-5.1-codex-mini",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "gpt-5.1-codex-mini",
+      "id": "1774231104983",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "Gemini Flash-Lite Latest",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "Gemini Flash-Lite Latest",
+      "id": "1774231104992",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "Gemini 3 Pro Preview",
+      "provider": "Custom",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "modelId": "Gemini 3 Pro Preview",
+      "id": "1774231105013",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    }
+  ],
+  "agents": [
+    {
+      "id": "1",
+      "name": "PM Agent",
+      "role": "需求拆解 / 文档输出",
+      "model": "gpt-4o",
+      "status": "ready"
+    },
+    {
+      "id": "2",
+      "name": "Backend Agent",
+      "role": "API / DB / 服务设计",
+      "model": "claude-3-5-sonnet",
+      "status": "busy"
+    }
+  ],
+  "chats": [
+    {
+      "id": "1774238188370",
+      "projectId": "my-openclaw",
+      "title": "新开发任务1",
+      "agentId": "1",
+      "messages": [],
+      "updatedAt": "2026-03-23T03:56:28.370Z"
+    },
+    {
+      "id": "1774238124514",
+      "projectId": "my-openclaw",
+      "title": "新开发任务",
+      "agentId": "1",
+      "messages": [],
+      "updatedAt": "2026-03-23T03:55:24.514Z"
+    },
+    {
+      "id": "1774235968973",
+      "projectId": "openclaw-test",
+      "title": "标题修改测试",
+      "agentId": "1",
+      "messages": [
+        {
+          "role": "user",
+          "content": "你好，当前模型是什么？",
+          "id": "1774236680769",
+          "timestamp": "2026-03-23T03:31:20.769Z"
+        }
+      ],
+      "updatedAt": "2026-03-23T03:31:20.769Z",
+      "modelId": "1774231103863"
+    },
+    {
+      "id": "1774231944350",
+      "projectId": "openclaw-test",
+      "title": "当前模型",
+      "agentId": "1",
+      "updatedAt": "2026-03-23T03:29:12.052Z",
+      "messages": [
+        {
+          "role": "user",
+          "content": "你好，当前模型是哪个？",
+          "id": "1774235116114",
+          "timestamp": "2026-03-23T03:05:16.114Z"
+        },
+        {
+          "role": "assistant",
+          "content": "<think>\n用户问的是当前模型是哪个。根据系统提示，我是MiniMax-M2.7。这是一个简单的问题，我应该直接回答。\n</think>\n\n你好！当前模型是 **MiniMax-M2.7**，由 MiniMax 开发。\n\n有什么我可以帮助你的吗？",
+          "id": "1774235125348",
+          "timestamp": "2026-03-23T03:05:25.348Z"
+        },
+        {
+          "role": "user",
+          "content": "当前模型是哪个？",
+          "id": "1774236323786",
+          "timestamp": "2026-03-23T03:25:23.786Z"
+        },
+        {
+          "role": "user",
+          "content": "当前模型是哪个？",
+          "id": "1774236360800",
+          "timestamp": "2026-03-23T03:26:00.800Z"
+        },
+        {
+          "role": "user",
+          "content": "当前模型是哪个？",
+          "id": "1774236388328",
+          "timestamp": "2026-03-23T03:26:28.328Z"
+        },
+        {
+          "role": "assistant",
+          "content": "抱歉，我无法告知正在使用的模型信息。",
+          "id": "1774236394014",
+          "timestamp": "2026-03-23T03:26:34.014Z"
+        },
+        {
+          "role": "user",
+          "content": "能帮我查找北京的天气吗？",
+          "id": "1774236431620",
+          "timestamp": "2026-03-23T03:27:11.620Z"
+        },
+        {
+          "role": "assistant",
+          "content": "当然可以！不过我本身无法实时查询天气数据，但你可以通过以下途径快速获取北京当前的天气情况：\n\n1. 打开微信/QQ等常用的聊天工具，在搜索框输入“北京天气”，通常可以直接看到当前天气和预报。\n2. 打开浏览器访问天气网站，如：\n   - 墨迹天气（https://tianqi.moji.com/）\n   - 中国天气网（http://www.weather.com.cn/）\n   - 新浪天气（https://weather.sina.com.cn/）\n   在这些网站的搜索框中输入“北京”即可查看实时天气、温度、空气质量等信息。\n3. 使用智能语音助手（如“小爱同学”“天猫精灵”等）直接询问“北京天气”。\n\n如果你需要我帮你总结某个时段的天气趋势、提醒气温变化等，也可以告诉我，我会尽力提供参考建议！",
+          "id": "1774236438005",
+          "timestamp": "2026-03-23T03:27:18.005Z"
+        },
+        {
+          "role": "user",
+          "content": "你不能帮我自动搜索这些网站吗？",
+          "id": "1774236496273",
+          "timestamp": "2026-03-23T03:28:16.273Z"
+        },
+        {
+          "role": "assistant",
+          "content": "我目前无法为你自动搜索或浏览网站。但你可以告诉我需要搜索的信息，我可以帮你整理可能的关键词、提供搜索建议，或者直接基于已有知识给出相关的解答。需要我怎么帮你呢？",
+          "id": "1774236497947",
+          "timestamp": "2026-03-23T03:28:17.947Z"
+        },
+        {
+          "role": "user",
+          "content": "你能帮我查看一下北京今天的天气吗？",
+          "id": "1774236542983",
+          "timestamp": "2026-03-23T03:29:02.983Z"
+        },
+        {
+          "role": "assistant",
+          "content": "<think>\n用户问的是北京今天的天气。我是一个AI助手，没有实时获取天气数据的能力。我应该诚实告诉用户这一点，并建议他们通过其他方式获取天气信息，比如搜索引擎天气功能、天气应用等。\n</think>\n\n您好！我是一个AI助手，没有实时获取天气数据的能力，所以无法直接查看北京今天的天气。\n\n不过您可以通过以下方式查询北京天气：\n\n1. **搜索引擎**：在百度、必应等搜索引擎输入“北京天气”\n2. **天气应用**：使用手机自带的天气App或墨迹天气、中国天气等应用\n3. **网站**：访问中国天气网（weather.com.cn）或中央气象台网站\n\n请问还有什么其他我可以帮助您的吗？",
+          "id": "1774236552052",
+          "timestamp": "2026-03-23T03:29:12.052Z"
+        }
+      ],
+      "modelId": "1774231104774"
+    }
+  ]
+}
