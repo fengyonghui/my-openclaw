@@ -1,6 +1,8 @@
-import { Bot, SendHorizonal, Sparkles, ChevronDown, Check, User, Cpu, Edit3, Settings, Search, X } from 'lucide-react';
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { Bot, SendHorizonal, Sparkles, ChevronDown, Check, User, Cpu, Edit3, Settings, Search, X, Copy, CheckCircle2 } from 'lucide-react';
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Card, Button, Badge } from '../components/ui';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 type Message = {
   id: string;
@@ -8,6 +10,67 @@ type Message = {
   content: string;
   status?: 'streaming' | 'error';
 };
+
+// 代码块渲染器（Copy 按钮放在代码块后面）
+function PreBlock({ children }: any) {
+  const [copied, setCopied] = useState(false);
+  const preRef = useRef<HTMLPreElement>(null);
+
+  const handleCopy = useCallback(() => {
+    const text = preRef.current?.innerText || '';
+    navigator.clipboard.writeText(text.trim());
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }, []);
+
+  return (
+    <div className="my-6 rounded-xl border border-slate-700 bg-slate-900 shadow-lg" style={{ backgroundColor: '#1e293b' }}>
+      <div className="flex justify-start px-3 pt-3">
+        <button
+          onClick={handleCopy}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide transition-all ${copied ? 'bg-green-600 text-white' : 'bg-slate-700 text-slate-200 hover:bg-slate-600 hover:text-white'}`}
+        >
+          {copied ? (
+            <>
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              <span>Copied!</span>
+            </>
+          ) : (
+            <>
+              <Copy className="h-3.5 w-3.5" />
+              <span>Copy</span>
+            </>
+          )}
+        </button>
+      </div>
+
+      <pre ref={preRef} className="p-4 text-sm leading-relaxed whitespace-pre-wrap break-words max-w-full" style={{ backgroundColor: '#1e293b' }}>
+        <code className="font-mono whitespace-pre-wrap break-words" style={{ color: '#e2e8f0' }}>
+          {children}
+        </code>
+      </pre>
+
+      <div className="flex justify-end px-3 pb-3">
+        <button
+          onClick={handleCopy}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide transition-all ${copied ? 'bg-green-600 text-white' : 'bg-slate-700 text-slate-200 hover:bg-slate-600 hover:text-white'}`}
+        >
+          {copied ? (
+            <>
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              <span>Copied!</span>
+            </>
+          ) : (
+            <>
+              <Copy className="h-3.5 w-3.5" />
+              <span>Copy</span>
+            </>
+          )}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 export function ChatDetailPage({ projectId, chatId }: { projectId: string, chatId: string }) {
   const [project, setProject] = useState<any>(null);
@@ -230,7 +293,38 @@ export function ChatDetailPage({ projectId, chatId }: { projectId: string, chatI
               <div className={`flex gap-4 max-w-[85%] ${m.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
                 <div className={`h-10 w-10 rounded-2xl flex items-center justify-center flex-shrink-0 shadow-sm border ${m.role === 'user' ? 'bg-white border-slate-100 text-slate-400' : 'bg-primary-50 border-primary-100 text-primary-600'}`}>{m.role === 'user' ? <User className="h-5 w-5" /> : <Bot className="h-5 w-5" />}</div>
                 <div className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
-                  <div className={`px-5 py-4 rounded-3xl text-sm leading-relaxed shadow-sm ${m.role === 'user' ? 'bg-primary-600 text-white rounded-tr-none shadow-primary-200' : (m.status === 'error' ? 'bg-rose-50 border border-rose-100 text-rose-700 font-medium' : 'bg-white border border-slate-100 text-slate-700 font-medium rounded-tl-none')}`}><div className="whitespace-pre-wrap">{m.content}{m.status === 'streaming' && <span className="inline-block w-1.5 h-4 ml-1 bg-primary-400 animate-pulse align-middle" />}</div></div>
+                  <div className={`px-5 py-4 rounded-3xl text-sm leading-relaxed shadow-sm ${m.role === 'user' ? 'bg-primary-600 text-white rounded-tr-none shadow-primary-200' : (m.status === 'error' ? 'bg-rose-50 border border-rose-100 text-rose-700 font-medium' : 'bg-white border border-slate-100 text-slate-700 font-medium rounded-tl-none')}`}>
+                    {m.role === 'assistant' ? (
+                      <div className="prose prose-slate max-w-none prose-p:leading-relaxed">
+                        <ReactMarkdown 
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            pre: PreBlock,
+                            code: ({ inline, className, children: codeChildren, ...props }: any) => {
+                              // 如果是代码块（有语言类名或不在 pre 内），使用代码块样式
+                              if (className || !inline) {
+                                return <code className={className} {...props}>{codeChildren}</code>;
+                              }
+                              // 内联代码
+                              return (
+                                <code 
+                                  className="bg-slate-200 text-slate-800 px-1.5 py-0.5 rounded text-sm font-mono font-semibold"
+                                  {...props}
+                                >
+                                  {codeChildren}
+                                </code>
+                              );
+                            }
+                          }}
+                        >
+                          {m.content}
+                        </ReactMarkdown>
+                        {m.status === 'streaming' && <span className="inline-block w-1.5 h-4 ml-1 bg-primary-400 animate-pulse align-middle" />}
+                      </div>
+                    ) : (
+                      <div className="whitespace-pre-wrap">{m.content}</div>
+                    )}
+                  </div>
                   <span className="mt-2 text-[9px] font-black text-slate-400 uppercase tracking-widest px-2">{m.role === 'user' ? 'You' : (currentAgent?.name || 'Assistant')}</span>
                 </div>
               </div>

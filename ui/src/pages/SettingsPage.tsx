@@ -2,7 +2,7 @@ import { Settings, Shield, Cpu, Bell, Save, Trash2, Layout, Bot, Info, Globe } f
 import { useState, useEffect } from 'react';
 import { Card, Button, Badge } from '../components/ui';
 
-export function SettingsPage({ projectId }: { projectId: string }) {
+export function SettingsPage({ projectId, onSaved }: { projectId: string, onSaved?: () => void }) {
   const [project, setProject] = useState<any>(null);
   const [models, setModels] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -51,6 +51,7 @@ export function SettingsPage({ projectId }: { projectId: string }) {
       if (res.ok) {
         setProject(await res.json());
         alert('配置已成功保存');
+        onSaved?.();
       }
     } catch (err) { alert('保存失败'); } finally { setSaving(false); }
   };

@@ -8,6 +8,7 @@ import {
   MessageSquare,
   Search,
   Settings,
+  Puzzle
 } from 'lucide-react';
 import type { AppView } from '../../App';
 
@@ -22,6 +23,7 @@ type NavItem = {
 const navItems: NavItem[] = [
   { key: 'chats', label: 'Chats', icon: <MessageSquare className="h-4 w-4" /> },
   { key: 'agents', label: 'Agents', icon: <Bot className="h-4 w-4" /> },
+  { key: 'skills', label: 'Skills', icon: <Puzzle className="h-4 w-4" /> },
   { key: 'files', label: 'Files', icon: <FolderOpen className="h-4 w-4" /> },
   { key: 'memory', label: 'Memory', icon: <Brain className="h-4 w-4" /> },
   { key: 'activity', label: 'Activity', icon: <Activity className="h-4 w-4" /> },

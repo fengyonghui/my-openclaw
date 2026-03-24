@@ -21,6 +21,12 @@ export async function ProjectRoutes(fastify: FastifyInstance) {
     return await DbService.createProject(name, description, parentDir);
   });
 
+  // 导入现有项目目录
+  fastify.post('/import', async (request) => {
+    const { name, description, workspace } = request.body as any;
+    return await DbService.importProject(name, description, workspace);
+  });
+
   // 修改项目配置 (通用修改)
   fastify.patch('/:id', async (request) => {
     const { id } = request.params as { id: string };
@@ -107,5 +113,23 @@ export async function ProjectRoutes(fastify: FastifyInstance) {
     const { id } = request.params as { id: string };
     const memory = request.body as any;
     return await DbService.addProjectMemory(id, memory);
+  });
+
+  // 获取项目的已启用 Skill
+  fastify.get('/:id/skills', async (request) => {
+    const { id } = request.params as { id: string };
+    return await DbService.getProjectSkills(id);
+  });
+
+  // 获取所有可用 Skill (供项目安装)
+  fastify.get('/:id/skills/available', async () => {
+    return await DbService.getGlobalSkills();
+  });
+
+  // 开启/关闭项目 Skill
+  fastify.post('/:id/skills/toggle', async (request) => {
+    const { id } = request.params as { id: string };
+    const { skillId } = request.body as { skillId: string };
+    return await DbService.toggleProjectSkill(id, skillId);
   });
 }
