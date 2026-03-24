@@ -31,13 +31,17 @@ export function Button({
   onClick, 
   variant = 'primary', 
   className = '',
-  icon: Icon
+  icon: Icon,
+  disabled = false,
+  size = 'md'
 }: { 
-  children: ReactNode, 
+  children?: ReactNode, 
   onClick?: () => void, 
   variant?: 'primary' | 'secondary' | 'ghost' | 'outline',
   className?: string,
-  icon?: any
+  icon?: any,
+  disabled?: boolean,
+  size?: 'sm' | 'md' | 'lg'
 }) {
   const variants = {
     primary: 'bg-primary-600 text-white hover:bg-primary-700',
@@ -46,10 +50,17 @@ export function Button({
     ghost: 'text-slate-600 hover:bg-slate-100',
   };
 
+  const sizes = {
+    sm: 'px-3 py-1.5 text-xs',
+    md: 'px-4 py-2.5 text-sm',
+    lg: 'px-6 py-3 text-base',
+  };
+
   return (
     <button 
       onClick={onClick}
-      className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition active:scale-95 ${variants[variant]} ${className}`}
+      disabled={disabled}
+      className={`inline-flex items-center justify-center gap-2 rounded-xl font-bold transition active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 ${variants[variant]} ${sizes[size]} ${className}`}
     >
       {Icon && <Icon className="h-4 w-4" />}
       {children}
@@ -58,7 +69,17 @@ export function Button({
 }
 
 // --- Badge ---
-export function Badge({ children, status = 'default', className = '' }: { children: ReactNode, status?: 'default' | 'success' | 'warning' | 'error' | 'info', className?: string }) {
+export function Badge({ 
+  children, 
+  status = 'default', 
+  className = '',
+  onClick 
+}: { 
+  children: ReactNode, 
+  status?: 'default' | 'success' | 'warning' | 'error' | 'info', 
+  className?: string,
+  onClick?: () => void
+}) {
   const colors = {
     default: 'bg-slate-100 text-slate-600',
     success: 'bg-emerald-50 text-emerald-700',
@@ -68,7 +89,10 @@ export function Badge({ children, status = 'default', className = '' }: { childr
   };
 
   return (
-    <span className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-widest ${colors[status]} ${className}`}>
+    <span 
+      onClick={onClick}
+      className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-widest ${colors[status]} ${className} ${onClick ? 'cursor-pointer hover:opacity-80 transition' : ''}`}
+    >
       {children}
     </span>
   );

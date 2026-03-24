@@ -5,6 +5,7 @@ import { AgentRoutes } from './routes/agents.js';
 import { ChatRoutes } from './routes/chats.js';
 import { SystemRoutes } from './routes/system.js';
 import { ModelRoutes } from './routes/models.js';
+import { SkillRoutes } from './routes/skills.js';
 
 const fastify = Fastify({ logger: true });
 
@@ -23,6 +24,7 @@ await fastify.register(AgentRoutes, { prefix: '/api/v1/agents' });
 await fastify.register(ChatRoutes, { prefix: '/api/v1/chats' });
 await fastify.register(SystemRoutes, { prefix: '/api/v1/system' });
 await fastify.register(ModelRoutes, { prefix: '/api/v1/models' });
+await fastify.register(SkillRoutes, { prefix: '/api/v1/skills' });
 
 // --- Start Server ---
 try {

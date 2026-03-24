@@ -28,6 +28,7 @@ export class DbService {
         agents: [{ id: "1", name: "PM Agent", description: "项目经理 Agent", type: "pm", role: "Manager", status: "idle" }],
         chats: [],
         availableModels: [],
+        availableSkills: [], // 新增全局技能池
         memories: []
       };
       await fs.mkdir(path.dirname(DB_PATH), { recursive: true });
@@ -110,10 +111,63 @@ export class DbService {
 
   static async createProject(name: string, description: string, parentDir: string) {
     const db = await this.load();
-    const id = name.toLowerCase().replace(/\s+/g, '-');
-    const workspace = path.join(parentDir, name);
-    try { await fs.mkdir(workspace, { recursive: true }); } catch (err: any) { throw new Error(`无法创建物理目录: ${err.message}`); }
-    const newProject = { id, name, description, workspace, defaultAgentId: "1", defaultModel: db.availableModels?.[0]?.id || "", createdAt: new Date().toISOString() };
+    const baseId = name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-_]/g, '');
+    let id = baseId || `project-${Date.now()}`;
+    let counter = 1;
+    while ((db.projects || []).some((p: any) => p.id === id)) {
+      id = `${baseId}-${counter++}`;
+    }
+
+    const safeParentDir = parentDir || process.cwd();
+    const workspace = path.join(safeParentDir, name || id);
+    try {
+      await fs.mkdir(workspace, { recursive: true });
+    } catch (err: any) {
+      throw new Error(`无法创建物理目录: ${err.message}`);
+    }
+
+    const newProject = {
+      id,
+      name: name || id,
+      description: description || '',
+      workspace,
+      defaultAgentId: '1',
+      defaultModel: db.availableModels?.[0]?.id || '',
+      createdAt: new Date().toISOString()
+    };
+
+    db.projects.push(newProject);
+    await this.save();
+    return newProject;
+  }
+
+  static async importProject(name: string, description: string, workspace: string) {
+    const db = await this.load();
+    if (!workspace) throw new Error('workspace 不能为空');
+
+    const st = await fs.stat(workspace).catch(() => null as any);
+    if (!st || !st.isDirectory()) {
+      throw new Error('workspace 目录不存在或不是文件夹');
+    }
+
+    const inferredName = name || path.basename(workspace);
+    const baseId = inferredName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-_]/g, '');
+    let id = baseId || `project-${Date.now()}`;
+    let counter = 1;
+    while ((db.projects || []).some((p: any) => p.id === id)) {
+      id = `${baseId}-${counter++}`;
+    }
+
+    const newProject = {
+      id,
+      name: inferredName,
+      description: description || '',
+      workspace,
+      defaultAgentId: '1',
+      defaultModel: db.availableModels?.[0]?.id || '',
+      createdAt: new Date().toISOString()
+    };
+
     db.projects.push(newProject);
     await this.save();
     return newProject;
@@ -187,5 +241,38 @@ export class DbService {
     db.agents = db.agents.filter((a: any) => String(a.id) !== String(id));
     await this.save();
     return db.agents;
+  }
+
+  // --- Skill 管理 ---
+  static async getGlobalSkills() {
+    const db = await this.load();
+    return db.availableSkills || [];
+  }
+
+  static async addGlobalSkill(skill: any) {
+    const db = await this.load();
+    const newSkill = { ...skill, id: skill.id || Date.now().toString(), createdAt: new Date().toISOString() };
+    if (!db.availableSkills) db.availableSkills = [];
+    db.availableSkills.push(newSkill);
+    await this.save();
+    return db.availableSkills;
+  }
+
+  static async getProjectSkills(projectId: string) {
+    const project = await this.getProject(projectId);
+    const globalSkills = await this.getGlobalSkills();
+    // 项目专属 Skill (通过 ID 关联)
+    const skillIds = project.enabledSkillIds || [];
+    return globalSkills.filter((s: any) => skillIds.includes(s.id));
+  }
+
+  static async toggleProjectSkill(projectId: string, skillId: string) {
+    const project = await this.getProject(projectId);
+    if (!project.enabledSkillIds) project.enabledSkillIds = [];
+    const index = project.enabledSkillIds.indexOf(skillId);
+    if (index === -1) project.enabledSkillIds.push(skillId);
+    else project.enabledSkillIds.splice(index, 1);
+    await this.saveProject(project);
+    return project.enabledSkillIds;
   }
 }

@@ -71,11 +71,53 @@ export async function ChatRoutes(fastify: FastifyInstance) {
 
       if (!modelCfg || !modelCfg.baseUrl) throw new Error("项目未配置有效的模型");
 
+      // --- 加载技能 Prompt ---
+      const enabledSkillIds = project?.enabledSkillIds || [];
+      const allSkills = await DbService.getGlobalSkills();
+      const projectSkills = allSkills.filter(s => enabledSkillIds.includes(s.id));
+      
+      let skillsPrompt = "";
+      if (projectSkills.length > 0) {
+        skillsPrompt = "\n\nAvailable Skills (Follow their instructions strictly):\n" + 
+          projectSkills.map(s => `--- SKILL: ${s.name} ---\n${s.rawContent}`).join("\n\n");
+      }
+
+      const systemMessage = {
+        role: 'system',
+        content: `You are a professional AI assistant. ${skillsPrompt}`
+      };
+
+      // 3. 构造历史消息 (并进行智能精简)
+      const chatWithHistory = await DbService.getChat(chatId);
+      let historyMessages = chatWithHistory?.messages || [];
+      
+      const CONTEXT_WINDOW = 20;
+      const INITIAL_INTENT_COUNT = 2;
+
+      let apiMessages = [];
+      if (historyMessages.length > CONTEXT_WINDOW + INITIAL_INTENT_COUNT) {
+        const firstTwo = historyMessages.slice(0, INITIAL_INTENT_COUNT);
+        const lastTwenty = historyMessages.slice(-CONTEXT_WINDOW);
+        apiMessages = [...firstTwo, ...lastTwenty];
+      } else {
+        apiMessages = historyMessages;
+      }
+
+      // 合并 System Prompt + 历史消息
+      const finalMessages = [
+        systemMessage,
+        ...apiMessages.map((m: any) => ({ role: m.role, content: m.content }))
+      ];
+
       const apiUrl = `${modelCfg.baseUrl.replace(/\/+$/, '')}/chat/completions`;
       const res = await fetch(apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${modelCfg.apiKey}` },
-        body: JSON.stringify({ model: modelCfg.modelId, messages: [{ role: 'user', content }], stream: true })
+        body: JSON.stringify({ 
+          model: modelCfg.modelId, 
+          messages: finalMessages, 
+          stream: true 
+        })
       });
 
       if (!res.ok) throw new Error(`AI 服务报错: ${res.status}`);
@@ -111,7 +153,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
         }
       }
 
-      // 2. 对话结束后，持久化助手的完整回复
+      // 2. 持久化回复
       if (fullAssistantContent) {
         await DbService.addMessageToChat(chatId, { role: 'assistant', content: fullAssistantContent });
       }
