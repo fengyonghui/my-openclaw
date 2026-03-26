@@ -6,6 +6,7 @@ import { ChatRoutes } from './routes/chats.js';
 import { SystemRoutes } from './routes/system.js';
 import { ModelRoutes } from './routes/models.js';
 import { SkillRoutes } from './routes/skills.js';
+import { FileRoutes } from './routes/files.js';
 
 const fastify = Fastify({ logger: true });
 
@@ -25,6 +26,7 @@ await fastify.register(ChatRoutes, { prefix: '/api/v1/chats' });
 await fastify.register(SystemRoutes, { prefix: '/api/v1/system' });
 await fastify.register(ModelRoutes, { prefix: '/api/v1/models' });
 await fastify.register(SkillRoutes, { prefix: '/api/v1/skills' });
+await fastify.register(FileRoutes, { prefix: '/api/v1' });
 
 // --- Start Server ---
 try {

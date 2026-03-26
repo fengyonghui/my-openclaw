@@ -90,11 +90,14 @@ export async function SkillRoutes(fastify: FastifyInstance) {
     return await DbService.addGlobalSkill(newSkill);
   });
 
-  fastify.delete('/:id', async (request) => {
+  fastify.delete('/:id', async (request, reply) => {
     const { id } = request.params as { id: string };
+    if (id === 'builtin-file-io') {
+      return reply.status(400).send({ error: '内置技能不允许删除' });
+    }
     const db = await DbService.load();
-    db.availableSkills = db.availableSkills.filter((s: any) => String(s.id) !== String(id));
+    db.availableSkills = (db.availableSkills || []).filter((s: any) => String(s.id) !== String(id));
     await DbService.save();
-    return db.availableSkills;
+    return await DbService.getGlobalSkills();
   });
 }
