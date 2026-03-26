@@ -1,44 +1,45 @@
-import { Activity, Bot, FolderOpen, MessageSquare, Plus, Cpu, Sparkles, Check, Search, ArrowRight, Trash2, X } from 'lucide-react';
+import { Bot, FolderOpen, MessageSquare, Plus, Cpu, Sparkles, Search, Trash2, X, Calendar, Clock, ChevronRight, Zap, Users, Settings, Star } from 'lucide-react';
 import { useState, useEffect, useMemo } from 'react';
-import { Card, Button, Badge } from '../components/ui';
+import { Card, Button } from '../components/ui';
+import { useProject } from '../contexts/ProjectContext';
 
-export function ProjectDashboardPage({ projectId, onOpenChat, onProjectUpdated }: { projectId: string, onOpenChat?: (chatId: string) => void, onProjectUpdated?: () => void }) {
+export function ProjectDashboardPage({ projectId, onOpenChat, onProjectUpdated }: { projectId: string; onOpenChat?: (chatId: string) => void; onProjectUpdated?: () => void }) {
   const [project, setProject] = useState<any>(null);
   const [chats, setChats] = useState<any[]>([]);
   const [models, setModels] = useState<any[]>([]);
+  const [projectAgents, setProjectAgents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showModels, setShowModels] = useState(false);
-  const [modelSearchQuery, setModelSearchQuery] = useState('');
   const [chatSearchQuery, setChatSearchQuery] = useState('');
+  const [activeTab, setActiveTab] = useState<'chats' | 'agents'>('chats');
+
+  const { agents } = useProject();
 
   useEffect(() => {
     async function fetchData() {
       try {
         setLoading(true);
-        const [projRes, chatRes, modelRes] = await Promise.all([
+        const [projRes, chatRes, modelRes, agentRes] = await Promise.all([
           fetch(`http://localhost:3001/api/v1/projects/${projectId}`),
           fetch(`http://localhost:3001/api/v1/projects/${projectId}/chats`),
-          fetch(`http://localhost:3001/api/v1/models`)
+          fetch(`http://localhost:3001/api/v1/models`),
+          fetch(`http://localhost:3001/api/v1/projects/${projectId}/agents`)
         ]);
         setProject(await projRes.json());
         setChats(await chatRes.json());
         setModels(await modelRes.json());
+        setProjectAgents(await agentRes.json());
       } catch (err) { console.error(err); } finally { setLoading(false); }
     }
     fetchData();
   }, [projectId]);
 
-  const currentModelName = useMemo(() => {
-    const m = models.find(m => m.id === project?.defaultModel);
-    return m ? m.name : (project?.defaultModel || 'None');
+  const currentModel = useMemo(() => {
+    return models.find(m => m.id === project?.defaultModel);
   }, [models, project]);
 
-  const filteredModels = useMemo(() => {
-    return models.filter(m => 
-      (m.name || m.modelId).toLowerCase().includes(modelSearchQuery.toLowerCase()) ||
-      m.modelId.toLowerCase().includes(modelSearchQuery.toLowerCase())
-    );
-  }, [models, modelSearchQuery]);
+  const coordinatorAgent = useMemo(() => {
+    return projectAgents.find(a => String(a.id) === String(project?.coordinatorAgentId));
+  }, [projectAgents, project]);
 
   const filteredChats = useMemo(() => {
     return chats.filter(chat => 
@@ -53,16 +54,14 @@ export function ProjectDashboardPage({ projectId, onOpenChat, onProjectUpdated }
       body: JSON.stringify({ defaultModel: modelId })
     });
     if (res.ok) {
-      const updated = await res.json();
-      setProject(updated);
-      setShowModels(false);
-      onProjectUpdated?.(); // 触发全局状态刷新
+      setProject(await res.json());
+      onProjectUpdated?.();
     }
   };
 
   const handleDeleteChat = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    if (!confirm('确定要删除该会话吗？历史记录将永久丢失。')) return;
+    if (!confirm('确定要删除该会话吗？')) return;
     const res = await fetch(`http://localhost:3001/api/v1/chats/${id}`, { method: 'DELETE' });
     if (res.ok) {
       setChats(prev => prev.filter(c => String(c.id) !== String(id)));
@@ -73,103 +72,249 @@ export function ProjectDashboardPage({ projectId, onOpenChat, onProjectUpdated }
     const res = await fetch('http://localhost:3001/api/v1/chats', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
-        projectId, 
-        title: '新开发任务', 
-        agentId: project?.defaultAgentId || '1' 
-      })
+      body: JSON.stringify({ projectId, title: '新对话' })
     });
     const newChat = await res.json();
     onOpenChat?.(newChat.id);
   };
 
-  if (loading) return <div className="p-8 text-center text-slate-500 font-medium animate-pulse">加载项目数据中...</div>;
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-indigo-50/30 to-purple-50/30 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center animate-pulse shadow-xl shadow-indigo-200">
+            <MessageSquare className="h-8 w-8 text-white" />
+          </div>
+          <p className="text-slate-500 font-medium">加载中...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-6">
-      <Card hover={false} className="p-8 border-primary-100 bg-gradient-to-br from-white to-primary-50/20 shadow-sm rounded-3xl">
-        <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
-          <div className="flex-1">
-            <Badge status="info" className="px-3 py-1 font-black text-[10px] uppercase tracking-wider">Project Overview</Badge>
-            <h1 className="mt-4 text-3xl font-black text-slate-900 tracking-tight">{project?.name}</h1>
-            <p className="mt-3 max-w-2xl text-slate-600 leading-7 font-medium">{project?.description}</p>
-            <div className="mt-6 flex flex-wrap gap-4">
-               <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-2xl border border-slate-100 shadow-sm">
-                 <Cpu className="h-3.5 w-3.5 text-amber-500" />
-                 <span className="text-xs font-black text-slate-700 uppercase tracking-widest">模型: {currentModelName}</span>
-               </div>
-               <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-2xl border border-slate-100 shadow-sm">
-                 <Bot className="h-3.5 w-3.5 text-primary-600" />
-                 <span className="text-xs font-black text-slate-700 uppercase tracking-widest">默认 Agent: PM Agent</span>
-               </div>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-indigo-50/30 to-purple-50/30">
+      {/* 顶部 Hero 区域 */}
+      <div className="bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 text-white">
+        <div className="max-w-6xl mx-auto px-8 py-10">
+          <div className="flex items-start justify-between">
+            <div>
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-14 h-14 rounded-2xl bg-white/20 backdrop-blur flex items-center justify-center shadow-lg">
+                  <FolderOpen className="h-7 w-7" />
+                </div>
+                <div>
+                  <h1 className="text-2xl font-black">{project?.name}</h1>
+                  <p className="text-white/70 text-sm">{project?.description || '暂无描述'}</p>
+                </div>
+              </div>
+              
+              {/* 快捷信息 */}
+              <div className="flex flex-wrap gap-3 mt-6">
+                <div className="flex items-center gap-2 bg-white/10 backdrop-blur rounded-xl px-4 py-2">
+                  <Cpu className="h-4 w-4 text-amber-300" />
+                  <span className="text-sm font-medium">{currentModel?.name || '默认模型'}</span>
+                </div>
+                {coordinatorAgent && (
+                  <div className="flex items-center gap-2 bg-white/10 backdrop-blur rounded-xl px-4 py-2">
+                    <Star className="h-4 w-4 text-yellow-300" />
+                    <span className="text-sm font-medium">{coordinatorAgent.name}</span>
+                  </div>
+                )}
+                <div className="flex items-center gap-2 bg-white/10 backdrop-blur rounded-xl px-4 py-2">
+                  <Users className="h-4 w-4 text-emerald-300" />
+                  <span className="text-sm font-medium">{projectAgents.length} 个成员</span>
+                </div>
+              </div>
             </div>
-          </div>
-          <div className="flex flex-wrap gap-3">
-            <Button onClick={handleCreateChat} icon={Plus} className="shadow-lg shadow-primary-200 px-6 py-4 rounded-2xl font-black">新建 Chat</Button>
-            <Button variant="outline" onClick={() => setShowModels(!showModels)} icon={Sparkles} className="px-6 py-4 rounded-2xl font-black">{showModels ? '收起模型' : '管理模型'}</Button>
+            
+            <Button 
+              onClick={handleCreateChat}
+              className="bg-white/20 hover:bg-white/30 backdrop-blur-sm text-white border-0 shadow-lg"
+              icon={Plus}
+            >
+              新建对话
+            </Button>
           </div>
         </div>
-      </Card>
+      </div>
 
-      {showModels && (
-        <Card className="p-8 border-primary-100 bg-primary-50/10 shadow-sm rounded-3xl animate-in fade-in slide-in-from-top-2">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
-            <h2 className="text-sm font-black uppercase tracking-widest text-slate-400">切换项目默认模型</h2>
-            <div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" /><input placeholder="搜索可用模型..." className="pl-9 pr-4 py-2 bg-white border border-slate-100 rounded-xl text-xs font-bold outline-none focus:border-primary-400 transition-all w-64 shadow-sm" value={modelSearchQuery} onChange={e => setModelSearchQuery(e.target.value)} /></div>
-          </div>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 max-h-[300px] overflow-y-auto pr-1">
-            {filteredModels.map((m) => {
-                const isActive = project?.defaultModel === m.id;
-                return (
-                  <button key={m.id} onClick={() => handleSwitchModel(m.id)} className={`flex flex-col p-5 rounded-3xl border transition-all text-left ${isActive ? 'bg-white border-primary-500 shadow-lg ring-2 ring-primary-100' : 'bg-white border-slate-100 hover:border-primary-200 shadow-sm'}`}>
-                    <div className="flex items-center justify-between mb-3"><Badge status={isActive ? 'success' : 'default'} className="scale-75 origin-left">{m.provider}</Badge>{isActive && <Check className="h-4 w-4 text-primary-600" />}</div>
-                    <span className="text-sm font-black text-slate-900 truncate">{m.name}</span>
-                    <span className="text-[10px] font-bold text-slate-400 uppercase mt-1 truncate">{m.modelId}</span>
+      {/* 内容区域 */}
+      <div className="max-w-6xl mx-auto px-8 py-8">
+        {/* 标签页 */}
+        <div className="flex items-center gap-2 mb-6">
+          <button
+            onClick={() => setActiveTab('chats')}
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium text-sm transition-all ${
+              activeTab === 'chats'
+                ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-lg shadow-indigo-200'
+                : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
+            }`}
+          >
+            <MessageSquare className="h-4 w-4" />
+            对话列表
+            <span className={`px-2 py-0.5 rounded-full text-xs ${
+              activeTab === 'chats' ? 'bg-white/20' : 'bg-slate-100'
+            }`}>
+              {filteredChats.length}
+            </span>
+          </button>
+          <button
+            onClick={() => setActiveTab('agents')}
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium text-sm transition-all ${
+              activeTab === 'agents'
+                ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-lg shadow-indigo-200'
+                : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
+            }`}
+          >
+            <Bot className="h-4 w-4" />
+            团队成员
+            <span className={`px-2 py-0.5 rounded-full text-xs ${
+              activeTab === 'agents' ? 'bg-white/20' : 'bg-slate-100'
+            }`}>
+              {projectAgents.length}
+            </span>
+          </button>
+        </div>
+
+        {/* 对话列表 */}
+        {activeTab === 'chats' && (
+          <div className="space-y-4">
+            {/* 搜索栏 */}
+            <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
+              <div className="relative">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
+                <input
+                  placeholder="搜索对话..."
+                  className="w-full pl-12 pr-4 py-3 bg-slate-50 rounded-xl outline-none focus:ring-2 focus:ring-indigo-100 border border-slate-200 transition-all"
+                  value={chatSearchQuery}
+                  onChange={e => setChatSearchQuery(e.target.value)}
+                />
+                {chatSearchQuery && (
+                  <button 
+                    onClick={() => setChatSearchQuery('')}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 p-1 hover:bg-slate-200 rounded-lg"
+                  >
+                    <X className="h-4 w-4 text-slate-400" />
                   </button>
+                )}
+              </div>
+            </div>
+
+            {/* 对话卡片列表 */}
+            {filteredChats.length === 0 ? (
+              <div className="bg-white rounded-3xl p-16 text-center shadow-sm border border-slate-100">
+                <div className="w-20 h-20 mx-auto mb-6 rounded-3xl bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center">
+                  <MessageSquare className="h-10 w-10 text-slate-400" />
+                </div>
+                <h3 className="text-lg font-bold text-slate-700 mb-2">
+                  {chatSearchQuery ? '未找到匹配的对话' : '还没有对话'}
+                </h3>
+                <p className="text-sm text-slate-500 mb-6">
+                  {chatSearchQuery ? '尝试其他关键词' : '点击上方按钮开始第一个对话'}
+                </p>
+                {!chatSearchQuery && (
+                  <Button onClick={handleCreateChat} className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700" icon={Plus}>
+                    新建对话
+                  </Button>
+                )}
+              </div>
+            ) : (
+              <div className="grid gap-3">
+                {filteredChats.map((chat, idx) => (
+                  <button
+                    key={chat.id}
+                    onClick={() => onOpenChat?.(chat.id)}
+                    className="group bg-white rounded-2xl p-5 shadow-sm border border-slate-100 hover:border-indigo-200 hover:shadow-lg transition-all text-left"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-4 flex-1 min-w-0">
+                        <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-100 to-purple-100 flex items-center justify-center flex-shrink-0">
+                          <MessageSquare className="h-5 w-5 text-indigo-600" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-bold text-slate-800 truncate group-hover:text-indigo-600 transition-colors">
+                            {chat.title}
+                          </h3>
+                          <div className="flex items-center gap-3 mt-1">
+                            <span className="flex items-center gap-1 text-xs text-slate-400">
+                              <Clock className="h-3 w-3" />
+                              {new Date(chat.updatedAt).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                            {chat.messageCount && (
+                              <span className="flex items-center gap-1 text-xs text-slate-400">
+                                <Zap className="h-3 w-3" />
+                                {chat.messageCount} 条消息
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={(e) => handleDeleteChat(e, chat.id)}
+                          className="p-2.5 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-xl opacity-0 group-hover:opacity-100 transition-all"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center group-hover:from-indigo-500 group-hover:to-purple-600 transition-all">
+                          <ChevronRight className="h-5 w-5 text-slate-400 group-hover:text-white transition-all" />
+                        </div>
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 团队成员 */}
+        {activeTab === 'agents' && (
+          <div className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {projectAgents.map((agent) => {
+                const isCoordinator = String(agent.id) === String(project?.coordinatorAgentId);
+                return (
+                  <div 
+                    key={agent.id}
+                    className={`bg-white rounded-2xl p-6 shadow-sm border transition-all ${
+                      isCoordinator ? 'border-violet-200 shadow-lg shadow-violet-100' : 'border-slate-100'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between mb-4">
+                      <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-white font-black text-xl shadow-md ${
+                        isCoordinator 
+                          ? 'bg-gradient-to-br from-violet-500 to-purple-600' 
+                          : 'bg-gradient-to-br from-emerald-500 to-teal-600'
+                      }`}>
+                        {agent.name.charAt(0).toUpperCase()}
+                      </div>
+                      {isCoordinator && (
+                        <span className="px-3 py-1 bg-gradient-to-r from-violet-100 to-purple-100 text-violet-700 text-xs font-bold rounded-full flex items-center gap-1">
+                          <Star className="h-3 w-3" /> 主协调
+                        </span>
+                      )}
+                    </div>
+                    <h3 className="font-bold text-slate-800 mb-1">{agent.name}</h3>
+                    <p className="text-sm text-slate-500 mb-3">{agent.role || '团队成员'}</p>
+                    <p className="text-xs text-slate-400 line-clamp-2">{agent.description || '暂无描述'}</p>
+                  </div>
                 );
               })}
-          </div>
-        </Card>
-      )}
-
-      <div className="grid gap-6 xl:grid-cols-2">
-        <Card className="p-0 overflow-hidden rounded-3xl border-slate-100 bg-white shadow-sm">
-          <div className="px-6 py-5 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
-            <div className="flex items-center gap-3"><MessageSquare className="h-4 w-4 text-primary-600" /><h2 className="text-sm font-black text-slate-900 uppercase tracking-widest">最近 Chats</h2></div>
-            <div className="flex items-center gap-3">
-              <div className="relative group">
-                <Search className={`absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 transition-colors ${chatSearchQuery ? 'text-primary-500' : 'text-slate-400'}`} />
-                <input 
-                   placeholder="搜索会话..." 
-                   className="pl-8 pr-8 py-1.5 bg-white border border-slate-200 rounded-xl text-[10px] font-black uppercase outline-none focus:border-primary-400 focus:ring-2 focus:ring-primary-50 transition-all w-40"
-                   value={chatSearchQuery}
-                   onChange={e => setChatSearchQuery(e.target.value)}
-                />
-                {chatSearchQuery && <button onClick={() => setChatSearchQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"><X className="h-3 w-3" /></button>}
-              </div>
-              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-white px-2 py-1 rounded-lg border border-slate-100 whitespace-nowrap">{filteredChats.length} 个结果</span>
+              
+              {projectAgents.length === 0 && (
+                <div className="col-span-full bg-white rounded-3xl p-16 text-center shadow-sm border border-slate-100">
+                  <div className="w-20 h-20 mx-auto mb-6 rounded-3xl bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center">
+                    <Users className="h-10 w-10 text-slate-400" />
+                  </div>
+                  <h3 className="text-lg font-bold text-slate-700 mb-2">暂无团队成员</h3>
+                  <p className="text-sm text-slate-500">在项目设置中添加团队成员</p>
+                </div>
+              )}
             </div>
           </div>
-          <div className="p-4 space-y-2 max-h-[400px] overflow-y-auto">
-            {filteredChats.length === 0 ? <div className="p-12 text-center text-slate-400 text-sm font-bold uppercase italic tracking-widest">无匹配会话</div> : filteredChats.map((chat) => (
-                <button key={chat.id} onClick={() => onOpenChat?.(chat.id)} className="w-full text-left p-5 rounded-2xl border border-transparent hover:border-primary-100 hover:bg-primary-50/30 transition-all group flex items-center justify-between relative overflow-hidden">
-                    <div className="flex-1 min-w-0 pr-8">
-                      <h3 className="text-sm font-black text-slate-900 group-hover:text-primary-700 truncate">{chat.title}</h3>
-                      <p className="mt-1 text-[10px] text-slate-400 font-black uppercase tracking-widest">{new Date(chat.updatedAt).toLocaleTimeString()}</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                       <button 
-                         onClick={(e) => handleDeleteChat(e, chat.id)} 
-                         className="p-2 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-xl opacity-0 group-hover:opacity-100 transition-all"
-                       >
-                         <Trash2 className="h-4 w-4" />
-                       </button>
-                       <ArrowRight className="h-4 w-4 text-slate-200 group-hover:text-primary-400 transition-all translate-x-0 group-hover:translate-x-1 flex-shrink-0" />
-                    </div>
-                </button>
-              ))}
-          </div>
-        </Card>
+        )}
       </div>
     </div>
   );

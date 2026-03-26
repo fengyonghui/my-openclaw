@@ -63,7 +63,7 @@ export async function ModelRoutes(fastify: FastifyInstance) {
         return reply.status(500).send({ error: '远程服务返回了非 JSON 格式的数据，请检查 URL 是否正确' });
       }
 
-      const data = await response.json();
+      const data: any = await response.json();
       const models = data.data || data;
       
       if (!Array.isArray(models)) {

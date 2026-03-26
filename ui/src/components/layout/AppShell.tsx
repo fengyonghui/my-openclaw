@@ -3,6 +3,7 @@ import {
   Activity,
   Bot,
   Brain,
+  Cpu,
   FolderKanban,
   FolderOpen,
   MessageSquare,
@@ -27,6 +28,7 @@ const navItems: NavItem[] = [
   { key: 'files', label: 'Files', icon: <FolderOpen className="h-4 w-4" /> },
   { key: 'memory', label: 'Memory', icon: <Brain className="h-4 w-4" /> },
   { key: 'activity', label: 'Activity', icon: <Activity className="h-4 w-4" /> },
+  { key: 'models', label: 'Models', icon: <Cpu className="h-4 w-4" /> },
   { key: 'settings', label: 'Settings', icon: <Settings className="h-4 w-4" /> },
 ];
 
@@ -50,7 +52,7 @@ export function AppShell({
   onSwitchProject,
 }: AppShellProps) {
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
+    <div className="min-h-screen bg-slate-50 text-slate-900 overflow-hidden">
       <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-slate-200 bg-white/90 px-4 backdrop-blur">
         <div className="flex items-center gap-3">
           <button
@@ -81,7 +83,7 @@ export function AppShell({
         </div>
       </header>
 
-      <div className="grid min-h-[calc(100vh-4rem)] grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)_320px]">
+      <div className="grid min-h-[calc(100vh-4rem)] grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)_320px] max-w-[100vw] overflow-hidden">
         <aside className="hidden border-r border-slate-200 bg-white lg:block">
           <div className="border-b border-slate-100 px-4 py-4 space-y-3">
              <button
@@ -122,7 +124,7 @@ export function AppShell({
           </nav>
         </aside>
 
-        <main className="min-w-0 px-4 py-4 lg:px-6 lg:py-6">{children}</main>
+        <main className="min-w-0 px-4 py-4 lg:px-6 lg:py-6 overflow-x-hidden">{children}</main>
 
         <aside className="hidden border-l border-slate-200 bg-white xl:block">{contextPanel}</aside>
       </div>

@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { BUILTIN_FILE_IO_SKILL, BUILTIN_INLINE_PYTHON_SKILL, BUILTIN_SHELL_CMD_SKILL } from './BuiltinSkills.js';
 
 const DB_PATH = path.resolve(process.cwd(), 'data/db.json');
 
@@ -133,6 +134,12 @@ export class DbService {
       workspace,
       defaultAgentId: '1',
       defaultModel: db.availableModels?.[0]?.id || '',
+      ignorePatterns: ['node_modules', '.git', 'dist', '.DS_Store', 'package-lock.json'],
+      enabledSkillIds: [], // 项目启用的全局技能ID列表
+      projectSkills: [], // 项目私有技能列表
+      enabledAgentIds: [], // 项目启用的全局Agent ID列表
+      projectAgents: [], // 项目私有Agent列表
+      coordinatorAgentId: null, // 主协调Agent ID
       createdAt: new Date().toISOString()
     };
 
@@ -165,6 +172,12 @@ export class DbService {
       workspace,
       defaultAgentId: '1',
       defaultModel: db.availableModels?.[0]?.id || '',
+      ignorePatterns: ['node_modules', '.git', 'dist', '.DS_Store', 'package-lock.json'],
+      enabledSkillIds: [],
+      projectSkills: [],
+      enabledAgentIds: [],
+      projectAgents: [],
+      coordinatorAgentId: null, // 主协调Agent
       createdAt: new Date().toISOString()
     };
 
@@ -243,10 +256,79 @@ export class DbService {
     return db.agents;
   }
 
+  // --- 项目私有 Agent 管理 ---
+  static async getProjectPrivateAgents(projectId: string) {
+    const project = await this.getProject(projectId);
+    if (!project) throw new Error('项目不存在');
+    return project.projectAgents || [];
+  }
+
+  static async addProjectPrivateAgent(projectId: string, agent: any) {
+    const project = await this.getProject(projectId);
+    if (!project) throw new Error('项目不存在');
+    if (!project.projectAgents) project.projectAgents = [];
+    const newAgent = { 
+      ...agent, 
+      id: agent.id || `private-agent-${Date.now()}`,
+      isPrivate: true,
+      createdAt: new Date().toISOString() 
+    };
+    project.projectAgents.push(newAgent);
+    await this.saveProject(project);
+    return project.projectAgents;
+  }
+
+  static async deleteProjectPrivateAgent(projectId: string, agentId: string) {
+    const project = await this.getProject(projectId);
+    if (!project) throw new Error('项目不存在');
+    if (!project.projectAgents) project.projectAgents = [];
+    project.projectAgents = project.projectAgents.filter((a: any) => a.id !== agentId);
+    await this.saveProject(project);
+    return project.projectAgents;
+  }
+
+  static async updateProjectPrivateAgent(projectId: string, agentId: string, updates: any) {
+    const project = await this.getProject(projectId);
+    if (!project) throw new Error('项目不存在');
+    if (!project.projectAgents) project.projectAgents = [];
+    const index = project.projectAgents.findIndex((a: any) => a.id === agentId);
+    if (index !== -1) {
+      project.projectAgents[index] = { ...project.projectAgents[index], ...updates };
+      await this.saveProject(project);
+    }
+    return project.projectAgents;
+  }
+
+  static async toggleProjectAgent(projectId: string, agentId: string) {
+    const project = await this.getProject(projectId);
+    if (!project) throw new Error('项目不存在');
+    if (!project.enabledAgentIds) project.enabledAgentIds = [];
+    const index = project.enabledAgentIds.indexOf(agentId);
+    if (index === -1) project.enabledAgentIds.push(agentId);
+    else project.enabledAgentIds.splice(index, 1);
+    await this.saveProject(project);
+    return project.enabledAgentIds;
+  }
+
+  // 获取项目可用的所有 Agent（全局启用 + 私有）
+  static async getProjectAgents(projectId: string) {
+    const project = await this.getProject(projectId);
+    if (!project) return [];
+    
+    const allGlobalAgents = await this.getAgents();
+    const enabledAgentIds = project?.enabledAgentIds || [];
+    const enabledGlobalAgents = allGlobalAgents.filter((a: any) => enabledAgentIds.includes(a.id));
+    
+    const privateAgents = project?.projectAgents || [];
+    
+    return [...enabledGlobalAgents, ...privateAgents];
+  }
+
   // --- Skill 管理 ---
   static async getGlobalSkills() {
     const db = await this.load();
-    return db.availableSkills || [];
+    const storedSkills = db.availableSkills || [];
+    return [BUILTIN_FILE_IO_SKILL, BUILTIN_INLINE_PYTHON_SKILL, BUILTIN_SHELL_CMD_SKILL, ...storedSkills.filter((s: any) => s.id !== BUILTIN_FILE_IO_SKILL.id && s.id !== BUILTIN_INLINE_PYTHON_SKILL.id && s.id !== BUILTIN_SHELL_CMD_SKILL.id)];
   }
 
   static async addGlobalSkill(skill: any) {
@@ -255,24 +337,75 @@ export class DbService {
     if (!db.availableSkills) db.availableSkills = [];
     db.availableSkills.push(newSkill);
     await this.save();
-    return db.availableSkills;
+    return await this.getGlobalSkills();
   }
 
   static async getProjectSkills(projectId: string) {
     const project = await this.getProject(projectId);
+    if (!project) return [];
+    
     const globalSkills = await this.getGlobalSkills();
-    // 项目专属 Skill (通过 ID 关联)
-    const skillIds = project.enabledSkillIds || [];
-    return globalSkills.filter((s: any) => skillIds.includes(s.id));
+    const skillIds = project?.enabledSkillIds || [];
+    const enabledGlobalSkills = globalSkills.filter((s: any) => skillIds.includes(s.id));
+    
+    // 获取项目私有技能
+    const privateSkills = project?.projectSkills || [];
+    
+    // 合并返回
+    return [...enabledGlobalSkills, ...privateSkills];
   }
 
   static async toggleProjectSkill(projectId: string, skillId: string) {
     const project = await this.getProject(projectId);
+    if (!project) throw new Error('项目不存在');
     if (!project.enabledSkillIds) project.enabledSkillIds = [];
     const index = project.enabledSkillIds.indexOf(skillId);
     if (index === -1) project.enabledSkillIds.push(skillId);
     else project.enabledSkillIds.splice(index, 1);
     await this.saveProject(project);
     return project.enabledSkillIds;
+  }
+
+  // --- 项目私有技能管理 ---
+  static async getProjectPrivateSkills(projectId: string) {
+    const project = await this.getProject(projectId);
+    if (!project) throw new Error('项目不存在');
+    return project.projectSkills || [];
+  }
+
+  static async addProjectPrivateSkill(projectId: string, skill: any) {
+    const project = await this.getProject(projectId);
+    if (!project) throw new Error('项目不存在');
+    if (!project.projectSkills) project.projectSkills = [];
+    const newSkill = { 
+      ...skill, 
+      id: skill.id || `project-skill-${Date.now()}`,
+      isPrivate: true,
+      createdAt: new Date().toISOString() 
+    };
+    project.projectSkills.push(newSkill);
+    await this.saveProject(project);
+    return project.projectSkills;
+  }
+
+  static async deleteProjectPrivateSkill(projectId: string, skillId: string) {
+    const project = await this.getProject(projectId);
+    if (!project) throw new Error('项目不存在');
+    if (!project.projectSkills) project.projectSkills = [];
+    project.projectSkills = project.projectSkills.filter((s: any) => s.id !== skillId);
+    await this.saveProject(project);
+    return project.projectSkills;
+  }
+
+  static async updateProjectPrivateSkill(projectId: string, skillId: string, updates: any) {
+    const project = await this.getProject(projectId);
+    if (!project) throw new Error('项目不存在');
+    if (!project.projectSkills) project.projectSkills = [];
+    const index = project.projectSkills.findIndex((s: any) => s.id === skillId);
+    if (index !== -1) {
+      project.projectSkills[index] = { ...project.projectSkills[index], ...updates };
+      await this.saveProject(project);
+    }
+    return project.projectSkills;
   }
 }
