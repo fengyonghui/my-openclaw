@@ -19,7 +19,7 @@ type Message = {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
-  status?: 'streaming' | 'error';
+  status?: 'streaming' | 'error' | string;
   attachments?: Attachment[];
   mentions?: string[];
 };
@@ -324,6 +324,15 @@ export function ChatDetailPage({ projectId, chatId, onMinimize }: { projectId: s
               fullContent += data.chunk;
               setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: fullContent } : m));
             }
+            if (data.info) {
+              // 显示工具调用信息
+              fullContent += `\n\n${data.info}`;
+              setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: fullContent } : m));
+            }
+            if (data.status) {
+              // 显示状态信息
+              setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, status: data.status } : m));
+            }
           } catch (e) {}
         }
       }
@@ -399,7 +408,7 @@ export function ChatDetailPage({ projectId, chatId, onMinimize }: { projectId: s
           <button onClick={downloadChat} className="p-2.5 rounded-xl hover:bg-slate-100 transition-colors" title="导出对话">
             <Download className="h-5 w-5 text-slate-400" />
           </button>
-          <button onClick={() => setWindowState('minimized')} className="p-2.5 rounded-xl hover:bg-slate-100 transition-colors">
+          <button onClick={() => onMinimize?.()} className="p-2.5 rounded-xl hover:bg-slate-100 transition-colors">
             <Minus className="h-5 w-5 text-slate-400" />
           </button>
           {windowState === 'normal' ? (
@@ -414,7 +423,7 @@ export function ChatDetailPage({ projectId, chatId, onMinimize }: { projectId: s
               </svg>
             </button>
           )}
-          <button onClick={() => { setWindowState('minimized'); onMinimize?.(); }} className="p-2.5 rounded-xl hover:bg-red-50 transition-colors">
+          <button onClick={() => onMinimize?.()} className="p-2.5 rounded-xl hover:bg-red-50 transition-colors">
             <XCircle className="h-5 w-5 text-slate-400 hover:text-red-500" />
           </button>
         </div>
@@ -644,6 +653,13 @@ export function ChatDetailPage({ projectId, chatId, onMinimize }: { projectId: s
                             </div>
                           ) : (
                             <p className="whitespace-pre-wrap text-sm leading-relaxed">{m.content}</p>
+                          )}
+                          
+                          {/* 状态显示 */}
+                          {m.status && m.status !== 'streaming' && m.status !== 'error' && (
+                            <div className="mt-2 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-700 font-medium">
+                              {m.status}
+                            </div>
                           )}
                         </div>
                         

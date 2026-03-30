@@ -1,4 +1,4 @@
-import { FolderOpen, FileText, FileCode, MoreVertical, Search, Upload, RefreshCw, Cpu, Database, Folder, Eye, EyeOff, Settings as SettingsIcon, ChevronRight, ArrowUp, Home, HardDrive } from 'lucide-react';
+import { FolderOpen, FileText, FileCode, MoreVertical, Search, Upload, RefreshCw, Cpu, Database, Folder, Eye, EyeOff, Settings as SettingsIcon, ChevronRight, ArrowUp, Home, HardDrive, SearchX, File, X, ExternalLink } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { Card, Button, Badge } from '../components/ui';
 
@@ -7,6 +7,18 @@ export function FilesPage({ projectId }: { projectId: string }) {
   const [loading, setLoading] = useState(true);
   const [showHidden, setShowHidden] = useState(false);
   const [currentPath, setCurrentPath] = useState('');
+  
+  // 搜索状态
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchKeyword, setSearchKeyword] = useState('');
+  const [searchPath, setSearchPath] = useState('');  // 保存搜索时的目录
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchDone, setSearchDone] = useState(false);
+  
+  // 文件预览状态
+  const [previewFile, setPreviewFile] = useState<{path: string; content: string} | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   const fetchFiles = async (path: string = '') => {
     try {
@@ -62,6 +74,87 @@ export function FilesPage({ projectId }: { projectId: string }) {
 
   const breadcrumbs = getBreadcrumbs();
 
+  // 搜索功能 - 默认在当前目录搜索
+  const handleSearch = async () => {
+    if (!searchKeyword.trim()) return;
+    setSearching(true);
+    setSearchDone(false);
+    setSearchResults([]);
+    setSearchPath(currentPath);  // 保存当前搜索目录
+    
+    try {
+      const res = await fetch(
+        `http://localhost:3001/api/v1/projects/${projectId}/files/search?keyword=${encodeURIComponent(searchKeyword)}&path=${encodeURIComponent(currentPath || '')}`
+      );
+      const data = await res.json();
+      setSearchResults(data.results || []);
+    } catch (err) {
+      console.error('搜索失败:', err);
+    } finally {
+      setSearching(false);
+      setSearchDone(true);
+    }
+  };
+
+  // 打开搜索结果中的文件预览
+  const goToSearchResultPath = async (filePath: string) => {
+    // 搜索结果中的路径是相对于搜索目录的，需要拼接搜索时的目录
+    const fullPath = searchPath ? `${searchPath}/${filePath}` : filePath;
+    
+    setPreviewLoading(true);
+    setPreviewFile(null);
+    
+    try {
+      const res = await fetch(
+        `http://localhost:3001/api/v1/projects/${projectId}/files/content?path=${encodeURIComponent(fullPath)}&limit=500`
+      );
+      const data = await res.json();
+      setPreviewFile({
+        path: fullPath,
+        content: data.content || data.error || '无法读取文件内容'
+      });
+    } catch (err) {
+      setPreviewFile({
+        path: fullPath,
+        content: '加载文件失败'
+      });
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  // 双击文件预览
+  const handleFileDoubleClick = async (file: any) => {
+    if (file.kind === 'directory') {
+      enterFolder(file.path);
+      return;
+    }
+    
+    // file.path 已经是完整相对路径，直接使用
+    const fullPath = file.path;
+    
+    setPreviewLoading(true);
+    setPreviewFile(null);
+    
+    try {
+      const res = await fetch(
+        `http://localhost:3001/api/v1/projects/${projectId}/files/content?path=${encodeURIComponent(fullPath)}&limit=500`
+      );
+      const data = await res.json();
+      setPreviewFile({
+        path: fullPath,
+        content: data.content || data.error || '无法读取文件内容'
+      });
+    } catch (err) {
+      setPreviewFile({
+        path: fullPath,
+        content: '加载文件失败'
+      });
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       {/* 页面头部 */}
@@ -74,6 +167,14 @@ export function FilesPage({ projectId }: { projectId: string }) {
           </div>
         </div>
         <div className="flex gap-3">
+          <Button 
+            variant="outline" 
+            icon={SearchX}
+            onClick={() => setShowSearch(!showSearch)}
+            className={showSearch ? "bg-violet-50 text-violet-700 border-violet-200" : ""}
+          >
+            {showSearch ? '关闭搜索' : '搜索'}
+          </Button>
           <Button 
             variant="outline" 
             icon={showHidden ? Eye : EyeOff} 
@@ -133,6 +234,88 @@ export function FilesPage({ projectId }: { projectId: string }) {
         </div>
       </Card>
 
+      {/* 搜索面板 */}
+      {showSearch && (
+        <Card hover={false} className="p-4 border-violet-200 bg-violet-50/50 shadow-sm rounded-2xl">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="flex-1 min-w-[200px]">
+              <label className="text-[10px] font-black uppercase text-violet-400 tracking-widest ml-1 block mb-1.5">
+                搜索关键字 (在: {currentPath || '根目录'})
+              </label>
+              <div className="relative">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-violet-400" />
+                <input
+                  type="text"
+                  placeholder="输入要搜索的文本..."
+                  className="w-full pl-11 pr-4 py-3 rounded-xl bg-white border border-violet-200 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-100 text-sm font-medium"
+                  value={searchKeyword}
+                  onChange={(e) => setSearchKeyword(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                />
+                {searchKeyword && (
+                  <button
+                    onClick={() => setSearchKeyword('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+            </div>
+            <Button 
+              onClick={handleSearch}
+              disabled={searching || !searchKeyword.trim()}
+              className="bg-violet-600 hover:bg-violet-700"
+            >
+              {searching ? '搜索中...' : '开始搜索'}
+            </Button>
+          </div>
+          
+          {/* 搜索结果 */}
+          {searchDone && (
+            <div className="mt-4 pt-4 border-t border-violet-200">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-sm font-bold text-violet-700">
+                  找到 {searchResults.length} 个匹配结果
+                </span>
+                <button onClick={() => setShowSearch(false)} className="text-xs text-violet-500 hover:text-violet-700">
+                  关闭结果
+                </button>
+              </div>
+              
+              {searchResults.length > 0 ? (
+                <div className="space-y-2 max-h-80 overflow-y-auto">
+                  {searchResults.map((result, idx) => (
+                    <div 
+                      key={idx}
+                      className="flex items-start gap-3 p-3 bg-white rounded-xl border border-violet-100 hover:border-violet-300 hover:shadow-sm transition-all cursor-pointer group"
+                      onClick={() => goToSearchResultPath(result.path)}
+                    >
+                      <div className="p-2 bg-violet-50 rounded-lg group-hover:bg-violet-100">
+                        <File className="h-4 w-4 text-violet-500" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-bold text-slate-800 truncate">{result.path}</span>
+                          <span className="px-1.5 py-0.5 bg-violet-100 text-violet-600 text-[10px] font-bold rounded">行 {result.line}</span>
+                        </div>
+                        <p className="text-xs text-slate-500 font-mono truncate mt-1">{result.content}</p>
+                      </div>
+                      <ExternalLink className="h-4 w-4 text-slate-300 group-hover:text-violet-500" />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-slate-400">
+                  <SearchX className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm">未找到匹配的文件</p>
+                </div>
+              )}
+            </div>
+          )}
+        </Card>
+      )}
+
       {/* 文件列表 */}
       <Card hover={false} className="p-0 overflow-hidden border-slate-100 shadow-sm rounded-3xl">
         <table className="w-full text-left">
@@ -176,6 +359,7 @@ export function FilesPage({ projectId }: { projectId: string }) {
                       enterFolder(file.path);
                     }
                   }}
+                  onDoubleClick={() => handleFileDoubleClick(file)}
                 >
                   <td className="px-6 py-3">
                     <div className="flex items-center gap-3">
@@ -249,6 +433,48 @@ export function FilesPage({ projectId }: { projectId: string }) {
         <span>共 {files.length} 项</span>
         <span>当前路径: {currentPath || '/'}</span>
       </div>
+
+      {/* 文件预览弹窗 */}
+      {previewFile && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-8" onClick={() => setPreviewFile(null)}>
+          <div className="bg-white rounded-3xl shadow-2xl max-w-4xl w-full max-h-[80vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+            {/* 头部 */}
+            <div className="flex items-center justify-between px-6 py-4 bg-slate-50 border-b border-slate-200">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-primary-100 rounded-xl">
+                  <FileText className="h-5 w-5 text-primary-600" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900">{previewFile.path.split('/').pop()}</h3>
+                  <p className="text-xs text-slate-500 font-mono">{previewFile.path}</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setPreviewFile(null)}
+                className="p-2 rounded-xl hover:bg-slate-200 text-slate-500 hover:text-slate-700 transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            
+            {/* 内容 */}
+            <div className="flex-1 overflow-auto p-6 bg-slate-50">
+              {previewLoading ? (
+                <div className="flex items-center justify-center h-32">
+                  <RefreshCw className="h-8 w-8 text-slate-400 animate-spin" />
+                </div>
+              ) : (
+                <pre className="text-sm font-mono text-slate-700 whitespace-pre-wrap break-words">{previewFile.content}</pre>
+              )}
+            </div>
+            
+            {/* 底部 */}
+            <div className="px-6 py-3 bg-white border-t border-slate-200 flex justify-end">
+              <Button variant="outline" onClick={() => setPreviewFile(null)}>关闭</Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
