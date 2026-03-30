@@ -1,5 +1,7 @@
 import fs from 'node:fs/promises';
+import fsSync from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 
 const MAX_READ_LINES = 2000;
 const MAX_READ_BYTES = 50 * 1024;
@@ -8,14 +10,52 @@ function normalizeInputPath(inputPath: string) {
   return (inputPath || '.').replace(/\\/g, '/').trim();
 }
 
+// 将 Windows 路径转换为 WSL 路径
+function convertWindowsToWSLPath(winPath: string): string {
+  if (/^[A-Z]:/i.test(winPath)) {
+    const drive = winPath.charAt(0).toLowerCase();
+    const rest = winPath.slice(2).replace(/\\/g, '/');
+    return `/mnt/${drive}${rest}`;
+  }
+  return winPath;
+}
+
+// 将路径转换为当前系统可用的绝对路径
+function normalizePath(inputPath: string): string {
+  let p = inputPath;
+  
+  // 如果是 Windows 路径且在 WSL 环境中，转换为 WSL 路径
+  const isWindows = os.platform() === 'win32';
+  const isWSL = !isWindows && fsSync.existsSync('/mnt/c');
+  
+  if (!isWindows && isWSL) {
+    p = convertWindowsToWSLPath(p);
+  }
+  
+  return p;
+}
+
 export class FileToolService {
   static resolveWorkspacePath(workspace: string, inputPath: string) {
     if (!workspace) throw new Error('项目 workspace 未配置');
 
-    const workspaceRoot = path.resolve(workspace);
-    const normalized = normalizeInputPath(inputPath || '.');
+    // 标准化工作区路径
+    const normalizedWorkspace = normalizePath(workspace);
+    const workspaceRoot = path.resolve(normalizedWorkspace);
+    
+    let normalized = normalizeInputPath(inputPath || '.');
+    
+    // 处理 WSL 风格路径（如 /d/...）转换为 Windows 路径（如 d:\...）
+    // 当 workspace 是 Windows 路径但 inputPath 是 WSL 风格时
+    if (/^\/[a-z]\//i.test(normalized) && /^[A-Z]:\\/i.test(workspace)) {
+      const wslMatch = normalized.match(/^\/([a-z])\/(.+)$/i);
+      if (wslMatch) {
+        normalized = `${wslMatch[1].toUpperCase()}:\\${wslMatch[2].replace(/\//g, '\\')}`;
+      }
+    }
+    
     const candidate = path.isAbsolute(normalized)
-      ? path.resolve(normalized)
+      ? path.resolve(normalizePath(normalized))
       : path.resolve(workspaceRoot, normalized);
 
     const relative = path.relative(workspaceRoot, candidate);
@@ -84,7 +124,9 @@ export class FileToolService {
   }
 
   static async readFile(workspace: string, inputPath: string, offset = 1, limit = 200) {
+    console.log(`[FileToolService.readFile] workspace=${workspace}, inputPath=${inputPath}`);
     const { absolutePath, relativePath } = this.resolveWorkspacePath(workspace, inputPath);
+    console.log(`[FileToolService.readFile] absolutePath=${absolutePath}, relativePath=${relativePath}`);
     
     // 禁止读取 Agent 相关目录
     const normalizedRel = relativePath.replace(/\\/g, '/').toLowerCase();

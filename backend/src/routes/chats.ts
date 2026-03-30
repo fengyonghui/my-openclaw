@@ -1,6 +1,8 @@
 import { FastifyInstance } from 'fastify';
 import { DbService } from '../services/DbService.js';
 import { FileToolService } from '../services/FileToolService.js';
+import { getBuiltinShellSkill, getBuiltinFileIOSkill } from '../services/BuiltinSkills.js';
+import { pruneContext, compactContext, getContextStats, Message } from '../services/ContextManager.js';
 
 type ToolCall = {
   id?: string;
@@ -10,6 +12,119 @@ type ToolCall = {
     arguments?: string;
   };
 };
+
+// ============================================
+// MEMORY.md 功能辅助函数
+// ============================================
+
+/**
+ * 将用户消息中以"请注意"开头的内容写入 MEMORY.md
+ * 触发条件：用户消息以"请注意"开头
+ * @param userMessage 用户消息内容
+ * @param projectWorkspace 项目工作目录路径
+ * @returns 是否成功写入
+ */
+// 保存结果类型
+type SaveResult = 'success' | 'duplicate' | 'not_trigger' | 'error';
+
+async function saveToMemoryFile(userMessage: string, projectWorkspace: string): Promise<SaveResult> {
+  const fs = await import('fs');
+  
+  // 支持的触发词列表
+  const triggerKeywords = ['请注意', '请记住', '记住', '记住：', '请牢记'];
+  
+  // 检查是否包含触发词
+  const matchedTrigger = triggerKeywords.find(keyword => userMessage.startsWith(keyword));
+  if (!matchedTrigger) {
+    return 'not_trigger';
+  }
+  
+  // 提取需要记录的内容（去掉触发词前缀）
+  let noteContent = userMessage.replace(new RegExp(`^${matchedTrigger}[：:]\s*`), '').trim();
+  if (!noteContent) {
+    noteContent = userMessage.replace(new RegExp(`^${matchedTrigger}\s*`), '').trim();
+  }
+  
+  if (!noteContent) {
+    console.log('[Memory] 没有需要记录的内容');
+    return 'error';
+  }
+  
+  // 转换路径格式（根据运行平台）
+  const os = await import('os');
+  const isWindows = os.platform() === 'win32';
+  
+  let memoryPath = projectWorkspace;
+  
+  if (isWindows) {
+    // 后端运行在 Windows 上
+    if (/^\/mnt\/[a-z]\//i.test(memoryPath)) {
+      // WSL 路径: /mnt/d/workspace/... -> 转换回 Windows 路径 D:\workspace\...
+      const match = memoryPath.match(/^\/mnt\/([a-z])\/(.+)$/i);
+      if (match) {
+        const drive = match[1].toUpperCase();
+        const restPath = match[2].replace(/\//g, '\\');
+        memoryPath = `${drive}:\\${restPath}`;
+      }
+    }
+    // 如果已经是 Windows 路径，保持不变
+  } else {
+    // 后端运行在 Linux/WSL 上
+    if (/^[A-Z]:/i.test(memoryPath)) {
+      // Windows 路径: D:\workspace\... -> /mnt/d/workspace/...
+      const driveLetter = memoryPath.charAt(0).toLowerCase();
+      const remainingPath = memoryPath.slice(2).replace(/\\/g, '/');
+      memoryPath = `/mnt/${driveLetter}${remainingPath}`;
+    } else if (!memoryPath.startsWith('/mnt/')) {
+      memoryPath = memoryPath.replace(/\\/g, '/');
+    }
+  }
+  
+  memoryPath = memoryPath + '/MEMORY.md';
+  
+  try {
+    // 读取现有内容或创建新文件
+    let existingContent = '';
+    if (fs.existsSync(memoryPath)) {
+      existingContent = fs.readFileSync(memoryPath, 'utf-8').trim();
+    }
+    
+    // --- 去重检查：如果内容已存在，则不重复写入 ---
+    // 移除所有换行和多余空格后进行比较
+    const normalizedContent = noteContent.replace(/\s+/g, ' ').trim();
+    if (existingContent) {
+      const normalizedExisting = existingContent.replace(/\s+/g, ' ').trim();
+      if (normalizedExisting.includes(normalizedContent)) {
+        console.log(`[Memory] 内容已存在，跳过重复写入`);
+        return 'duplicate';
+      }
+    }
+    
+    // 添加时间戳和新内容
+    const timestamp = new Date().toLocaleString('zh-CN', { 
+      year: 'numeric', 
+      month: '2-digit', 
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+    
+    const newEntry = `\n## 📝 ${timestamp}\n- ${noteContent}\n`;
+    
+    // 如果文件为空或没有内容，直接写入
+    if (!existingContent) {
+      fs.writeFileSync(memoryPath, `# MEMORY.md - 项目记忆\n${newEntry}`, 'utf-8');
+    } else {
+      fs.writeFileSync(memoryPath, existingContent + newEntry, 'utf-8');
+    }
+    
+    console.log(`[Memory] 已写入 MEMORY.md: ${noteContent.slice(0, 30)}...`);
+    return 'success';
+  } catch (e: any) {
+    console.log(`[Memory] 写入失败: ${e.message}`);
+    return 'error';
+  }
+}
 
 function getFileToolsForProject(project: any, teamAgents: any[] = [], coordinatorAgentId?: string) {
   if (!project?.enabledSkillIds?.includes('builtin-file-io')) return [] as any[];
@@ -49,12 +164,12 @@ function getFileToolsForProject(project: any, teamAgents: any[] = [], coordinato
       type: 'function',
       function: {
         name: 'write_file',
-        description: 'Create or overwrite a file inside the current project workspace.',
+        description: '⚠️ IMPORTANT: You MUST include the content parameter with the FULL file content. Create or overwrite a file. Equivalent to: command="write" or command="create".',
         parameters: {
           type: 'object',
           properties: {
             path: { type: 'string', description: 'Relative file path inside the project workspace.' },
-            content: { type: 'string', description: 'Full file content.' }
+            content: { type: 'string', description: '⚠️ REQUIRED - Full file content to write. Do NOT call this tool without content!' }
           },
           required: ['path', 'content']
         }
@@ -108,7 +223,7 @@ function getFileToolsForProject(project: any, teamAgents: any[] = [], coordinato
   return tools;
 }
 
-async function executeToolCall(project: any, toolCall: ToolCall, allProjectAgents: any[], allEnabledSkills: any[]) {
+async function executeToolCall(project: any, toolCall: ToolCall, allProjectAgents: any[], allEnabledSkills: any[], reply?: any) {
   const fn = toolCall.function?.name;
   const rawArgs = toolCall.function?.arguments || '{}';
   const args = JSON.parse(rawArgs || '{}');
@@ -123,14 +238,424 @@ async function executeToolCall(project: any, toolCall: ToolCall, allProjectAgent
     case 'edit_file':
       return await FileToolService.editFile(project.workspace, args.path, args.oldText || '', args.newText || '');
     case 'delegate_to_agent':
-      return await executeAgentDelegation(project, args, allProjectAgents, allEnabledSkills);
+      return await executeAgentDelegation(project, args, allProjectAgents, allEnabledSkills, reply || null);
+    // shell-cmd
+    case 'shell-cmd': {
+      const { exec } = await import('child_process');
+      const os = await import('os');
+      let command = args.command || args.cmd || args.exec;
+      if (!command) return { error: '缺少参数: command/cmd/exec' };
+      
+      // 判断是否需要用 wsl 执行（项目路径为 WSL 路径）
+      const isWSLPath = /^\/mnt\//.test(project.workspace);
+      const isWindows = os.platform() === 'win32';
+      
+      let finalCommand = command;
+      let cwd = project.workspace;
+      let shellType = '';
+      
+      // 检查是否是 PowerShell 命令
+      const isPowerShellCmd = command.trim().startsWith('if ') || 
+        /^(Test-|Remove-|Write-|Get-|New-|Set-|Add-|Clear-|Compare-|Convert-|Copy-|Enter-|Exit-|Find-|Format-|Group-|Import-|Invoke-|Join-|Measure-|Move-|Out-|Pop-|Push-|Receive-|Register-|Rename-|Reset-|Resolve-|Restart-|Restore-|Resume-|Save-|Search-|Select-|Send-|Set-|Show-|Skip-|Sort-|Split-|Start-|Stop-|Submit-|Suspend-|Switch-| Tee-|Test-|Trace-|Unblock-|Undo-|Unregister-|Update-|Use-|Wait-|Watch-|Where-|While-)/i.test(command.trim());
+      
+      if (isWindows && !isWSLPath) {
+        cwd = project.workspace;
+        
+        if (isPowerShellCmd) {
+          // PowerShell 命令
+          shellType = 'PowerShell';
+          console.log(`[shell-cmd -> PowerShell] ${command}`);
+          return new Promise((resolve) => {
+            const MAX_OUTPUT = 500 * 1024;
+            exec(`powershell -Command "${command.replace(/"/g, '\\"')}"`, { cwd, timeout: 60000, maxBuffer: MAX_OUTPUT }, (err: any, stdout: string, stderr: string) => {
+              if (err) {
+                if (err.message?.includes('maxBuffer') || err.killed) {
+                  resolve({ 
+                    error: `⚠️ Command output too large — exceeded 500KB limit.`,
+                    stdout: stdout?.slice(0, 2000),
+                    stderr,
+                    truncated: true
+                  });
+                } else {
+                  resolve({ error: err.message, stdout, stderr });
+                }
+              } else {
+                if (stdout?.length > MAX_OUTPUT) {
+                  resolve({ stdout: stdout?.slice(0, 2000) + `\n\n⚠️ [Output truncated — original was ${(stdout.length/1024).toFixed(1)}KB]`, stderr, truncated: true });
+                } else {
+                  resolve({ stdout, stderr });
+                }
+              }
+            });
+          });
+        } else {
+          // Windows CMD 命令转换
+          shellType = 'Windows CMD';
+          const commandMap: Record<string, string> = {
+            'ls': 'dir',
+            'ls -la': 'dir',
+            'ls -l': 'dir',
+            'll': 'dir',
+            'la': 'dir',
+            'cat': 'type',
+            'rm': 'del',
+            'rm -rf': 'rmdir /s /q',
+            'mkdir': 'mkdir',
+            'mv': 'move',
+            'cp': 'copy',
+            'touch': 'type nul >',
+            'pwd': 'cd',
+            'clear': 'cls',
+            'which': 'where',
+            'find': 'findstr',
+            'head': 'more +1 | more +1',  // 简化处理
+            'tail': 'more +1',  // 简化处理
+            'grep': 'findstr',
+            'wc': 'find /c /v ""',  // 简化处理
+          };
+          
+          // 替换命令
+          finalCommand = command;
+          for (const [linuxCmd, winCmd] of Object.entries(commandMap)) {
+            const regex = new RegExp(`\\b${linuxCmd.replace(/[-\/\\^$*+?.()|[\\]{}]/g, '\\$&')}\\b`, 'g');
+            finalCommand = finalCommand.replace(regex, winCmd);
+          }
+          
+          // 将正斜杠路径转换为反斜杠（Windows CMD 认识反斜杠）
+          // 例如: type backend/src/entities/file.ts -> type backend\src\entities\file.ts
+          finalCommand = finalCommand.replace(/([a-zA-Z0-9_-])(\/)([a-zA-Z0-9_.\-])/g, '$1\\$3');
+          
+          console.log(`[shell-cmd -> Windows CMD] ${finalCommand}`);
+          return new Promise((resolve) => {
+            const MAX_OUTPUT = 500 * 1024;
+            exec(finalCommand, { cwd, shell: 'cmd.exe', timeout: 60000, maxBuffer: MAX_OUTPUT }, (err: any, stdout: string, stderr: string) => {
+              if (err) {
+                if (err.message?.includes('maxBuffer') || err.killed) {
+                  resolve({ 
+                    error: `⚠️ Command output too large — exceeded 500KB limit.`,
+                    stdout: stdout?.slice(0, 2000),
+                    stderr,
+                    truncated: true
+                  });
+                } else {
+                  resolve({ error: err.message, stdout, stderr });
+                }
+              } else {
+                if (stdout?.length > MAX_OUTPUT) {
+                  resolve({ stdout: stdout?.slice(0, 2000) + `\n\n⚠️ [Output truncated — original was ${(stdout.length/1024).toFixed(1)}KB]`, stderr, truncated: true });
+                } else {
+                  resolve({ stdout, stderr });
+                }
+              }
+            });
+          });
+        }
+      } else {
+        // WSL 或 Linux 环境
+        const execCmd = isWSLPath ? `wsl.exe ${command}` : command;
+        cwd = isWSLPath ? '/' + project.workspace.replace(/^\/(mnt\/.)/, '$1').replace(/\\/g, '/') : project.workspace;
+        shellType = isWSLPath ? 'WSL' : 'Linux';
+        
+        console.log(`[shell-cmd -> ${shellType}] ${command}`);
+        return new Promise((resolve) => {
+          const MAX_OUTPUT = 500 * 1024;
+          exec(execCmd, { cwd, timeout: 60000, maxBuffer: MAX_OUTPUT }, (err: any, stdout: string, stderr: string) => {
+            if (err) {
+              if (err.message?.includes('maxBuffer') || err.killed) {
+                resolve({ 
+                  error: `⚠️ Command output too large — exceeded 500KB limit.`,
+                  stdout: stdout?.slice(0, 2000),
+                  stderr,
+                  truncated: true
+                });
+              } else {
+                resolve({ error: err.message, stdout, stderr });
+              }
+            } else {
+              if (stdout?.length > MAX_OUTPUT) {
+                resolve({ stdout: stdout?.slice(0, 2000) + `\n\n⚠️ [Output truncated — original was ${(stdout.length/1024).toFixed(1)}KB]`, stderr, truncated: true });
+              } else {
+                resolve({ stdout, stderr });
+              }
+            }
+          });
+        });
+      }
+    }
+    
+    // inline-python-edit
+    case 'inline-python-edit': {
+      const command = args.command || args.cmd || args.code;
+      if (!command) return { error: '缺少参数: command/cmd/code' };
+      const { exec: execPy } = await import('child_process');
+      return new Promise((resolve) => {
+        execPy(`python -c "${command.replace(/"/g, '\"')}"`, { cwd: project.workspace, timeout: 30000 }, (err: any, stdout: string, stderr: string) => {
+          if (err) resolve({ error: err.message });
+          else resolve({ stdout, stderr });
+        });
+      });
+    }
+    
+    // write_file 工具（schema 直接调用，不需要 command 字段）
+    case 'write_file': {
+      const filePath = args.path;
+      const fileContent = args.content;
+      if (!filePath) return { error: '缺少参数: path' };
+      if (!fileContent) return { error: '缺少参数: content。请确保在调用 write_file 时包含完整的文件内容！' };
+      const writeResult = await FileToolService.writeFile(project.workspace, filePath, fileContent);
+      return { 
+        success: true, 
+        message: `✅ 文件已成功写入: ${writeResult.path} (${writeResult.bytes} bytes)`,
+        path: writeResult.path,
+        bytes: writeResult.bytes
+      };
+    }
+    
+    // read_file 工具（schema 直接调用）
+    case 'read_file': {
+      const filePath = args.path;
+      if (!filePath) return { error: '缺少参数: path' };
+      const readResult = await FileToolService.readFile(project.workspace, filePath, Number(args.offset) || 1, Number(args.limit) || 200);
+      return { 
+        success: true, 
+        message: `✅ 已读取文件: ${readResult.path}`,
+        ...readResult
+      };
+    }
+    
+    // edit_file 工具（schema 直接调用）
+    case 'edit_file': {
+      const filePath = args.path;
+      const oldText = args.oldText;
+      const newText = args.newText;
+      if (!filePath) return { error: '缺少参数: path' };
+      if (!oldText) return { error: '缺少参数: oldText' };
+      if (!newText) return { error: '缺少参数: newText' };
+      const editResult = await FileToolService.editFile(project.workspace, filePath, oldText, newText);
+      return { 
+        success: true, 
+        message: `✅ 文件已修改: ${editResult.path}`,
+        ...editResult
+      };
+    }
+    
+    // list_files 工具（schema 直接调用）
+    case 'list_files': {
+      const filePath = args.path || '.';
+      const listResult = await FileToolService.listFiles(project.workspace, filePath, Number(args.depth) || 3);
+      return { 
+        success: true, 
+        message: `✅ 列出 ${listResult.path}，共 ${listResult.entries?.length || 0} 个项目`,
+        ...listResult
+      };
+    }
+    
+    // file-io 技能：读写文件（也支持转发 shell 命令）
+    case 'file-io': {
+      let command = args.command || args.cmd || '';
+      const filePath = args.path;
+      let fileContent = args.content || args.text || args.data || args.body || args.fileContent;
+      const oldText = args.oldText || args.old_text;
+      const newText = args.newText || args.new_text;
+      
+      // 命令别名转换
+      const commandAliases: Record<string, string> = {
+        'write-file': 'write_file',
+        'write-file ': 'write_file',
+        'read-file': 'read_file',
+        'list-files': 'list_files',
+        'edit-file': 'edit_file',
+        'create': 'write_file',
+        'write': 'write_file',
+        'read': 'read_file',
+        'list': 'list_files',
+        'delete': 'rm',
+        'remove': 'rm'
+      };
+      
+      // 标准化命令
+      const normalizedCommand = command.trim().toLowerCase();
+      
+      // 先去掉重复的后缀，如 write_file_file -> write_file
+      const dedupedCommand = normalizedCommand.replace(/^(.+)_\1$/, '$1');
+      
+      if (commandAliases[dedupedCommand]) {
+        command = commandAliases[dedupedCommand];
+      } else if (commandAliases[normalizedCommand]) {
+        command = commandAliases[normalizedCommand];
+      } else {
+        // 检查是否以别名开头
+        for (const [alias, standard] of Object.entries(commandAliases)) {
+          if (normalizedCommand.startsWith(alias)) {
+            command = standard;  // 直接使用标准命令，不替换
+            break;
+          }
+        }
+      }
+      
+      // 处理模型把内容放在 command 中的情况，如 "write_file:文件内容"
+      if (command.includes(':') && !fileContent) {
+        const colonIndex = command.indexOf(':');
+        const potentialCommand = command.substring(0, colonIndex);
+        const potentialContent = command.substring(colonIndex + 1);
+        if (['write_file', 'read_file', 'list_files', 'edit_file'].includes(potentialCommand)) {
+          command = potentialCommand;
+          fileContent = potentialContent;
+        }
+      }
+      
+      // 如果是 shell 命令，自动转发并转换命令
+      const shellCommands = ['mkdir', 'mv', 'cp', 'rm', 'rmdir', 'touch', 'chmod', 'chown', 'ls', 'pwd', 'cd', 'cat', 'echo'];
+      const firstWord = command.trim().split(/\s+/)[0]?.toLowerCase();
+      const isShellCommand = shellCommands.includes(firstWord) || 
+        command.startsWith('if ') || command.startsWith('Test-') || command.startsWith('Remove-');
+      
+      if (isShellCommand) {
+        // 根据运行平台和项目路径类型确定执行环境
+        const os = await import('os');
+        const isBackendWindows = os.platform() === 'win32';
+        const isWSLPath = /^\/mnt\//.test(project.workspace);
+        
+        let finalCommand = command;
+        
+        // 转换项目路径中的命令参数路径（如果有）
+        let workspaceForCmd = project.workspace;
+        
+        if (isBackendWindows && isWSLPath) {
+          // 后端在 Windows，项目路径是 WSL 格式，需要转换
+          const match = project.workspace.match(/^\/mnt\/([a-z])\/(.+)$/i);
+          if (match) {
+            const drive = match[1].toUpperCase();
+            const restPath = match[2].replace(/\//g, '\\');
+            workspaceForCmd = `${drive}:\\${restPath}`;
+            console.log(`[file-io] WSL path converted for Windows: ${workspaceForCmd}`);
+          }
+        }
+        
+        if (isBackendWindows) {
+          // 后端运行在 Windows 上
+          
+          // 检查是否是 PowerShell 命令
+          if (command.startsWith('if ') || command.startsWith('Test-') || command.startsWith('Remove-') || command.startsWith('Write-') || command.startsWith('Get-')) {
+            // PowerShell 命令，直接执行
+            const cwd = workspaceForCmd;
+            console.log(`[file-io -> PowerShell] ${command}`);
+            const { exec } = await import('child_process');
+            return new Promise((resolve) => {
+              exec(`powershell -Command "${command.replace(/"/g, '\\"')}"`, { cwd, timeout: 60000 }, (err: any, stdout: string, stderr: string) => {
+                if (err) resolve({ error: err.message, stdout, stderr });
+                else resolve({ success: true, stdout, stderr });
+              });
+            });
+          }
+          
+          // Linux 命令转换为 Windows cmd 命令
+          const commandMap: Record<string, string> = {
+            'mkdir': 'mkdir',
+            'mv': 'move',
+            'cp': 'copy',
+            'rm': 'del',
+            'rmdir': 'rmdir',
+            'touch': 'type nul >',
+            'chmod': 'attrib',
+            'chown': 'takeown',
+            'ls': 'dir',
+            'cat': 'type',
+            'pwd': 'cd',
+            'echo': 'echo'
+          };
+          
+          // 替换命令
+          for (const [linuxCmd, winCmd] of Object.entries(commandMap)) {
+            finalCommand = finalCommand.replace(new RegExp(`^${linuxCmd}\\b`, 'i'), winCmd);
+            finalCommand = finalCommand.replace(new RegExp(`\\b${linuxCmd}\\b`, 'g'), winCmd);
+          }
+          
+          // Windows 下使用 cmd.exe
+          const cwd = workspaceForCmd;
+          console.log(`[file-io -> Windows CMD] ${finalCommand}, cwd=${cwd}`);
+          const { exec } = await import('child_process');
+          return new Promise((resolve) => {
+            exec(finalCommand, { cwd, shell: 'cmd.exe', timeout: 60000 }, (err: any, stdout: string, stderr: string) => {
+              if (err) resolve({ error: err.message, stdout, stderr });
+              else resolve({ success: true, stdout, stderr });
+            });
+          });
+        } else {
+          // WSL 或 Linux 环境
+          const execCmd = isWSLPath ? `wsl.exe ${command}` : command;
+          const cwd = isWSLPath ? '/' + workspaceForCmd.replace(/^\/(mnt\/.)/, '$1').replace(/\\/g, '/') : workspaceForCmd;
+          
+          console.log(`[file-io -> shell] ${command}`);
+          const { exec } = await import('child_process');
+          return new Promise((resolve) => {
+            exec(execCmd, { cwd, timeout: 60000 }, (err: any, stdout: string, stderr: string) => {
+              if (err) resolve({ error: err.message, stdout, stderr });
+              else resolve({ success: true, stdout, stderr });
+            });
+          });
+        }
+      }
+      
+      if (!command) return { error: '缺少参数: command' };
+      
+      switch (command) {
+        case 'list_files':
+        case 'list':
+          const listResult = await FileToolService.listFiles(project.workspace, filePath || '.', Number(args.depth) || 3);
+          return { 
+            success: true, 
+            message: `✅ 列出 ${listResult.path}，共 ${listResult.entries?.length || 0} 个项目`,
+            ...listResult
+          };
+        case 'read_file':
+        case 'read':
+          const readResult = await FileToolService.readFile(project.workspace, filePath, Number(args.offset) || 1, Number(args.limit) || 200);
+          return { 
+            success: true, 
+            message: `✅ 已读取文件: ${readResult.path}`,
+            ...readResult
+          };
+        case 'write_file':
+        case 'write':
+        case 'create':
+          if (!filePath) return { error: '缺少参数: path，例如: {"path": "app.py", "command": "write", "content": "文件内容"}' };
+          if (!fileContent) return { error: '缺少参数: content。请使用格式: {"path": "文件路径", "command": "write", "content": "要写入的内容，多行内容可以用\\n表示换行"}' };
+          const writeResult = await FileToolService.writeFile(project.workspace, filePath, fileContent);
+          return { 
+            success: true, 
+            message: `✅ 文件已成功写入: ${writeResult.path} (${writeResult.bytes} bytes)`,
+            path: writeResult.path,
+            bytes: writeResult.bytes
+          };
+        case 'edit_file':
+        case 'edit':
+          if (!filePath) return { error: '缺少参数: path' };
+          if (!oldText) return { error: '缺少参数: oldText' };
+          if (!newText) return { error: '缺少参数: newText' };
+          const editResult = await FileToolService.editFile(project.workspace, filePath, oldText, newText);
+          return { 
+            success: true, 
+            message: `✅ 文件已修改: ${editResult.path}`,
+            ...editResult
+          };
+        default:
+          return { error: `未知 file-io 命令: ${command}，支持的命令: list/list_files, read/read_file, write/write_file/create, edit/edit_file, mkdir, mv, cp, rm` };
+      }
+    }
+    
     default:
+      // 尝试从项目技能中查找
+      const skill = allEnabledSkills.find((s: any) => s.name === fn);
+      if (skill) {
+        return { info: `技能 "${fn}" 已收到参数`, skillContent: skill.rawContent || skill.description };
+      }
       throw new Error(`未知工具: ${fn}`);
   }
 }
 
 // Agent 委托执行
-async function executeAgentDelegation(project: any, args: any, allProjectAgents: any[], allEnabledSkills: any[]) {
+async function executeAgentDelegation(project: any, args: any, allProjectAgents: any[], allEnabledSkills: any[], reply?: any) {
   const { agent_name, task, context } = args;
   
   // 查找目标 Agent
@@ -144,6 +669,19 @@ async function executeAgentDelegation(project: any, args: any, allProjectAgents:
   }
 
   console.log(`[Delegation] Task delegated to: ${targetAgent.name}, Task: ${task.slice(0, 50)}...`);
+
+  // 发送委托开始消息到前端
+  if (reply?.raw?.write) {
+    try {
+      reply.raw.write(`data: ${JSON.stringify({ 
+        type: 'agent_start',
+        agentName: targetAgent.name,
+        task: task
+      })}\n\n`);
+    } catch (e) {
+      // SSE 写入失败，忽略
+    }
+  }
 
   // 构建委托 Agent 的系统提示词
   const skillsPrompt = allEnabledSkills.length > 0 
@@ -193,6 +731,19 @@ ${skillsPrompt}
     const result: any = await response.json();
     const delegationResult = result.choices?.[0]?.message?.content || 'Task completed with no result';
 
+    // 发送委托完成消息到前端
+    if (reply?.raw?.write) {
+      try {
+        reply.raw.write(`data: ${JSON.stringify({ 
+          type: 'agent_end',
+          agentName: targetAgent.name,
+          result: delegationResult
+        })}\n\n`);
+      } catch (e) {
+        // SSE 写入失败，忽略
+      }
+    }
+
     return {
       success: true,
       agent: targetAgent.name,
@@ -200,14 +751,71 @@ ${skillsPrompt}
       result: delegationResult
     };
   } catch (error: any) {
+    // 发送委托失败消息到前端
+    if (reply?.raw?.write) {
+      try {
+        reply.raw.write(`data: ${JSON.stringify({ 
+          type: 'agent_error',
+          agentName: targetAgent.name,
+          error: error.message
+        })}\n\n`);
+      } catch (e) {
+        // SSE 写入失败，忽略
+      }
+    }
     return { error: `Delegation failed: ${error.message}` };
   }
 }
 
 function extractToolCalls(choice: any): ToolCall[] {
+  // 标准方式
   if (Array.isArray(choice?.message?.tool_calls)) return choice.message.tool_calls;
   if (Array.isArray(choice?.delta?.tool_calls)) return choice.delta.tool_calls;
-  return [];
+  
+  // MiniMax 推理模型：工具调用可能在 content 的 <think> 标签中
+  const content = choice?.message?.content || '';
+  return extractToolCallsFromContent(content);
+}
+
+function extractToolCallsFromContent(content: string): ToolCall[] {
+  const toolCalls: ToolCall[] = [];
+  
+  // 匹配 <invoke name="tool_name">...</invoke> 结构（支持 MiniMax XML 格式）
+  const invokePattern = /<invoke\s+name=["']([^"']+)["'][^>]*>([\s\S]*?)<\/invoke>/gi;
+  let match;
+  
+  while ((match = invokePattern.exec(content)) !== null) {
+    const toolName = match[1].trim();
+    const invokeContent = match[2].trim();
+    
+    // 尝试解析为 JSON（标准格式）
+    let args: any = {};
+    try { args = JSON.parse(invokeContent); }
+    catch {
+      // MiniMax 格式：<parameter name="command">ls /tmp</parameter>
+      const paramMatch = invokeContent.match(/<parameter\s+name=["']([^"']+)["'][^>]*>([\s\S]*?)<\/parameter>/i);
+      if (paramMatch) {
+        const paramName = paramMatch[1].trim();
+        const paramValue = paramMatch[2].trim();
+        args = { [paramName]: paramValue };
+      } else {
+        // 纯文本参数
+        args = { command: invokeContent };
+      }
+    }
+    
+    toolCalls.push({
+      id: `call_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      type: 'function',
+      function: { name: toolName, arguments: JSON.stringify(args) }
+    });
+    console.log(`[DEBUG] Extracted tool call: ${toolName}, args: ${JSON.stringify(args)?.slice(0, 100)}`);
+  }
+  
+  if (toolCalls.length > 0) {
+    console.log(`[DEBUG] Total tool calls extracted from content: ${toolCalls.length}`);
+  }
+  return toolCalls;
 }
 
 export async function ChatRoutes(fastify: FastifyInstance) {
@@ -280,9 +888,34 @@ export async function ChatRoutes(fastify: FastifyInstance) {
       if (!project) throw new Error('未找到所属项目');
       if (!allModels || allModels.length === 0) throw new Error('系统中未配置任何模型');
 
+      // --- 0. 检查并保存用户消息到 MEMORY.md ---
+      // 如果用户消息以触发词开头，自动保存到 MEMORY.md
+      const triggerKeywords = ['请注意', '请记住', '记住', '记住：', '请牢记'];
+      const matchedTrigger = triggerKeywords.find(keyword => content.startsWith(keyword));
+      let userMessageContent = content;
+      
+      if (matchedTrigger) {
+        const saved = await saveToMemoryFile(content, project.workspace);
+        
+        // 根据不同结果通知用户
+        if (saved === 'success') {
+          reply.raw.write(`data: ${JSON.stringify({ chunk: '✅ 已自动记录到 MEMORY.md\n\n' })}\n\n`);
+        } else if (saved === 'duplicate') {
+          reply.raw.write(`data: ${JSON.stringify({ chunk: 'ℹ️ 该信息已存在，无需重复记录\n\n' })}\n\n`);
+        }
+        
+        // 提取实际内容，过滤掉触发词前缀，让模型处理（无论是否写入成功都提取）
+        if (saved === 'success' || saved === 'duplicate') {
+          userMessageContent = content.replace(new RegExp(`^${matchedTrigger}[：:]\s*`), '').trim();
+          if (!userMessageContent) {
+            userMessageContent = content.replace(new RegExp(`^${matchedTrigger}\s*`), '').trim();
+          }
+        }
+      }
+
       // 清理消息中的 @AgentName（保留用于通知）
       const mentionedAgentNames = content.match(/@([^\s@]+)/g)?.map((m: string) => m.substring(1)) || [];
-      let cleanContent = content.replace(/@([^\s@]+)/g, '$1').trim();
+      let cleanContent = userMessageContent.replace(/@([^\s@]+)/g, '$1').trim();
 
       // 获取项目的 Agent 列表
       const enabledAgentIds = project?.enabledAgentIds || [];
@@ -329,12 +962,68 @@ export async function ChatRoutes(fastify: FastifyInstance) {
       const allEnabledSkills = [...globalProjectSkills, ...projectPrivateSkills];
 
       // --- 4. 构建系统消息 ---
+      // 加载项目 MEMORY.md
+      let memoryPrompt = '';
+      try {
+        const fs = await import('fs');
+        const os = await import('os');
+        
+        // 检测后端运行平台
+        const isWindows = os.platform() === 'win32';
+        
+        let memoryPath = project.workspace || '';
+        
+        if (isWindows) {
+          // 后端运行在 Windows 上
+          if (/^\/mnt\/[a-z]\//i.test(memoryPath)) {
+            // WSL 路径: /mnt/d/workspace/... -> 转换回 Windows 路径 D:\workspace\...
+            const match = memoryPath.match(/^\/mnt\/([a-z])\/(.+)$/i);
+            if (match) {
+              const drive = match[1].toUpperCase();
+              const restPath = match[2].replace(/\//g, '\\');
+              memoryPath = `${drive}:\\${restPath}`;
+              console.log(`[Memory] WSL path converted to Windows: ${memoryPath}`);
+            }
+          }
+          // 如果已经是 Windows 路径 (D:\...)，保持不变
+        } else {
+          // 后端运行在 Linux/WSL 上
+          if (/^[A-Z]:/i.test(memoryPath)) {
+            // Windows 路径: D:\workspace\... -> /mnt/d/workspace/...
+            const driveLetter = memoryPath.charAt(0).toLowerCase();
+            const remainingPath = memoryPath.slice(2).replace(/\\/g, '/');
+            memoryPath = `/mnt/${driveLetter}${remainingPath}`;
+          } else if (!memoryPath.startsWith('/mnt/')) {
+            memoryPath = memoryPath.replace(/\\/g, '/');
+          }
+        }
+        
+        memoryPath = memoryPath + '/MEMORY.md';
+        if (fs.existsSync(memoryPath)) {
+          memoryPrompt = '\n\n## PROJECT MEMORY\n' + fs.readFileSync(memoryPath, 'utf-8');
+        } else {
+          // 文件不存在，自动创建
+          const initialContent = `# MEMORY.md - 项目记忆
+
+> 此文件用于记录项目重要信息，由 AI 自动管理
+> 用户可通过输入 "请注意xxx" 或 "请记住xxx" 来添加记录
+
+`;
+          fs.writeFileSync(memoryPath, initialContent, 'utf-8');
+          console.log(`[Memory] Created new MEMORY.md: ${memoryPath}`);
+          memoryPrompt = '\n\n## PROJECT MEMORY\n' + initialContent;
+        }
+      } catch (e: any) {
+        console.log(`[Memory] Could not load MEMORY.md: ${e.message}`);
+      }
+
       const systemMessage = {
         role: 'system',
         content: `You are an AI assistant working inside project workspace: **${project.workspace}**\n` +
           `Project: ${project.name}\n` +
           `${agentRolePrompt}` +
           `${teamPrompt}` +
+          `${memoryPrompt}` +
           `\n\n## IMPORTANT RULES\n` +
           `- When a task requires specific expertise, delegate it to the appropriate team member\n` +
           `- Always use read_file before editing files\n` +
@@ -349,11 +1038,52 @@ export async function ChatRoutes(fastify: FastifyInstance) {
       const modelsToTry = [primaryModel, ...fallbackModels].slice(0, 3); // 最多尝试前3个模型
 
       // 获取工具
-      const tools = getFileToolsForProject(project, allProjectAgents, coordinatorAgentId);
+      // 1. 内置工具
+      const builtin = [getBuiltinShellSkill()].filter(Boolean).map(s => ({
+        type: 'function',
+        function: {
+          name: s.name,
+          description: s.description || '',
+          parameters: {
+            type: 'object',
+            properties: { 
+              command: { type: 'string', description: 'Shell command to execute' },
+              path: { type: 'string', description: 'File path' }
+            },
+            required: []
+          }
+        }
+      }));
+
+      // 2. 项目/全局技能 (从数据库加载)
+      const projectSkills = allEnabledSkills.map(s => ({
+        type: 'function',
+        function: {
+          name: s.name,
+          description: s.description || '',
+          parameters: {
+            type: 'object',
+            properties: {
+              command: { type: 'string', description: s.description || '' },
+              path: { type: 'string', description: 'File path' }
+            },
+            required: []
+          }
+        }
+      }));
+
+      // 3. 合并所有工具（去重：优先使用项目/全局技能中的同名工具）
+      const builtinNames = new Set(projectSkills.map((s: any) => s.function.name));
+      const filteredBuiltin = builtin.filter((s: any) => !builtinNames.has(s.function.name));
+      const tools = [...filteredBuiltin, ...projectSkills];
+      console.log(`[Tools] builtin=${builtin.length}, projectSkills=${projectSkills.length}, total=${tools.length}`);
+      if (tools.length > 0) {
+        console.log(`[Tools] Tool names: ${tools.map((t: any) => t.function.name).join(', ')}`);
+      }
 
       const chatWithHistory = await DbService.getChat(chatId);
       const historyMessages = chatWithHistory?.messages || [];
-      const CONTEXT_WINDOW = 20;
+      const CONTEXT_WINDOW = 100;
       const INITIAL_INTENT_COUNT = 2;
 
       // 转换消息格式，支持附件（图片等）
@@ -406,11 +1136,35 @@ export async function ChatRoutes(fastify: FastifyInstance) {
         apiMessages = historyMessages.map(transformMessage);
       }
 
+      // === 上下文管理：Session Pruning ===
+      // 在发送请求前，修剪旧的工具结果，避免上下文溢出
+      const prunedMessages = pruneContext(apiMessages as Message[], {
+        contextWindow: 128000,
+        keepLastAssistants: 3,
+        softTrimMaxChars: 4000,
+        softTrimHeadChars: 1500,
+        softTrimTailChars: 1500
+      });
+      
+      // 检查上下文使用情况
+      const contextStats = getContextStats(prunedMessages as Message[]);
+      console.log(`[Context] Messages: ${contextStats.messageCount}, Tokens: ~${contextStats.estimatedTokens}, Usage: ${contextStats.usagePercent}%`);
+      
+      if (contextStats.needsCompaction) {
+        console.log(`[Context] ⚠️ Context usage at ${contextStats.usagePercent}%, triggering compaction...`);
+        const { compacted } = await compactContext(prunedMessages as Message[]);
+        apiMessages = compacted as any[];
+        console.log(`[Context] ✅ Compaction complete. New message count: ${apiMessages.length}`);
+      }
+
       
       // --- 模型重试外层循环 ---
       let success = false;
       let lastError = '';
       let pickedModelCfg: any = null;
+
+      const MAX_RETRIES = 3;
+      const RETRY_DELAY_MS = 2000;
 
       for (const modelCfg of modelsToTry) {
         if (success) break;
@@ -423,67 +1177,146 @@ export async function ChatRoutes(fastify: FastifyInstance) {
           ...apiMessages.map((m: any) => ({ role: m.role, content: m.content }))
         ];
 
-        try {
-          let guard = 0;
-          while (guard++ < 8) {
-            const reqBody: any = {
-              model: modelCfg.modelId,
-              messages: finalMessages,
-              stream: false
-            };
-            if (tools.length > 0) reqBody.tools = tools;
+        let modelRetryCount = 0;
+        let currentModelSuccess = false;
 
-            const res = await fetch(apiUrl, {
-              method: 'POST',
-              headers: { 
-                'Content-Type': 'application/json', 
-                'Authorization': `Bearer ${modelCfg.apiKey}` 
-              },
-              body: JSON.stringify(reqBody)
-            });
+        while (modelRetryCount < MAX_RETRIES && !currentModelSuccess) {
+          try {
+            let guard = 0;
+            while (guard++ < 8) {
+              const reqBody: any = {
+                model: modelCfg.modelId,
+                messages: finalMessages,
+                stream: false
+              };
+              if (tools.length > 0) {
+                reqBody.tools = tools;
+                console.log(`[DEBUG] Sending ${tools.length} tools: ${tools.map(t => t.function.name).join(', ')}`);
+              }
 
-            if (!res.ok) {
-              const errText = await res.text();
-              throw new Error(`HTTP ${res.status}: ${errText.slice(0, 100)}`);
-            }
-
-            const data: any = await res.json();
-            const choice = data.choices?.[0];
-            const message = choice?.message || {};
-            const toolCalls = extractToolCalls(choice);
-
-            if (toolCalls.length > 0) {
-              finalMessages.push({
-                role: 'assistant',
-                content: message.content || '',
-                tool_calls: toolCalls
+              console.log(`[DEBUG] About to send request with ${finalMessages.length} messages`);
+              const res = await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 
+                  'Content-Type': 'application/json', 
+                  'Authorization': `Bearer ${modelCfg.apiKey}` 
+                },
+                body: JSON.stringify(reqBody)
               });
 
-              for (const toolCall of toolCalls) {
-                let toolResult: any;
-                try {
-                  toolResult = await executeToolCall(project, toolCall, allProjectAgents, allEnabledSkills);
-                } catch (err: any) {
-                  toolResult = { error: err.message };
-                }
-
-                finalMessages.push({
-                  role: 'tool',
-                  tool_call_id: toolCall.id,
-                  content: JSON.stringify(toolResult, null, 2)
-                });
+              if (!res.ok) {
+                const errText = await res.text();
+                throw new Error(`HTTP ${res.status}: ${errText.slice(0, 100)}`);
               }
-              continue;
-            }
 
-            fullAssistantContent = message.content || '';
-            success = true;
-            pickedModelCfg = modelCfg;
-            break;
+              const data: any = await res.json();
+              console.log(`[DEBUG] API response keys: ${Object.keys(data||{})}`);
+              console.log(`[DEBUG] data.choices length: ${data.choices?.length}`);
+              console.log(`[DEBUG] message content: ${data.choices?.[0]?.message?.content?.slice(0, 300)}`);
+              const choice = data.choices?.[0];
+              const message = choice?.message || {};
+              console.log(`[DEBUG] Full API response: ${JSON.stringify(data)?.slice(0, 500)}`);
+              const toolCalls = extractToolCalls(choice);
+              console.log(`[DEBUG] Extracted ${toolCalls.length} tool calls, choice keys: ${Object.keys(choice||{})}`);
+              console.log(`[DEBUG] toolCalls from model: ${JSON.stringify(toolCalls)?.slice(0, 300)}`);
+
+              if (toolCalls.length > 0) {
+                console.log(`[DEBUG] Processing ${toolCalls.length} tool call(s), guard=${guard}`);
+                for (const tc of toolCalls) {
+                  console.log(`[DEBUG]   tool: ${tc.function?.name}, args: ${tc.function?.arguments?.slice(0, 100)}`);
+                }
+                console.log(`[DEBUG] Processing ${toolCalls.length} tool call(s)`);
+                
+                // 发送助手消息（包含工具调用）到前端
+                if (message.content) {
+                  reply.raw.write(`data: ${JSON.stringify({ chunk: message.content, type: 'assistant' })}\n\n`);
+                }
+                reply.raw.write(`data: ${JSON.stringify({ 
+                  type: 'tool_call',
+                  toolCalls: toolCalls.map((tc: any) => ({
+                    id: tc.id,
+                    name: tc.function?.name,
+                    arguments: tc.function?.arguments
+                  }))
+                })}\n\n`);
+                
+                finalMessages.push({
+                  role: 'assistant',
+                  content: message.content || '',
+                  tool_calls: toolCalls
+                });
+
+                for (const toolCall of toolCalls) {
+                  let toolResult: any;
+                  try {
+                    toolResult = await executeToolCall(project, toolCall, allProjectAgents, allEnabledSkills, reply);
+                  } catch (err: any) {
+                    toolResult = { error: err.message };
+                  }
+
+                  console.log(`[DEBUG] Tool result: ${JSON.stringify(toolResult)?.slice(0, 200)}`);
+                  
+                  // 对读取类工具结果进行处理，不保留内容到历史会话
+                  const toolName = toolCall.function?.name;
+                  const toolArgs = JSON.parse(toolCall.function?.arguments || '{}');
+                  const cmd = (toolArgs.command || '').toLowerCase();
+                  const isReadCmd = toolName === 'read_file' || toolName === 'list_files' || 
+                                    toolName === 'file-io' && (cmd === 'read_file' || cmd === 'read' || cmd === 'list_files' || cmd === 'list');
+                  
+                  let resultContent: string;
+                  let displayResult: any;
+                  if (isReadCmd) {
+                    // 读取文件/列表类操作：只返回摘要，不返回内容
+                    displayResult = {
+                      success: true,
+                      message: toolResult.message || '✅ 操作完成',
+                      path: toolResult.path,
+                      totalLines: toolResult.totalLines,
+                      entriesCount: toolResult.entries?.length,
+                      preview: toolResult.content 
+                        ? toolResult.content.split('\n').slice(0, 3).join('\n') + '\n...'
+                        : undefined
+                    };
+                  } else {
+                    // 其他工具：正常返回结果
+                    displayResult = toolResult;
+                  }
+                  resultContent = JSON.stringify(displayResult, null, 2);
+                  
+                  // 发送工具结果到前端
+                  reply.raw.write(`data: ${JSON.stringify({ 
+                    type: 'tool_result',
+                    toolCallId: toolCall.id,
+                    toolName: toolCall.function?.name,
+                    result: displayResult
+                  })}\n\n`);
+                  
+                  finalMessages.push({
+                    role: 'tool',
+                    tool_call_id: toolCall.id,
+                    content: resultContent
+                  });
+                }
+                continue;
+              }
+
+              fullAssistantContent = message.content || '';
+              success = true;
+              currentModelSuccess = true;
+              pickedModelCfg = modelCfg;
+              console.log(`[DEBUG] Response content: ${fullAssistantContent?.slice(0, 200)}`);
+              break;
+            }
+          } catch (err: any) {
+            modelRetryCount++;
+            console.error(`[Model Fail] ${modelCfg.name} failed (attempt ${modelRetryCount}/${MAX_RETRIES}): ${err.message}`);
+            lastError = err.message;
+            
+            if (modelRetryCount < MAX_RETRIES) {
+              console.log(`[Model] Retrying ${modelCfg.name} in ${RETRY_DELAY_MS}ms...`);
+              await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
+            }
           }
-        } catch (err: any) {
-          console.error(`[Model Fail] ${modelCfg.name} failed: ${err.message}`);
-          lastError = err.message;
         }
       }
 

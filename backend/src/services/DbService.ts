@@ -215,12 +215,15 @@ export class DbService {
   static async addMessageToChat(chatId: string, message: { role: string, content: string }) {
     const db = await this.load();
     const chat = db.chats.find((c: any) => String(c.id) === String(chatId));
-    if (chat) {
-      if (!chat.messages) chat.messages = [];
-      chat.messages.push({ ...message, id: Date.now().toString(), timestamp: new Date().toISOString() });
-      chat.updatedAt = new Date().toISOString();
-      await this.save();
+    if (!chat) {
+      console.error(`[DB] Chat not found: ${chatId}`);
+      return null;
     }
+    if (!chat.messages) chat.messages = [];
+    chat.messages.push({ ...message, id: Date.now().toString(), timestamp: new Date().toISOString() });
+    chat.updatedAt = new Date().toISOString();
+    await this.save();
+    console.log(`[DB] Message saved to chat ${chatId}: role=${message.role}, content=${message.content?.slice(0, 50)}...`);
     return chat;
   }
 
@@ -248,6 +251,14 @@ export class DbService {
     }
     return db.agents;
   }
+
+  static async getAgent(id: string) {
+    const db = await this.load();
+    return db.agents.find((a: any) => String(a.id) === String(id));
+  }
+
+  // 重复定义已注释
+  // static async updateAgent(id: string, updates: any) { ... }
 
   static async deleteAgent(id: string) {
     const db = await this.load();

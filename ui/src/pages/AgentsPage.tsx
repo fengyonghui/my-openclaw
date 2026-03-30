@@ -1,4 +1,4 @@
-import { Bot, Plus, Trash2, Edit3, Save, X, ShieldCheck, UserCheck, Lock, Unlock, Search, Globe, CheckCircle2 } from 'lucide-react';
+import { Bot, Plus, Trash2, Edit3, Save, X, ShieldCheck, UserCheck, Lock, Unlock, Search, Globe, CheckCircle2, Sparkles, Users, Settings, ChevronRight } from 'lucide-react';
 import { useState, useEffect, useMemo } from 'react';
 import { Card, Button, Badge } from '../components/ui';
 
@@ -6,43 +6,44 @@ export function AgentsPage({ projectId }: { projectId: string }) {
   const [allGlobalAgents, setAllGlobalAgents] = useState<any[]>([]);
   const [projectData, setProjectData] = useState<any>(null);
   const [projectPrivateAgents, setProjectPrivateAgents] = useState<any[]>([]);
+  const [models, setModels] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingAgent, setEditingAgent] = useState<any>(null);
-  
-  // 搜索过滤
   const [searchQuery, setSearchQuery] = useState('');
-  
-  // 添加私有 Agent 相关状态
   const [showAddPrivate, setShowAddPrivate] = useState(false);
   const [privateAgentForm, setPrivateAgentForm] = useState({ name: '', role: '', description: '', type: 'custom' });
   const [savingPrivate, setSavingPrivate] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const [updatingAgentModel, setUpdatingAgentModel] = useState<string | null>(null);
 
   const fetchData = async () => {
     try {
-      const [globalRes, projectRes, privateRes] = await Promise.all([
+      const [globalRes, projectRes, privateRes, modelsRes] = await Promise.all([
         fetch(`http://localhost:3001/api/v1/projects/${projectId}/agents/global`),
         fetch(`http://localhost:3001/api/v1/projects/${projectId}`),
-        fetch(`http://localhost:3001/api/v1/projects/${projectId}/agents/private`)
+        fetch(`http://localhost:3001/api/v1/projects/${projectId}/agents/private`),
+        fetch(`http://localhost:3001/api/v1/models`)
       ]);
       setAllGlobalAgents(await globalRes.json());
       setProjectData(await projectRes.json());
       setProjectPrivateAgents(await privateRes.json());
+      setModels(await modelsRes.json());
     } catch (err) { console.error(err); } 
     finally { setLoading(false); }
   };
 
-  useEffect(() => { fetchData(); }, [projectId]);
+  useEffect(() => { 
+    fetchData(); 
+    setTimeout(() => setMounted(true), 100);
+  }, [projectId]);
 
-  // 已启用的全局 Agent ID 列表
   const enabledAgentIds = projectData?.enabledAgentIds || [];
   
-  // 合并显示：启用的全局 Agent + 项目私有 Agent
   const enabledAgents = useMemo(() => {
     const enabled = allGlobalAgents.filter(a => enabledAgentIds.includes(a.id));
     return [...enabled, ...projectPrivateAgents];
   }, [allGlobalAgents, enabledAgentIds, projectPrivateAgents]);
 
-  // 过滤后的全局 Agent 列表
   const filteredGlobalAgents = useMemo(() => {
     return allGlobalAgents.filter(a => 
       (a.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -50,7 +51,6 @@ export function AgentsPage({ projectId }: { projectId: string }) {
     );
   }, [allGlobalAgents, searchQuery]);
 
-  // 切换全局 Agent
   const toggleGlobalAgent = async (agentId: string) => {
     const res = await fetch(`http://localhost:3001/api/v1/projects/${projectId}/agents/toggle`, {
       method: 'POST',
@@ -63,7 +63,6 @@ export function AgentsPage({ projectId }: { projectId: string }) {
     }
   };
 
-  // 添加私有 Agent
   const handleAddPrivateAgent = async () => {
     if (!privateAgentForm.name.trim()) {
       alert('请填写 Agent 名称');
@@ -85,7 +84,6 @@ export function AgentsPage({ projectId }: { projectId: string }) {
     setSavingPrivate(false);
   };
 
-  // 删除私有 Agent
   const handleDeletePrivateAgent = async (agentId: string) => {
     if (!confirm('确定要删除此项目私有 Agent 吗？')) return;
     const res = await fetch(`http://localhost:3001/api/v1/projects/${projectId}/agents/private/${agentId}`, {
@@ -94,7 +92,6 @@ export function AgentsPage({ projectId }: { projectId: string }) {
     if (res.ok) setProjectPrivateAgents(await res.json());
   };
 
-  // 编辑私有 Agent
   const handleEditPrivateAgent = async () => {
     if (!editingAgent) return;
     const res = await fetch(`http://localhost:3001/api/v1/projects/${projectId}/agents/private/${editingAgent.id}`, {
@@ -108,196 +105,496 @@ export function AgentsPage({ projectId }: { projectId: string }) {
     }
   };
 
-  if (loading) return <div className="p-8 text-center text-slate-500 font-medium animate-pulse">加载 Agent 列表中...</div>;
+  // 更新 Agent 的默认模型
+  const handleAgentModelChange = async (agentId: string, modelId: string) => {
+    setUpdatingAgentModel(agentId);
+    try {
+      const res = await fetch(`http://localhost:3001/api/v1/agents/${agentId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ defaultModelId: modelId })
+      });
+      if (res.ok) {
+        // 更新本地状态
+        setAllGlobalAgents(prev => prev.map(a => 
+          a.id === agentId ? { ...a, defaultModelId: modelId } : a
+        ));
+        setProjectPrivateAgents(prev => prev.map(a => 
+          a.id === agentId ? { ...a, defaultModelId: modelId } : a
+        ));
+      }
+    } catch (err) {
+      console.error('更新模型失败:', err);
+    }
+    setUpdatingAgentModel(null);
+  };
+
+  if (loading) return (
+    <div className="relative min-h-screen w-full overflow-hidden">
+      <div className="absolute inset-0 bg-gradient-to-br from-slate-50 via-white to-cyan-50/30" />
+      <div className="absolute inset-0">
+        {[...Array(6)].map((_, i) => (
+          <div key={i} className="absolute h-px bg-gradient-to-r from-transparent via-cyan-200/40 to-transparent"
+            style={{ top: `${15 + i * 15}%`, animation: `scanline 3s ease-in-out ${i * 0.2}s infinite` }} />
+        ))}
+      </div>
+      <div className="relative flex items-center justify-center h-[70vh]">
+        <div className="text-center space-y-4">
+          <div className="relative w-20 h-20 mx-auto">
+            <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-cyan-500 to-teal-600 animate-pulse opacity-20" />
+            <div className="absolute inset-2 rounded-xl bg-white shadow-lg shadow-cyan-500/20 flex items-center justify-center">
+              <Bot className="w-8 h-8 text-cyan-500 animate-bounce" />
+            </div>
+          </div>
+          <p className="text-sm font-medium text-slate-500 tracking-wide">加载 Agent 列表中...</p>
+        </div>
+      </div>
+    </div>
+  );
 
   return (
-    <div className="space-y-10 pb-20">
+    <div className="relative min-h-screen w-full overflow-hidden pb-20">
+      {/* Atmospheric Background */}
+      <div className="absolute inset-0 bg-gradient-to-br from-slate-50 via-white to-cyan-50/40" />
+      <div className="absolute inset-0 opacity-[0.015]" 
+        style={{ backgroundImage: 'radial-gradient(circle at 2px 2px, #0f172a 1px, transparent 0)', backgroundSize: '32px 32px' }} />
+      
+      {/* Ambient Orbs */}
+      <div className="absolute top-0 left-0 w-[500px] h-[500px] rounded-full bg-gradient-to-br from-cyan-100/50 to-blue-100/30 blur-3xl transform -translate-x-1/3 -translate-y-1/3" />
+      <div className="absolute bottom-20 right-0 w-[400px] h-[400px] rounded-full bg-gradient-to-tr from-teal-100/40 to-emerald-100/20 blur-3xl transform translate-x-1/2" />
+      
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-black text-slate-900 tracking-tight italic flex items-center gap-3">
-            <Bot className="h-7 w-7 text-primary-600" />
-            Agent 管理
-          </h1>
-          <p className="text-sm text-slate-500 font-medium mt-1">
-            已启用 {enabledAgents.length} 个 Agent（全局 + 私有）
-          </p>
-        </div>
-        <div className="flex gap-3">
-          <Button variant="outline" icon={Lock} onClick={() => setShowAddPrivate(true)}
-            className="rounded-2xl font-black text-[10px] tracking-widest uppercase bg-amber-50 border-amber-200 text-amber-700">
-            添加私有 Agent
-          </Button>
-          <div className="relative group">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-            <input placeholder="搜索 Agent..." className="pl-9 pr-4 py-2.5 bg-white border border-slate-100 rounded-xl text-xs font-bold outline-none focus:border-primary-400 w-56"
-              value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
-          </div>
-        </div>
-      </div>
-
-      {/* 私有 Agent 弹窗 */}
-      {showAddPrivate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowAddPrivate(false)} />
-          <div className="relative z-10 w-full max-w-2xl bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between px-8 pt-8 pb-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 bg-amber-50 rounded-xl"><Lock className="h-5 w-5 text-amber-600" /></div>
-                <div>
-                  <h2 className="text-lg font-black text-slate-900 tracking-tight">添加项目私有 Agent</h2>
-                  <p className="text-xs text-slate-400 font-medium mt-0.5">仅当前项目可用，不会影响其他项目</p>
-                </div>
+      <div className={`relative pt-12 px-8 pb-8 transition-all duration-700 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
+        <div className="max-w-7xl mx-auto">
+          <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
+            <div className="space-y-3">
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-cyan-50 text-cyan-600 text-xs font-bold tracking-wide">
+                <Users className="w-3.5 h-3.5" />
+                项目配置
               </div>
-              <button onClick={() => setShowAddPrivate(false)} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition">
-                <X className="h-5 w-5" />
+              <h1 className="text-5xl font-black tracking-tight text-slate-900">
+                <span className="bg-gradient-to-r from-slate-900 via-cyan-900 to-slate-900 bg-clip-text">
+                  Agent 管理
+                </span>
+              </h1>
+              <p className="text-base text-slate-500 font-medium max-w-xl leading-relaxed">
+                智能体编排与协作：配置专属 AI Agent，定义角色能力与工作边界
+              </p>
+            </div>
+            
+            <div className="flex flex-col sm:flex-row gap-4 items-stretch sm:items-center">
+              <button
+                onClick={() => setShowAddPrivate(true)}
+                className="group relative inline-flex items-center gap-2 px-6 py-3 rounded-2xl bg-gradient-to-r from-rose-500 to-pink-500 text-white font-bold text-sm shadow-lg shadow-rose-500/25 hover:shadow-xl hover:shadow-rose-500/30 transition-all duration-300 hover:-translate-y-0.5 active:translate-y-0"
+              >
+                <span className="absolute inset-0 rounded-2xl bg-gradient-to-r from-rose-600 to-pink-600 opacity-0 group-hover:opacity-100 transition-opacity" />
+                <Lock className="w-4 h-4 relative" />
+                <span className="relative">添加私有 Agent</span>
               </button>
-            </div>
-            <div className="px-8 pb-8 space-y-5">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Agent 名称 <span className="text-rose-400">*</span></label>
-                  <input type="text" className="w-full px-4 py-3 rounded-2xl bg-slate-50 border-0 outline-none focus:ring-4 focus:ring-amber-50 text-sm font-bold transition-all" 
-                    placeholder="例如：我的专属助手" value={privateAgentForm.name} onChange={e => setPrivateAgentForm({...privateAgentForm, name: e.target.value})} />
+              
+              <div className="relative group">
+                <div className="absolute -inset-0.5 bg-gradient-to-r from-cyan-500 to-teal-500 rounded-2xl opacity-0 group-focus-within:opacity-100 transition duration-300" />
+                <div className="relative flex items-center bg-white rounded-2xl border border-slate-200/80 shadow-sm">
+                  <Search className="w-4 h-4 text-slate-400 ml-4" />
+                  <input 
+                    placeholder="搜索 Agent..." 
+                    className="w-64 px-4 py-3 bg-transparent text-sm font-medium text-slate-700 outline-none placeholder:text-slate-400"
+                    value={searchQuery} 
+                    onChange={e => setSearchQuery(e.target.value)} 
+                  />
                 </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">角色定位</label>
-                  <input type="text" className="w-full px-4 py-3 rounded-2xl bg-slate-50 border-0 outline-none focus:ring-4 focus:ring-amber-50 text-sm font-bold transition-all" 
-                    placeholder="例如：资深前端工程师" value={privateAgentForm.role} onChange={e => setPrivateAgentForm({...privateAgentForm, role: e.target.value})} />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Agent 职责描述</label>
-                <textarea className="w-full h-32 p-4 rounded-2xl bg-slate-50 border-0 outline-none focus:ring-4 focus:ring-amber-50 text-sm font-medium transition-all" 
-                  placeholder="描述该 Agent 擅长的领域、规则或工作流程..." value={privateAgentForm.description} onChange={e => setPrivateAgentForm({...privateAgentForm, description: e.target.value})} />
-              </div>
-              <div className="flex justify-end gap-3 pt-2">
-                <Button variant="outline" onClick={() => setShowAddPrivate(false)}>取消</Button>
-                <Button icon={Save} onClick={handleAddPrivateAgent} disabled={savingPrivate}>{savingPrivate ? '保存中...' : '保存私有 Agent'}</Button>
               </div>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* 已启用的 Agent 列表 */}
-      {enabledAgents.length > 0 && (
-        <Card className="p-8 border-primary-100 bg-gradient-to-r from-primary-50/30 to-white shadow-sm rounded-[32px]">
-          <div className="flex items-center gap-3 mb-6">
-            <CheckCircle2 className="h-5 w-5 text-primary-600" />
-            <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">已启用的 Agent</h3>
-            <Badge status="success" className="font-black px-3 py-1 scale-90">{enabledAgents.length}</Badge>
+          
+          {/* Stats Bar */}
+          <div className="mt-8 flex flex-wrap gap-4">
+            <div className="inline-flex items-center gap-3 px-5 py-2.5 rounded-2xl bg-white border border-slate-200/60 shadow-sm">
+              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="text-sm font-semibold text-slate-700">{enabledAgents.length} 个已启用</span>
+            </div>
+            <div className="inline-flex items-center gap-3 px-5 py-2.5 rounded-2xl bg-white border border-slate-200/60 shadow-sm">
+              <div className="w-2 h-2 rounded-full bg-cyan-500" />
+              <span className="text-sm font-semibold text-slate-700">{allGlobalAgents.length} 个全局 Agent</span>
+            </div>
+            {projectPrivateAgents.length > 0 && (
+              <div className="inline-flex items-center gap-3 px-5 py-2.5 rounded-2xl bg-rose-50 border border-rose-200/60">
+                <div className="w-2 h-2 rounded-full bg-rose-500" />
+                <span className="text-sm font-semibold text-rose-700">{projectPrivateAgents.length} 个私有 Agent</span>
+              </div>
+            )}
           </div>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {enabledAgents.map((agent) => (
-              <Card key={agent.id} className="p-6 group border-primary-100 bg-white hover:border-primary-300 transition-all rounded-3xl">
-                <div className="flex items-start justify-between mb-4">
-                  <div className="p-3 rounded-xl bg-primary-50 text-primary-600"><Bot className="h-5 w-5" /></div>
-                  <div className="flex items-center gap-2">
-                    {agent.isPrivate && <Badge status="warning" className="font-black px-2 py-0.5 text-[8px]">私有</Badge>}
-                    {agent.isPrivate ? (
-                      <>
-                        <button onClick={() => setEditingAgent(agent)} className="p-2 text-slate-300 hover:text-primary-600 hover:bg-primary-50 rounded-xl opacity-0 group-hover:opacity-100 transition-all">
-                          <Edit3 className="h-4 w-4" />
-                        </button>
-                        <button onClick={() => handleDeletePrivateAgent(agent.id)} className="p-2 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-xl opacity-0 group-hover:opacity-100 transition-all">
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </>
-                    ) : (
-                      <Badge status="default" className="font-black px-2 py-0.5 text-[8px] bg-emerald-50 text-emerald-600">全局</Badge>
-                    )}
-                  </div>
-                </div>
-                <h4 className="text-base font-black text-slate-900 mb-1">{agent.name}</h4>
-                <p className="text-[10px] text-primary-600 font-black uppercase tracking-wider mb-2">{agent.role || 'General'}</p>
-                <p className="text-xs text-slate-500 font-medium line-clamp-2">{agent.description}</p>
-              </Card>
-            ))}
-          </div>
-        </Card>
-      )}
-
-      {/* 全局 Agent 列表 */}
-      <div className="space-y-6">
-        <div className="flex items-center gap-3">
-          <Globe className="h-5 w-5 text-slate-400" />
-          <h3 className="text-sm font-black text-slate-700 uppercase tracking-widest">全局 Agent 库</h3>
-          <Badge status="default" className="font-black px-3 py-1 scale-90">{allGlobalAgents.length}</Badge>
-        </div>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {filteredGlobalAgents.map((agent) => {
-            const isEnabled = enabledAgentIds.includes(agent.id);
-            return (
-              <Card key={agent.id} className={`p-6 group transition-all rounded-3xl border ${isEnabled ? 'border-primary-500 bg-primary-50/20 shadow-md' : 'border-slate-100 bg-white hover:border-slate-200'}`}>
-                <div className="flex items-start justify-between mb-4">
-                  <div className={`p-3 rounded-xl transition-all ${isEnabled ? 'bg-primary-600 text-white' : 'bg-slate-50 text-slate-400 group-hover:bg-primary-50 group-hover:text-primary-600'}`}>
-                    <Bot className="h-5 w-5" />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {isEnabled && <Badge status="success" className="font-black px-2 py-0.5 text-[8px]">已启用</Badge>}
-                  </div>
-                </div>
-                <h4 className="text-base font-black text-slate-900 mb-1">{agent.name}</h4>
-                <p className="text-[10px] text-slate-500 font-black uppercase tracking-wider mb-2">{agent.role || 'General'}</p>
-                <p className="text-xs text-slate-500 font-medium line-clamp-2">{agent.description}</p>
-                <div className="mt-4 pt-4 border-t border-slate-100">
-                  <Button 
-                    variant={isEnabled ? 'outline' : 'primary'} 
-                    size="sm" 
-                    onClick={() => toggleGlobalAgent(agent.id)} 
-                    className={`w-full rounded-xl font-black ${isEnabled ? 'border-primary-200 text-primary-600' : ''}`}
-                    icon={isEnabled ? Unlock : Lock}
-                  >
-                    {isEnabled ? '禁用' : '启用'}
-                  </Button>
-                </div>
-              </Card>
-            );
-          })}
         </div>
       </div>
+
+      {/* Main Content */}
+      <div className="relative px-8 max-w-7xl mx-auto">
+        
+        {/* 已启用的 Agent */}
+        {enabledAgents.length > 0 && (
+          <section className={`mb-12 transition-all duration-700 delay-100 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-2 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 shadow-lg shadow-emerald-500/25">
+                <CheckCircle2 className="w-4 h-4 text-white" />
+              </div>
+              <h2 className="text-lg font-bold text-slate-900 tracking-tight">已启用的 Agent</h2>
+              <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold">{enabledAgents.length}</span>
+            </div>
+            
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {enabledAgents.map((agent, idx) => (
+                <div 
+                  key={agent.id}
+                  className="group relative rounded-3xl p-6 bg-gradient-to-br from-emerald-50/80 to-teal-50/40 border border-emerald-200/50 hover:border-emerald-300 transition-all duration-300 hover:shadow-lg hover:shadow-emerald-500/10 hover:-translate-y-1"
+                  style={{ animationDelay: `${idx * 50}ms` }}
+                >
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="p-3 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-500 text-white shadow-lg">
+                      <Bot className="w-5 h-5" />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {agent.isPrivate && (
+                        <span className="px-2 py-1 rounded-lg bg-rose-100 text-rose-700 text-[10px] font-bold">私有</span>
+                      )}
+                      {!agent.isPrivate && (
+                        <span className="px-2 py-1 rounded-lg bg-cyan-100 text-cyan-700 text-[10px] font-bold">全局</span>
+                      )}
+                    </div>
+                  </div>
+                  
+                  <h3 className="text-lg font-bold text-slate-900 mb-1">{agent.name}</h3>
+                  <p className="text-xs text-emerald-600 font-semibold uppercase tracking-wider mb-2">{agent.role || 'General'}</p>
+                  <p className="text-sm text-slate-600 leading-relaxed line-clamp-2">{agent.description}</p>
+                  
+                  {/* 默认模型选择 */}
+                  <div className="mt-4 pt-4 border-t border-emerald-200/50">
+                    <label className="text-[10px] font-bold uppercase text-slate-400 tracking-wider block mb-2">默认模型</label>
+                    <select
+                      className="w-full px-3 py-2 rounded-xl bg-white border border-emerald-200 text-sm font-medium text-slate-700 outline-none focus:border-emerald-400"
+                      value={agent.defaultModelId || ''}
+                      onChange={(e) => handleAgentModelChange(agent.id, e.target.value)}
+                      disabled={updatingAgentModel === agent.id}
+                    >
+                      <option value="">跟随项目默认</option>
+                      {models.map(m => (
+                        <option key={m.id} value={m.id}>{m.name} ({m.provider})</option>
+                      ))}
+                    </select>
+                  </div>
+                  
+                  {agent.isPrivate && (
+                    <div className="mt-4 flex items-center gap-2">
+                      <button 
+                        onClick={() => setEditingAgent(agent)} 
+                        className="p-2 rounded-xl text-slate-400 hover:text-cyan-600 hover:bg-cyan-50 transition-colors"
+                      >
+                        <Edit3 className="w-4 h-4" />
+                      </button>
+                      <button 
+                        onClick={() => handleDeletePrivateAgent(agent.id)} 
+                        className="p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* 全局 Agent 网格 */}
+        <section className={`transition-all duration-700 delay-200 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
+          <div className="flex items-center gap-3 mb-6">
+            <div className="p-2 rounded-xl bg-gradient-to-br from-cyan-500 to-teal-500 shadow-lg shadow-cyan-500/25">
+              <Globe className="w-4 h-4 text-white" />
+            </div>
+            <h2 className="text-lg font-bold text-slate-900 tracking-tight">全局 Agent 库</h2>
+            <span className="px-2.5 py-1 rounded-full bg-cyan-100 text-cyan-700 text-xs font-bold">{filteredGlobalAgents.length}</span>
+          </div>
+          
+          {filteredGlobalAgents.length === 0 ? (
+            <div className="text-center py-16 rounded-3xl bg-slate-50/50 border border-slate-200/50">
+              <Sparkles className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+              <p className="text-slate-500 font-medium">没有找到匹配的 Agent</p>
+            </div>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {filteredGlobalAgents.map((agent, idx) => {
+                const isEnabled = enabledAgentIds.includes(agent.id);
+                return (
+                  <div 
+                    key={agent.id}
+                    className={`group relative rounded-3xl p-6 transition-all duration-300 hover:-translate-y-1 ${
+                      isEnabled 
+                        ? 'bg-gradient-to-br from-cyan-50/80 to-teal-50/40 border-2 border-cyan-400/50 shadow-lg shadow-cyan-500/10' 
+                        : 'bg-white border border-slate-200/60 hover:border-cyan-300 hover:shadow-lg hover:shadow-cyan-500/5'
+                    }`}
+                    style={{ animationDelay: `${idx * 30}ms` }}
+                  >
+                    {/* 状态指示 */}
+                    {isEnabled && (
+                      <div className="absolute top-4 right-4">
+                        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500 text-white text-[10px] font-bold">
+                          <div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                          ACTIVE
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* 图标 */}
+                    <div className={`p-3 rounded-2xl mb-4 transition-all duration-300 ${
+                      isEnabled 
+                        ? 'bg-gradient-to-br from-cyan-500 to-teal-600 text-white shadow-lg shadow-cyan-500/30' 
+                        : 'bg-slate-100 text-slate-500 group-hover:bg-cyan-100 group-hover:text-cyan-600'
+                    }`}>
+                      <Bot className="w-6 h-6" />
+                    </div>
+                    
+                    {/* 内容 */}
+                    <h3 className="text-xl font-bold text-slate-900 mb-1 pr-16">{agent.name}</h3>
+                    <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider mb-3">{agent.role || 'General'}</p>
+                    <p className="text-sm text-slate-600 leading-relaxed mb-4 min-h-[48px] line-clamp-2">{agent.description}</p>
+                    
+                    {/* 默认模型选择 */}
+                    <div className="mb-4">
+                      <label className="text-[10px] font-bold uppercase text-slate-400 tracking-wider block mb-2">默认模型</label>
+                      <select
+                        className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-sm font-medium text-slate-700 outline-none focus:border-cyan-400"
+                        value={agent.defaultModelId || ''}
+                        onChange={(e) => handleAgentModelChange(agent.id, e.target.value)}
+                        disabled={updatingAgentModel === agent.id}
+                      >
+                        <option value="">跟随项目默认</option>
+                        {models.map(m => (
+                          <option key={m.id} value={m.id}>{m.name} ({m.provider})</option>
+                        ))}
+                      </select>
+                    </div>
+                    
+                    {/* 操作区域 */}
+                    <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
+                      <button
+                        onClick={() => toggleGlobalAgent(agent.id)}
+                        className={`px-5 py-2 rounded-xl font-bold text-sm transition-all duration-200 ${
+                          isEnabled 
+                            ? 'bg-white text-slate-600 hover:bg-rose-50 hover:text-rose-600 border border-slate-200' 
+                            : 'bg-gradient-to-r from-cyan-500 to-teal-600 text-white hover:from-cyan-600 hover:to-teal-700 shadow-lg shadow-cyan-500/25'
+                        }`}
+                      >
+                        {isEnabled ? '禁用' : '启用'}
+                      </button>
+                      {isEnabled && (
+                        <button 
+                          onClick={() => toggleGlobalAgent(agent.id)}
+                          className="p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                        >
+                          <Unlock className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      </div>
+
+      {/* 添加私有 Agent 弹窗 */}
+      {showAddPrivate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-8">
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowAddPrivate(false)} />
+          <div className="relative z-10 w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden">
+            {/* 弹窗头部 */}
+            <div className="relative px-8 pt-8 pb-6 bg-gradient-to-br from-rose-50 to-pink-50 border-b border-rose-100">
+              <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-rose-200/30 to-pink-200/20 rounded-full blur-2xl transform translate-x-1/2 -translate-y-1/2" />
+              <div className="relative flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="p-3 rounded-2xl bg-gradient-to-br from-rose-500 to-pink-500 shadow-lg shadow-rose-500/25">
+                    <Lock className="w-6 h-6 text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-slate-900">添加项目私有 Agent</h2>
+                    <p className="text-sm text-slate-500 mt-0.5">仅当前项目可用，不会影响其他项目</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setShowAddPrivate(false)} 
+                  className="p-2 rounded-xl hover:bg-white/50 text-slate-400 hover:text-slate-600 transition"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+            
+            {/* 弹窗内容 */}
+            <div className="px-8 pb-8 space-y-6">
+              <div className="grid gap-6 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Agent 名称 <span className="text-rose-500">*</span></label>
+                  <input 
+                    type="text" 
+                    className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 focus:border-rose-400 focus:ring-4 focus:ring-rose-50 outline-none transition-all font-medium"
+                    placeholder="例如：我的专属助手"
+                    value={privateAgentForm.name} 
+                    onChange={e => setPrivateAgentForm({...privateAgentForm, name: e.target.value})} 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">角色定位</label>
+                  <input 
+                    type="text" 
+                    className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 focus:border-rose-400 focus:ring-4 focus:ring-rose-50 outline-none transition-all font-medium"
+                    placeholder="例如：资深前端工程师"
+                    value={privateAgentForm.role} 
+                    onChange={e => setPrivateAgentForm({...privateAgentForm, role: e.target.value})} 
+                  />
+                </div>
+              </div>
+              
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Agent 职责描述</label>
+                <textarea 
+                  className="w-full h-32 p-5 rounded-xl bg-slate-50 border border-slate-200 focus:border-rose-400 focus:ring-4 focus:ring-rose-50 outline-none transition-all font-medium text-sm resize-none"
+                  placeholder="描述该 Agent 擅长的领域、规则或工作流程..."
+                  value={privateAgentForm.description} 
+                  onChange={e => setPrivateAgentForm({...privateAgentForm, description: e.target.value})} 
+                />
+              </div>
+              
+              <div className="flex justify-end gap-3 pt-2">
+                <button 
+                  onClick={() => setShowAddPrivate(false)}
+                  className="px-5 py-2.5 rounded-xl font-bold text-sm text-slate-600 hover:bg-slate-100 transition-colors"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={handleAddPrivateAgent}
+                  disabled={savingPrivate}
+                  className="group relative px-6 py-2.5 rounded-xl font-bold text-sm text-white shadow-lg shadow-rose-500/25 disabled:opacity-50 disabled:cursor-not-allowed transition-all hover:shadow-xl hover:shadow-rose-500/30"
+                >
+                  <span className="absolute inset-0 rounded-xl bg-gradient-to-r from-rose-600 to-pink-600 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  <span className="relative flex items-center gap-2">
+                    <Save className="w-4 h-4" />
+                    {savingPrivate ? '保存中...' : '保存私有 Agent'}
+                  </span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 编辑私有 Agent 弹窗 */}
       {editingAgent && editingAgent.isPrivate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setEditingAgent(null)} />
-          <div className="relative z-10 w-full max-w-2xl bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between px-8 pt-8 pb-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 bg-amber-50 rounded-xl"><Lock className="h-5 w-5 text-amber-600" /></div>
-                <h2 className="text-lg font-black text-slate-900 tracking-tight">编辑私有 Agent</h2>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-8">
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setEditingAgent(null)} />
+          <div className="relative z-10 w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden">
+            {/* 弹窗头部 */}
+            <div className="relative px-8 pt-8 pb-6 bg-gradient-to-br from-cyan-50 to-teal-50 border-b border-cyan-100">
+              <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-cyan-200/30 to-teal-200/20 rounded-full blur-2xl transform translate-x-1/2 -translate-y-1/2" />
+              <div className="relative flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="p-3 rounded-2xl bg-gradient-to-br from-cyan-500 to-teal-500 shadow-lg shadow-cyan-500/25">
+                    <Edit3 className="w-6 h-6 text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-slate-900">编辑私有 Agent</h2>
+                    <p className="text-sm text-slate-500 mt-0.5">修改 Agent 配置信息</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setEditingAgent(null)} 
+                  className="p-2 rounded-xl hover:bg-white/50 text-slate-400 hover:text-slate-600 transition"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
-              <button onClick={() => setEditingAgent(null)} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition">
-                <X className="h-5 w-5" />
-              </button>
             </div>
-            <div className="px-8 pb-8 space-y-5">
-              <div className="grid gap-4 sm:grid-cols-2">
+            
+            {/* 弹窗内容 */}
+            <div className="px-8 pb-8 space-y-6">
+              <div className="grid gap-6 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Agent 名称</label>
-                  <input type="text" className="w-full px-4 py-3 rounded-2xl bg-slate-50 border-0 outline-none focus:ring-4 focus:ring-amber-50 text-sm font-bold transition-all" 
-                    value={editingAgent.name} onChange={e => setEditingAgent({...editingAgent, name: e.target.value})} />
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Agent 名称</label>
+                  <input 
+                    type="text" 
+                    className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 focus:border-cyan-400 focus:ring-4 focus:ring-cyan-50 outline-none transition-all font-medium"
+                    value={editingAgent.name} 
+                    onChange={e => setEditingAgent({...editingAgent, name: e.target.value})} 
+                  />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">角色定位</label>
-                  <input type="text" className="w-full px-4 py-3 rounded-2xl bg-slate-50 border-0 outline-none focus:ring-4 focus:ring-amber-50 text-sm font-bold transition-all" 
-                    value={editingAgent.role} onChange={e => setEditingAgent({...editingAgent, role: e.target.value})} />
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">角色定位</label>
+                  <input 
+                    type="text" 
+                    className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 focus:border-cyan-400 focus:ring-4 focus:ring-cyan-50 outline-none transition-all font-medium"
+                    value={editingAgent.role} 
+                    onChange={e => setEditingAgent({...editingAgent, role: e.target.value})} 
+                  />
                 </div>
               </div>
+              
               <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Agent 职责描述</label>
-                <textarea className="w-full h-32 p-4 rounded-2xl bg-slate-50 border-0 outline-none focus:ring-4 focus:ring-amber-50 text-sm font-medium transition-all" 
-                  value={editingAgent.description} onChange={e => setEditingAgent({...editingAgent, description: e.target.value})} />
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Agent 职责描述</label>
+                <textarea 
+                  className="w-full h-32 p-5 rounded-xl bg-slate-50 border border-slate-200 focus:border-cyan-400 focus:ring-4 focus:ring-cyan-50 outline-none transition-all font-medium text-sm resize-none"
+                  value={editingAgent.description} 
+                  onChange={e => setEditingAgent({...editingAgent, description: e.target.value})} 
+                />
               </div>
+              
               <div className="flex justify-end gap-3 pt-2">
-                <Button variant="outline" onClick={() => setEditingAgent(null)}>取消</Button>
-                <Button icon={Save} onClick={handleEditPrivateAgent}>保存修改</Button>
+                <button 
+                  onClick={() => setEditingAgent(null)}
+                  className="px-5 py-2.5 rounded-xl font-bold text-sm text-slate-600 hover:bg-slate-100 transition-colors"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={handleEditPrivateAgent}
+                  className="group relative px-6 py-2.5 rounded-xl font-bold text-sm text-white shadow-lg shadow-cyan-500/25 transition-all hover:shadow-xl hover:shadow-cyan-500/30"
+                >
+                  <span className="absolute inset-0 rounded-xl bg-gradient-to-r from-cyan-600 to-teal-600 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  <span className="relative flex items-center gap-2">
+                    <Save className="w-4 h-4" />
+                    保存修改
+                  </span>
+                </button>
               </div>
             </div>
           </div>
         </div>
       )}
+
+      {/* 全局动画样式 */}
+      <style>{`
+        @keyframes scanline {
+          0%, 100% { opacity: 0.3; transform: translateX(-100%); }
+          50% { opacity: 0.6; transform: translateX(100%); }
+        }
+        
+        @keyframes float {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-10px); }
+        }
+        
+        @keyframes glow {
+          0%, 100% { opacity: 0.5; }
+          50% { opacity: 1; }
+        }
+        
+        .animate-float {
+          animation: float 6s ease-in-out infinite;
+        }
+        
+        .animate-glow {
+          animation: glow 2s ease-in-out infinite;
+        }
+      `}</style>
     </div>
   );
 }

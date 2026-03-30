@@ -1,5 +1,5 @@
-import { Settings, Shield, Cpu, Save, Trash2, Layout, Bot, Globe, Users, Star, Plus, X, Sparkles, FolderOpen, ChevronRight } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { Settings, Shield, Cpu, Save, Trash2, Layout, Bot, Globe, Users, Star, Plus, X, Sparkles, FolderOpen, ChevronRight, Search, ChevronDown } from 'lucide-react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Card, Button } from '../components/ui';
 
 export function SettingsPage({ projectId, onSaved }: { projectId: string, onSaved?: () => void }) {
@@ -23,6 +23,33 @@ export function SettingsPage({ projectId, onSaved }: { projectId: string, onSave
 
   // 主协调 Agent 状态
   const [coordinatorAgentId, setCoordinatorAgentId] = useState<string | null>(null);
+
+  // 默认模型搜索
+  const [modelSearchOpen, setModelSearchOpen] = useState(false);
+  const [modelSearchQuery, setModelSearchQuery] = useState('');
+  const modelSearchRef = useRef<HTMLDivElement>(null);
+
+  // 过滤模型列表
+  const filteredModels = useMemo(() => {
+    if (!modelSearchQuery.trim()) return models;
+    const query = modelSearchQuery.toLowerCase();
+    return models.filter(m => 
+      m.name?.toLowerCase().includes(query) || 
+      m.provider?.toLowerCase().includes(query) ||
+      m.modelId?.toLowerCase().includes(query)
+    );
+  }, [models, modelSearchQuery]);
+
+  // 点击外部关闭搜索下拉
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (modelSearchRef.current && !modelSearchRef.current.contains(e.target as Node)) {
+        setModelSearchOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // 新建私有 Agent
   const [showNewAgentModal, setShowNewAgentModal] = useState(false);
@@ -267,13 +294,69 @@ export function SettingsPage({ projectId, onSaved }: { projectId: string, onSave
             <div className="p-8">
               <div className="space-y-2">
                 <label className="text-xs font-bold uppercase text-slate-400 tracking-wider">选择模型</label>
-                <select
-                  className="w-full px-5 py-4 rounded-2xl bg-slate-50 border border-slate-200 outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100 text-slate-800 font-medium transition-all appearance-none cursor-pointer"
-                  value={editState.defaultModel}
-                  onChange={e => setEditState({...editState, defaultModel: e.target.value})}
-                >
-                  {models.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-                </select>
+                
+                {/* 搜索下拉选择器 */}
+                <div className="relative" ref={modelSearchRef}>
+                  <div 
+                    className="w-full px-5 py-4 rounded-2xl bg-slate-50 border border-slate-200 outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100 text-slate-800 font-medium transition-all cursor-pointer flex items-center justify-between"
+                    onClick={() => setModelSearchOpen(!modelSearchOpen)}
+                  >
+                    <span>{models.find(m => m.id === editState.defaultModel)?.name || '请选择模型'}</span>
+                    <ChevronDown className={`h-5 w-5 text-slate-400 transition-transform ${modelSearchOpen ? 'rotate-180' : ''}`} />
+                  </div>
+                  
+                  {/* 下拉选项 */}
+                  {modelSearchOpen && (
+                    <div className="absolute z-50 w-full mt-2 bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
+                      {/* 搜索框 */}
+                      <div className="p-3 border-b border-slate-100" onClick={e => e.stopPropagation()}>
+                        <div className="relative">
+                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                          <input
+                            type="text"
+                            className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 outline-none focus:border-cyan-500 text-sm font-medium"
+                            placeholder="搜索模型..."
+                            value={modelSearchQuery}
+                            onChange={e => setModelSearchQuery(e.target.value)}
+                            autoFocus
+                          />
+                        </div>
+                      </div>
+                      
+                      {/* 选项列表 */}
+                      <div className="max-h-60 overflow-y-auto">
+                        {filteredModels.length > 0 ? (
+                          filteredModels.map(m => (
+                            <div
+                              key={m.id}
+                              className={`px-5 py-3 cursor-pointer flex items-center justify-between hover:bg-cyan-50 transition-colors ${
+                                m.id === editState.defaultModel ? 'bg-cyan-50' : ''
+                              }`}
+                              onClick={() => {
+                                setEditState({...editState, defaultModel: m.id});
+                                setModelSearchOpen(false);
+                                setModelSearchQuery('');
+                              }}
+                            >
+                              <div>
+                                <p className="font-medium text-slate-900">{m.name}</p>
+                                <p className="text-xs text-slate-500">{m.provider} · {m.modelId}</p>
+                              </div>
+                              {m.id === editState.defaultModel && (
+                                <span className="px-2 py-0.5 bg-cyan-100 text-cyan-700 text-xs font-bold rounded-lg">当前</span>
+                              )}
+                            </div>
+                          ))
+                        ) : (
+                          <div className="px-5 py-8 text-center text-slate-400 text-sm">
+                            未找到匹配的模型
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                
                 <p className="text-xs text-slate-400 mt-2">用于 Agent 推理的默认语言模型</p>
               </div>
             </div>
