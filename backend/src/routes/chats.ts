@@ -1,4 +1,6 @@
 import { FastifyInstance } from 'fastify';
+import * as path from 'path';
+import * as fs from 'fs';
 import { DbService } from '../services/DbService.js';
 import { FileToolService } from '../services/FileToolService.js';
 import { getBuiltinShellSkill, getBuiltinFileIOSkill } from '../services/BuiltinSkills.js';
@@ -12,6 +14,39 @@ type ToolCall = {
     arguments?: string;
   };
 };
+
+// ============================================
+// SSE 停止控制
+// ============================================
+
+// 存储每个对话的 abort 控制器
+const chatAbortControllers = new Map<string, AbortController>();
+
+function setAbortController(chatId: string, controller: AbortController) {
+  // 先取消之前的（如果存在）
+  const existing = chatAbortControllers.get(chatId);
+  if (existing) {
+    try { existing.abort(); } catch {}
+  }
+  chatAbortControllers.set(chatId, controller);
+}
+
+function clearAbortController(chatId: string) {
+  const existing = chatAbortControllers.get(chatId);
+  if (existing) {
+    try { existing.abort(); } catch {}
+    chatAbortControllers.delete(chatId);
+  }
+}
+
+function stopChat(chatId: string): boolean {
+  const controller = chatAbortControllers.get(chatId);
+  if (controller) {
+    controller.abort();
+    return true;
+  }
+  return false;
+}
 
 // ============================================
 // MEMORY.md 功能辅助函数
@@ -134,12 +169,12 @@ function getFileToolsForProject(project: any, teamAgents: any[] = [], coordinato
       type: 'function',
       function: {
         name: 'list_files',
-        description: 'List files/directories within the current project workspace.',
+        description: 'List directory contents. Takes: path (directory) + depth (optional, default 3).',
         parameters: {
           type: 'object',
           properties: {
-            path: { type: 'string', description: 'Relative path inside the project workspace. Default: .' },
-            depth: { type: 'number', description: 'Directory traversal depth. Default: 3' }
+            path: { type: 'string', description: 'Directory path. Use "." for current directory.' },
+            depth: { type: 'number', description: 'Depth level (1-10, default 3).' }
           }
         }
       }
@@ -148,13 +183,13 @@ function getFileToolsForProject(project: any, teamAgents: any[] = [], coordinato
       type: 'function',
       function: {
         name: 'read_file',
-        description: 'Read a text file from the current project workspace.',
+        description: 'Read file content. Takes: path + optional offset (start line) + limit (max lines).',
         parameters: {
           type: 'object',
           properties: {
-            path: { type: 'string', description: 'Relative file path inside the project workspace.' },
-            offset: { type: 'number', description: '1-based starting line number.' },
-            limit: { type: 'number', description: 'Maximum lines to read.' }
+            path: { type: 'string', description: 'File path to read.' },
+            offset: { type: 'number', description: 'Start from line N (default 1).' },
+            limit: { type: 'number', description: 'Max lines to read (default 200).' }
           },
           required: ['path']
         }
@@ -164,12 +199,12 @@ function getFileToolsForProject(project: any, teamAgents: any[] = [], coordinato
       type: 'function',
       function: {
         name: 'write_file',
-        description: '⚠️ IMPORTANT: You MUST include the content parameter with the FULL file content. Create or overwrite a file. Equivalent to: command="write" or command="create".',
+        description: 'Create or overwrite a file. Takes: path (file path) + content (file content). Multi-line content uses \\n for newlines.',
         parameters: {
           type: 'object',
           properties: {
-            path: { type: 'string', description: 'Relative file path inside the project workspace.' },
-            content: { type: 'string', description: '⚠️ REQUIRED - Full file content to write. Do NOT call this tool without content!' }
+            path: { type: 'string', description: 'File path to write (e.g., src/app.ts)' },
+            content: { type: 'string', description: 'File content. Use \\n for newlines.' }
           },
           required: ['path', 'content']
         }
@@ -179,12 +214,12 @@ function getFileToolsForProject(project: any, teamAgents: any[] = [], coordinato
       type: 'function',
       function: {
         name: 'edit_file',
-        description: 'Replace exact text in an existing file inside the current project workspace.',
+        description: 'Replace exact text in a file. Takes: path + oldText + newText.',
         parameters: {
           type: 'object',
           properties: {
-            path: { type: 'string', description: 'Relative file path inside the project workspace.' },
-            oldText: { type: 'string', description: 'Exact text to replace.' },
+            path: { type: 'string', description: 'File path (e.g., src/app.ts)' },
+            oldText: { type: 'string', description: 'Exact text to find and replace.' },
             newText: { type: 'string', description: 'Replacement text.' }
           },
           required: ['path', 'oldText', 'newText']
@@ -291,6 +326,39 @@ async function executeToolCall(project: any, toolCall: ToolCall, allProjectAgent
         } else {
           // Windows CMD 命令转换
           shellType = 'Windows CMD';
+          
+          // 检测 heredoc 语法 (cat > file << 'EOF' ... EOF 或 cat >> file << 'EOF' ... EOF)
+          const heredocMatch = command.match(/^(cat\s*>>?\s*)(\S+)\s*<<\s*'?(\w+)'?\s*\n([\s\S]*?)\n\3\s*$/);
+          if (heredocMatch) {
+            const append = heredocMatch[1].includes('>>');
+            let filePath = heredocMatch[2].trim();
+            const content = heredocMatch[4];
+            
+            // 路径转换：/ -> \
+            filePath = filePath.replace(/\//g, '\\');
+            
+            // 使用 Node.js 直接写入，避免 shell 字符串转义问题
+            console.log(`[shell-cmd -> Node.js heredoc] ${append ? 'append' : 'write'} ${filePath}`);
+            return new Promise((resolve) => {
+              try {
+                const fs = require('fs');
+                const fullPath = path.isAbsolute(filePath) ? filePath : path.join(cwd, filePath);
+                const dir = path.dirname(fullPath);
+                if (!fs.existsSync(dir)) {
+                  fs.mkdirSync(dir, { recursive: true });
+                }
+                if (append) {
+                  fs.appendFileSync(fullPath, content + '\n', 'utf8');
+                } else {
+                  fs.writeFileSync(fullPath, content + '\n', 'utf8');
+                }
+                resolve({ stdout: `✅ 文件已${append ? '追加' : '写入'}: ${filePath}`, stderr: '' });
+              } catch (e: any) {
+                resolve({ error: e.message, stdout: '', stderr: '' });
+              }
+            });
+          }
+          
           const commandMap: Record<string, string> = {
             'ls': 'dir',
             'ls -la': 'dir',
@@ -401,7 +469,9 @@ async function executeToolCall(project: any, toolCall: ToolCall, allProjectAgent
       const filePath = args.path;
       const fileContent = args.content;
       if (!filePath) return { error: '缺少参数: path' };
-      if (!fileContent) return { error: '缺少参数: content。请确保在调用 write_file 时包含完整的文件内容！' };
+      if (!fileContent) return { 
+        error: '❌ 缺少 content 参数！正确格式: {"path": "文件路径", "command": "write_file", "content": "这里是文件的完整内容"} 或 {"path": "文件路径", "command": "write", "content": "这里是文件的完整内容"}'
+      };
       const writeResult = await FileToolService.writeFile(project.workspace, filePath, fileContent);
       return { 
         success: true, 
@@ -876,6 +946,21 @@ export async function ChatRoutes(fastify: FastifyInstance) {
     reply.raw.setHeader('Access-Control-Allow-Origin', '*');
     reply.raw.write(`data: ${JSON.stringify({ chunk: '' })}\n\n`);
 
+    // 创建 AbortController 用于停止生成
+    const abortController = new AbortController();
+    setAbortController(chatId, abortController);
+    
+    // 监听 abort 信号
+    const onAbort = () => {
+      console.log(`[SSE Stop] Chat ${chatId} aborted by user`);
+      try {
+        reply.raw.write(`data: ${JSON.stringify({ chunk: '\n\n⏹️ 已停止生成' })}\n\n`);
+        reply.raw.write(`data: [DONE]\n\n`);
+        reply.raw.end();
+      } catch {}
+    };
+    abortController.signal.addEventListener('abort', onAbort);
+
     let fullAssistantContent = '';
 
     try {
@@ -1024,6 +1109,11 @@ export async function ChatRoutes(fastify: FastifyInstance) {
           `${agentRolePrompt}` +
           `${teamPrompt}` +
           `${memoryPrompt}` +
+          `\n\n## TOOL CALLING RULES\n` +
+          `- If a tool call fails, READ the error message carefully and FIX the arguments\n` +
+          `- For write_file: ALWAYS include BOTH path AND content parameters. Example: {"path": "file.ts", "content": "full file content here"}\n` +
+          `- If you get "missing content parameter" error, retry with content included\n` +
+          `- For edit_file: include path, oldText (exact text to find), and newText\n` +
           `\n\n## IMPORTANT RULES\n` +
           `- When a task requires specific expertise, delegate it to the appropriate team member\n` +
           `- Always use read_file before editing files\n` +
@@ -1201,7 +1291,8 @@ export async function ChatRoutes(fastify: FastifyInstance) {
                   'Content-Type': 'application/json', 
                   'Authorization': `Bearer ${modelCfg.apiKey}` 
                 },
-                body: JSON.stringify(reqBody)
+                body: JSON.stringify(reqBody),
+                signal: abortController.signal
               });
 
               if (!res.ok) {
@@ -1351,10 +1442,35 @@ export async function ChatRoutes(fastify: FastifyInstance) {
       reply.raw.write(`data: [DONE]\n\n`);
     } catch (err: any) {
       console.error('[SSE Error Final]', err.message);
-      reply.raw.write(`data: ${JSON.stringify({ chunk: `\n\n❌ 彻底失败: ${err.message}` })}\n\n`);
-      reply.raw.write(`data: [DONE]\n\n`);
+      // 检查是否是用户停止
+      if (err.name === 'AbortError' || err.message?.includes('aborted')) {
+        console.log(`[SSE] Chat ${chatId} was stopped by user`);
+      } else {
+        reply.raw.write(`data: ${JSON.stringify({ chunk: `\n\n❌ 彻底失败: ${err.message}` })}\n\n`);
+        reply.raw.write(`data: [DONE]\n\n`);
+      }
     } finally {
-      reply.raw.end();
+      // 清理 abort 监听器和控制器
+      abortController.signal.removeEventListener('abort', onAbort);
+      clearAbortController(chatId);
+      try { reply.raw.end(); } catch {}
+    }
+  });
+
+  // ============================================
+  // POST /:id/stop - 停止对话生成
+  // ============================================
+  fastify.post('/:id/stop', async (request, reply) => {
+    const { id: chatId } = request.params as any;
+    console.log(`[Stop] Request to stop chat ${chatId}`);
+    
+    const stopped = stopChat(chatId);
+    if (stopped) {
+      console.log(`[Stop] Successfully stopped chat ${chatId}`);
+      return { success: true, message: '已停止生成' };
+    } else {
+      console.log(`[Stop] No active chat found for ${chatId}`);
+      return { success: false, message: '没有正在进行的生成' };
     }
   });
 }
