@@ -268,6 +268,16 @@ export function ChatDetailPage({ projectId, chatId, onMinimize }: { projectId: s
     return text;
   };
 
+  const handleStop = async () => {
+    if (!chatId) return;
+    try {
+      await fetch(`http://localhost:3001/api/v1/chats/${chatId}/stop`, { method: 'POST' });
+      setIsTyping(false);
+    } catch (err) {
+      console.error('Stop failed:', err);
+    }
+  };
+
   const handleSend = async () => {
     const text = buildUserContent();
     if (!text && attachments.length === 0) return;
@@ -743,17 +753,26 @@ export function ChatDetailPage({ projectId, chatId, onMinimize }: { projectId: s
                 >
                   {isRecording ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
                 </button>
-                <button
-                  onClick={handleSend}
-                  disabled={!canSend}
-                  className={`p-3 rounded-2xl shadow-lg transition-all ${
-                    canSend 
-                      ? 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 hover:scale-105 active:scale-95 shadow-indigo-200' 
-                      : 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                  }`}
-                >
-                  <SendHorizonal className="h-5 w-5 text-white" />
-                </button>
+                {isTyping ? (
+                  <button
+                    onClick={handleStop}
+                    className="p-3 rounded-2xl shadow-lg transition-all bg-gradient-to-r from-red-500 to-rose-500 hover:from-red-600 hover:to-rose-600 hover:scale-105 active:scale-95 shadow-red-200"
+                  >
+                    <Square className="h-5 w-5 text-white" />
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleSend}
+                    disabled={!canSend}
+                    className={`p-3 rounded-2xl shadow-lg transition-all ${
+                      canSend 
+                        ? 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 hover:scale-105 active:scale-95 shadow-indigo-200' 
+                        : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                    }`}
+                  >
+                    <SendHorizonal className="h-5 w-5 text-white" />
+                  </button>
+                )}
               </div>
             </div>
           </div>
