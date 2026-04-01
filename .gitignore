@@ -1,1 +1,6 @@
-node_modules/\ndist/\n.env\n*.bak\ndata/db.json
+node_modules/
+dist/
+.env
+*.bak
+data/db.json
+.idea/

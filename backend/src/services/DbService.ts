@@ -419,4 +419,86 @@ export class DbService {
     }
     return project.projectSkills;
   }
+
+  // ============================================================
+  // 心跳 (Heartbeat) 管理
+  // ============================================================
+
+  static async getProjectHeartbeats(projectId: string) {
+    const db = await this.load();
+    if (!db.heartbeats) db.heartbeats = [];
+    return db.heartbeats.filter((h: any) => h.projectId === projectId);
+  }
+
+  static async getHeartbeat(id: string) {
+    const db = await this.load();
+    if (!db.heartbeats) return null;
+    return db.heartbeats.find((h: any) => h.id === id);
+  }
+
+  static async createHeartbeat(config: any) {
+    const db = await this.load();
+    if (!db.heartbeats) db.heartbeats = [];
+    const newHeartbeat = {
+      id: `hb_${Date.now()}`,
+      projectId: config.projectId,
+      name: config.name || '心跳任务',
+      description: config.description || '',
+      cronExpression: config.cronExpression || '',
+      intervalMinutes: config.intervalMinutes || 30,
+      prompt: config.prompt || '请检查项目状态，确认是否有需要处理的事项。',
+      enabled: config.enabled !== false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    db.heartbeats.push(newHeartbeat);
+    await this.save();
+    return newHeartbeat;
+  }
+
+  static async updateHeartbeat(id: string, updates: any) {
+    const db = await this.load();
+    if (!db.heartbeats) db.heartbeats = [];
+    const index = db.heartbeats.findIndex((h: any) => h.id === id);
+    if (index !== -1) {
+      db.heartbeats[index] = {
+        ...db.heartbeats[index],
+        ...updates,
+        updatedAt: new Date().toISOString()
+      };
+      await this.save();
+      return db.heartbeats[index];
+    }
+    return null;
+  }
+
+  static async deleteHeartbeat(id: string) {
+    const db = await this.load();
+    if (!db.heartbeats) db.heartbeats = [];
+    db.heartbeats = db.heartbeats.filter((h: any) => h.id !== id);
+    await this.save();
+    return db.heartbeats;
+  }
+
+  static async getHeartbeatHistory(projectId?: string, limit = 20) {
+    const db = await this.load();
+    if (!db.heartbeatHistory) db.heartbeatHistory = [];
+    let history = db.heartbeatHistory;
+    if (projectId) {
+      history = history.filter((h: any) => h.projectId === projectId);
+    }
+    return history.slice(0, limit);
+  }
+
+  static async clearHeartbeatHistory(projectId?: string) {
+    const db = await this.load();
+    if (!db.heartbeatHistory) db.heartbeatHistory = [];
+    if (projectId) {
+      db.heartbeatHistory = db.heartbeatHistory.filter((h: any) => h.projectId !== projectId);
+    } else {
+      db.heartbeatHistory = [];
+    }
+    await this.save();
+    return { success: true };
+  }
 }
