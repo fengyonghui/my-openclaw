@@ -264,6 +264,16 @@ async function executeToolCall(project: any, toolCall: ToolCall, allProjectAgent
   const rawArgs = toolCall.function?.arguments || '{}';
   const args = JSON.parse(rawArgs || '{}');
 
+  
+  // 工具调用日志
+  console.log('');
+  console.log('═'.repeat(60));
+  console.log('🔧 TOOL CALL: ' + fn);
+  console.log('═'.repeat(60));
+  console.log('  Args: ' + rawArgs.slice(0, 300));
+  console.log('  Workspace: ' + project.workspace);
+  console.log('═'.repeat(60));
+  console.log('');
   switch (fn) {
     case 'list_files':
       return await FileToolService.listFiles(project.workspace, args.path || '.', Number(args.depth) || 3);
