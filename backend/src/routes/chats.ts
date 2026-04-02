@@ -481,7 +481,19 @@ async function executeToolCall(project: any, toolCall: ToolCall, allProjectAgent
           // 将正斜杠路径转换为反斜杠（Windows CMD 认识反斜杠）
           // 例如: type backend/src/entities/file.ts -> type backend\src\entities\file.ts
           finalCommand = finalCommand.replace(/([a-zA-Z0-9_-])(\/)([a-zA-Z0-9_.\-])/g, '$1\\$3');
-          
+// 处理 sed -n 'N,Mp' 命令（Linux 行范围提取）
+// Linux: sed -n '150,229p' file → 显示第 150-229 行
+// Windows: powershell -Command "Get-Content file | Select-Object -Skip 149 -First 80"
+const sedMatch = finalCommand.match(/sed\s+-n\s+'(\d+),(\d+)p'\s+(.+)/i);
+if (sedMatch) {
+  const startLine = parseInt(sedMatch[1]);
+  const endLine = parseInt(sedMatch[2]);
+  const filePath = sedMatch[3].replace(/\\\\/g, '/');
+  const skip = startLine - 1;
+  const first = endLine - startLine + 1;
+  finalCommand = `powershell -Command "Get-Content '${filePath}' | Select-Object -Skip ${skip} -First ${first}"`;
+}
+
           console.log(`[shell-cmd -> Windows CMD] ${finalCommand}`);
           return new Promise((resolve) => {
             const MAX_OUTPUT = 500 * 1024;
