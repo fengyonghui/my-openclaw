@@ -1246,7 +1246,12 @@ export async function ChatRoutes(fastify: FastifyInstance) {
     `- When user asks about testing: CALL delegate_to_agent with agent_name="QA"\n` +
     `- When user asks about product requirements: CALL delegate_to_agent with agent_name="PM Agent"\n` +
     `- DO NOT answer technical questions yourself - DELEGATE to the appropriate agent\n` +
-    `- To delegate: Use the delegate_to_agent tool with agent_name and task parameters`
+    `- To delegate: Use the delegate_to_agent tool with agent_name and task parameters\n` +
+    `\n\n## DELEGATION RESULT HANDLING\n` +
+    `- When you receive a tool result with "success": true, it means the agent COMPLETED the task\n` +
+    `- The "result" field contains the agent's FULL RESPONSE - READ IT and present it to the user\n` +
+    `- DO NOT say "waiting for agent" or "agent is working" if success=true - the work is DONE\n` +
+    `- Summarize or present the agent's result directly to the user as the final answer`
       };
 
       // --- 构造候选模型队列 (故障转移) ---
