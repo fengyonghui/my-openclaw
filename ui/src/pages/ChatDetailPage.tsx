@@ -355,6 +355,23 @@ export function ChatDetailPage({ projectId, chatId, onMinimize }: { projectId: s
             if (data.status) {
               setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, status: data.status } : m));
             }
+            // 处理代理事件
+            if (data.type === 'agent_start') {
+              const agentMsg = `\n\n📋 **${data.agentName}** 开始执行任务...`;
+              fullContent += agentMsg;
+              setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: fullContent } : m));
+            }
+            if (data.type === 'agent_end') {
+              // 代理完成，清除进度提示
+              const agentMsg = `\n\n✅ **${data.agentName}** 任务完成`;
+              fullContent += agentMsg;
+              setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: fullContent } : m));
+            }
+            if (data.type === 'agent_error') {
+              const agentMsg = `\n\n❌ **${data.agentName}** 执行失败: ${data.error}`;
+              fullContent += agentMsg;
+              setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: fullContent } : m));
+            }
           } catch (e) {}
         }
       }
@@ -430,6 +447,22 @@ export function ChatDetailPage({ projectId, chatId, onMinimize }: { projectId: s
             if (data.status) {
               // 显示状态信息
               setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, status: data.status } : m));
+            }
+            // 处理代理事件
+            if (data.type === 'agent_start') {
+              const agentMsg = `\n\n📋 **${data.agentName}** 开始执行任务...`;
+              fullContent += agentMsg;
+              setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: fullContent } : m));
+            }
+            if (data.type === 'agent_end') {
+              const agentMsg = `\n\n✅ **${data.agentName}** 任务完成`;
+              fullContent += agentMsg;
+              setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: fullContent } : m));
+            }
+            if (data.type === 'agent_error') {
+              const agentMsg = `\n\n❌ **${data.agentName}** 执行失败: ${data.error}`;
+              fullContent += agentMsg;
+              setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: fullContent } : m));
             }
           } catch (e) {}
         }
