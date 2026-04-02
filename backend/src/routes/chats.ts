@@ -829,11 +829,10 @@ async function executeAgentDelegation(project: any, args: any, allProjectAgents:
 
   console.log('');
   console.log('═'.repeat(60));
-  console.log('📋 DELEGATION START');
+  console.log(`【${targetAgent.name}】 DELEGATION START`);
   console.log('═'.repeat(60));
-  console.log(`  Agent: ${targetAgent.name}`);
-  console.log(`  Task: ${task.slice(0, 100)}${task.length > 100 ? '...' : ''}`);
-  console.log(`  Context: ${context ? context.slice(0, 50) + '...' : 'none'}`);
+  console.log(`【${targetAgent.name}】 Task: ${task.slice(0, 100)}${task.length > 100 ? '...' : ''}`);
+  console.log(`【${targetAgent.name}】 Context: ${context ? context.slice(0, 50) + '...' : 'none'}`);
   console.log('═'.repeat(60));
   console.log('');
 
@@ -904,12 +903,24 @@ ${skillsPrompt}
       })
     });
 
+    console.log(`【${targetAgent.name}】 Calling model: ${defaultModel.modelId}`);
+    console.log(`【${targetAgent.name}】 API URL: ${apiUrl}`);
     if (!response.ok) {
       throw new Error(`API error: ${response.status}`);
     }
 
     const result: any = await response.json();
     const delegationResult = result.choices?.[0]?.message?.content || 'Task completed with no result';
+
+    console.log('');
+    console.log('═'.repeat(60));
+    console.log(`【${targetAgent.name}】 DELEGATION COMPLETE`);
+    console.log('═'.repeat(60));
+    console.log(`【${targetAgent.name}】 Model: ${defaultModel.modelId}`);
+    console.log(`【${targetAgent.name}】 Result length: ${delegationResult.length} chars`);
+    console.log(`【${targetAgent.name}】 Result preview: ${delegationResult.slice(0, 200)}${delegationResult.length > 200 ? '...' : ''}`);
+    console.log('═'.repeat(60));
+    console.log('');
 
     // 发送委托完成消息到前端
     if (reply?.raw?.write) {
