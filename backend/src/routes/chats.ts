@@ -875,7 +875,11 @@ ${skillsPrompt}
   try {
     const response = await fetch(apiUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        // 添加 API 密钥支持
+        ...(defaultModel.apiKey ? { 'Authorization': `Bearer ${defaultModel.apiKey}` } : {})
+      },
       body: JSON.stringify({
         model: defaultModel.modelId,
         messages: delegationMessages,
