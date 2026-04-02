@@ -1249,10 +1249,12 @@ export async function ChatRoutes(fastify: FastifyInstance) {
             let guard = 0;
             while (guard++ < 8) {
               const reqBody: any = {
-                model: modelCfg.modelId,
-                messages: finalMessages,
-                stream: false
-              };
+          model: modelCfg.modelId,
+          messages: finalMessages,
+          stream: false,
+          max_tokens: modelCfg.maxTokens || 8192,
+          temperature: modelCfg.temperature || 0.7
+        };
               if (tools.length > 0) {
                 reqBody.tools = tools;
                 console.log(`[DEBUG] Sending ${tools.length} tools: ${tools.map(t => t.function.name).join(', ')}`);
