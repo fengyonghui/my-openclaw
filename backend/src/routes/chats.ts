@@ -888,29 +888,92 @@ ${skillsPrompt}
 
   const apiUrl = `${defaultModel.baseUrl.replace(/\/+$/, '')}/chat/completions`;
   
+  // 构建可用工具列表
+  const delegationTools = [
+    { type: 'function', function: { name: 'list_files', description: 'List directory contents', parameters: { type: 'object', properties: { path: { type: 'string' } } } } },
+    { type: 'function', function: { name: 'read_file', description: 'Read file content', parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } } },
+    { type: 'function', function: { name: 'shell-cmd', description: 'Execute shell command', parameters: { type: 'object', properties: { command: { type: 'string' } }, required: ['command'] } } }
+  ];
+  
+  let currentMessages = [...delegationMessages];
+  let delegationResult = '';
+  const MAX_ITERATIONS = 10;
+  
   try {
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        // 添加 API 密钥支持
-        ...(defaultModel.apiKey ? { 'Authorization': `Bearer ${defaultModel.apiKey}` } : {})
-      },
-      body: JSON.stringify({
-        model: defaultModel.modelId,
-        messages: delegationMessages,
-        temperature: 0.7
-      })
-    });
-
-    console.log(`【${targetAgent.name}】 Calling model: ${defaultModel.modelId}`);
-    console.log(`【${targetAgent.name}】 API URL: ${apiUrl}`);
-    if (!response.ok) {
-      throw new Error(`API error: ${response.status}`);
+    for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+      console.log(`【${targetAgent.name}】 Iteration ${iteration + 1}: Calling model ${defaultModel.modelId}`);
+      
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(defaultModel.apiKey ? { 'Authorization': `Bearer ${defaultModel.apiKey}` } : {})
+        },
+        body: JSON.stringify({
+          model: defaultModel.modelId,
+          messages: currentMessages,
+          tools: delegationTools,
+          temperature: 0.7
+        })
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`【${targetAgent.name}】 API error: ${response.status} - ${errorText}`);
+        throw new Error(`API error: ${response.status}`);
+      }
+      
+      const result: any = await response.json();
+      const choice = result.choices?.[0];
+      const message = choice?.message || {};
+      
+      // 检查是否有工具调用
+      const toolCalls = message.tool_calls || [];
+      
+      if (toolCalls.length > 0) {
+        console.log(`【${targetAgent.name}】 Model returned ${toolCalls.length} tool call(s)`);
+        
+        // 添加助手消息到历史
+        currentMessages.push({ role: 'assistant', content: message.content || '', tool_calls: toolCalls } as any);
+        
+        // 执行每个工具调用
+        for (const toolCall of toolCalls) {
+          const toolName = toolCall.function?.name;
+          let toolArgs: any = {};
+          try {
+            toolArgs = JSON.parse(toolCall.function?.arguments || '{}');
+          } catch (e) {
+            toolArgs = {};
+          }
+          
+          console.log(`【${targetAgent.name}】 Executing tool: ${toolName}(${JSON.stringify(toolArgs).slice(0, 100)})`);
+          
+          // 执行工具
+          let toolResult: any;
+          try {
+            toolResult = await executeToolCall(project, { function: { name: toolName, arguments: toolCall.function?.arguments } }, allProjectAgents, allEnabledSkills, reply);
+          } catch (e: any) {
+            toolResult = { error: e.message };
+          }
+          
+          console.log(`【${targetAgent.name}】 Tool result: ${JSON.stringify(toolResult).slice(0, 200)}`);
+          
+          // 添加工具结果到历史
+          currentMessages.push({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(toolResult) } as any);
+        // 继续循环，让模型处理工具结果
+        continue;
+      }
+      
+      // 没有工具调用，获取最终结果
+      delegationResult = message.content || 'Task completed with no result';
+      console.log(`【${targetAgent.name}】 Final result received (iteration ${iteration + 1})`);
+      break;
+    }
+    
+    if (!delegationResult) {
+      delegationResult = 'Task completed but no result was generated';
     }
 
-    const result: any = await response.json();
-    const delegationResult = result.choices?.[0]?.message?.content || 'Task completed with no result';
 
     console.log('');
     console.log('═'.repeat(60));
