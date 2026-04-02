@@ -1146,26 +1146,13 @@ export async function ChatRoutes(fastify: FastifyInstance) {
       }));
 
       // 2. 项目/全局技能 (从数据库加载)
-      const projectSkills = allEnabledSkills.map(s => ({
-        type: 'function',
-        function: {
-          name: s.name,
-          description: s.description || '',
-          parameters: {
-            type: 'object',
-            properties: {
-              command: { type: 'string', description: s.description || '' },
-              path: { type: 'string', description: 'File path' }
-            },
-            required: []
-          }
-        }
-      }));
-
-      // 3. 合并所有工具（去重：优先使用项目/全局技能中的同名工具）
-      const builtinNames = new Set(projectSkills.map((s: any) => s.function.name));
-      const filteredBuiltin = builtin.filter((s: any) => !builtinNames.has(s.function.name));
-      const tools = [...filteredBuiltin, ...projectSkills];
+  const projectSkills = allEnabledSkills.map(s => ({ type: 'function', function: { name: s.name, description: s.description || '', parameters: { type: 'object', properties: { command: { type: 'string', description: s.description || '' }, path: { type: 'string', description: 'File path' }, content: { type: 'string', description: 'File content for write operations' }, oldText: { type: 'string', description: 'Original text for edit operations' }, newText: { type: 'string', description: 'New text for edit operations' } }, required: [] } } }));
+  // 3. 合并所有工具（优先使用 getFileToolsForProject 的内置工具定义）
+  const fileTools = getFileToolsForProject(project, allProjectAgents, coordinatorAgentId);
+  const fileToolNames = new Set(fileTools.map((t: any) => t.function.name));
+  const filteredProjectSkills = projectSkills.filter((s: any) => !fileToolNames.has(s.function.name));
+  const filteredBuiltin = builtin.filter((s: any) => !fileToolNames.has(s.function.name));
+  const tools = [...fileTools, ...filteredBuiltin, ...filteredProjectSkills];
       console.log(`[Tools] builtin=${builtin.length}, projectSkills=${projectSkills.length}, total=${tools.length}`);
       if (tools.length > 0) {
         console.log(`[Tools] Tool names: ${tools.map((t: any) => t.function.name).join(', ')}`);
@@ -1472,5 +1459,88 @@ export async function ChatRoutes(fastify: FastifyInstance) {
       console.log(`[Stop] No active chat found for ${chatId}`);
       return { success: false, message: '没有正在进行的生成' };
     }
+  });
+
+  // ============================================
+  // POST /:id/resend - 重发用户消息（不保存新记录）
+  // ============================================
+  fastify.post('/:id/resend', async (request, reply) => {
+    const { id: chatId } = request.params as any;
+    const { messageId } = request.body as any;
+    console.log(`[Resend] ChatID: ${chatId}, MessageID: ${messageId}`);
+    reply.raw.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    reply.raw.setHeader('Cache-Control', 'no-cache');
+    reply.raw.setHeader('Connection', 'keep-alive');
+    reply.raw.setHeader('Access-Control-Allow-Origin', '*');
+    reply.raw.write(`data: ${JSON.stringify({ chunk: '' })}\n\n`);
+    const abortController = new AbortController();
+    setAbortController(chatId, abortController);
+    abortController.signal.addEventListener('abort', () => {
+      try { reply.raw.write(`data: [DONE]\n\n`); reply.raw.end(); } catch {}
+    });
+    let fullAssistantContent = '';
+    try {
+      const projects = await DbService.getProjects();
+      const chats = await DbService.getChats();
+      const chat = chats.find(c => String(c.id) === String(chatId));
+      const project = projects.find(p => p.id === chat?.projectId);
+      const allModels = await DbService.getModels();
+      if (!project) throw new Error('未找到所属项目');
+      const allGlobalAgents = await DbService.getAgents();
+      const projectAgents = (project.enabledAgentIds || []).map((aid: string) => allGlobalAgents.find((a: any) => String(a.id) === String(aid))).filter(Boolean);
+      const coordinatorAgent = projectAgents.find((a: any) => String(a.id) === String(project.coordinatorAgentId)) || projectAgents[0];
+      const chatMessages = chat?.messages || [];
+      const messagesForAPI: any[] = [];
+      const model = allModels.find((m: any) => m.id === chat?.modelId) || allModels[0];
+      messagesForAPI.push({ role: 'system', content: coordinatorAgent?.description || '' });
+      for (let i = 0; i < chatMessages.length - 1; i++) {
+        const msg = chatMessages[i];
+        if (msg.role === 'user' || msg.role === 'assistant') messagesForAPI.push({ role: msg.role, content: msg.content });
+      }
+      const response = await fetch(`${model?.baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${model?.apiKey}` },
+        body: JSON.stringify({ model: model?.modelId, messages: messagesForAPI, stream: true, temperature: model?.temperature || 0.7, max_tokens: model?.maxTokens || 4096 }),
+        signal: abortController.signal
+      });
+      if (!response.ok) throw new Error(`模型 API 错误: ${response.status}`);
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('无法读取响应流');
+      const decoder = new TextDecoder();
+      let partialLine = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = (partialLine + chunk).split('\n');
+        partialLine = lines.pop() || '';
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || !trimmed.startsWith('data: ')) continue;
+          const dataStr = trimmed.slice(6);
+          if (dataStr === '[DONE]') continue;
+          try {
+            const data = JSON.parse(dataStr);
+            const delta = data.choices?.[0]?.delta?.content || '';
+            if (delta) { fullAssistantContent += delta; reply.raw.write(`data: ${JSON.stringify({ chunk: delta })}\n\n`); }
+          } catch {}
+        }
+      }
+      const db = await DbService.load();
+      const chatIndex = db.chats.findIndex((c: any) => String(c.id) === String(chatId));
+      if (chatIndex >= 0) {
+        const chatMsgs = db.chats[chatIndex].messages || [];
+        const userMsgIndex = chatMsgs.findIndex((m: any) => m.id === messageId);
+        if (userMsgIndex >= 0 && userMsgIndex + 1 < chatMsgs.length) {
+          db.chats[chatIndex].messages[userMsgIndex + 1] = { ...db.chats[chatIndex].messages[userMsgIndex + 1], content: fullAssistantContent, status: undefined };
+        }
+        await DbService.save();
+      }
+      reply.raw.write(`data: [DONE]\n\n`); reply.raw.end();
+    } catch (err: any) {
+      console.error(`[Resend Error] ${err.message}`);
+      reply.raw.write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
+      reply.raw.write(`data: [DONE]\n\n`); reply.raw.end();
+    } finally { clearAbortController(chatId); }
   });
 }
