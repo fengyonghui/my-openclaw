@@ -863,9 +863,18 @@ ${skillsPrompt}
     { role: 'user', content: `## DELEGATED TASK\n${task}\n\n${context ? `## CONTEXT\n${context}` : ''}` }
   ];
 
-  // 获取模型配置
+  // 获取模型配置 - 优先使用项目的默认模型
   const allModels = await DbService.getModels();
-  const defaultModel = allModels[0];
+  const projectDefaultModelId = project?.defaultModel;
+  let defaultModel = projectDefaultModelId
+    ? allModels.find((m: any) => m.id === projectDefaultModelId || m.modelId === projectDefaultModelId)
+    : null;
+  
+  // 如果没有找到项目的默认模型，使用第一个可用模型
+  if (!defaultModel) {
+    defaultModel = allModels[0];
+  }
+  
   if (!defaultModel) {
     return { error: 'No model available for delegation' };
   }
