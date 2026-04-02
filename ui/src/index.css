@@ -46,3 +46,16 @@ textarea {
   overflow-wrap: break-word !important;
   word-break: break-all !important;
 }
+
+/* 用户消息长文本换行 */
+.overflow-wrap-anywhere {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* 消息气泡最大宽度限制 */
+.message-bubble-user {
+  max-width: min(80vw, 600px);
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
