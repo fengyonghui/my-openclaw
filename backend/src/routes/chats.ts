@@ -1220,7 +1220,14 @@ export async function ChatRoutes(fastify: FastifyInstance) {
           `- When a task requires specific expertise, delegate it to the appropriate team member\n` +
           `- Always use read_file before editing files\n` +
           `- You can understand and analyze images when provided\n` +
-          `- Provide clear, concise, and helpful responses`
+          `- Provide clear, concise, and helpful responses\n` +
+    `\n\n## DELEGATION RULES (CRITICAL)\n` +
+    `- When user asks about backend, API, database, or Java code: CALL delegate_to_agent with agent_name="Backend Agent"\n` +
+    `- When user asks about UI, UX, or frontend design: CALL delegate_to_agent with agent_name="UX"\n` +
+    `- When user asks about testing: CALL delegate_to_agent with agent_name="QA"\n` +
+    `- When user asks about product requirements: CALL delegate_to_agent with agent_name="PM Agent"\n` +
+    `- DO NOT answer technical questions yourself - DELEGATE to the appropriate agent\n` +
+    `- To delegate: Use the delegate_to_agent tool with agent_name and task parameters`
       };
 
       // --- 构造候选模型队列 (故障转移) ---
