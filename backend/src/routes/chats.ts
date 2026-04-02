@@ -926,29 +926,19 @@ ${skillsPrompt}
       const result: any = await response.json();
       const choice = result.choices?.[0];
       const message = choice?.message || {};
-      
-      // 检查是否有工具调用
       const toolCalls = message.tool_calls || [];
       
       if (toolCalls.length > 0) {
         console.log(`【${targetAgent.name}】 Model returned ${toolCalls.length} tool call(s)`);
-        
-        // 添加助手消息到历史
         currentMessages.push({ role: 'assistant', content: message.content || '', tool_calls: toolCalls } as any);
         
-        // 执行每个工具调用
         for (const toolCall of toolCalls) {
           const toolName = toolCall.function?.name;
           let toolArgs: any = {};
-          try {
-            toolArgs = JSON.parse(toolCall.function?.arguments || '{}');
-          } catch (e) {
-            toolArgs = {};
-          }
+          try { toolArgs = JSON.parse(toolCall.function?.arguments || '{}'); } catch (e) {}
           
           console.log(`【${targetAgent.name}】 Executing tool: ${toolName}(${JSON.stringify(toolArgs).slice(0, 100)})`);
           
-          // 执行工具
           let toolResult: any;
           try {
             toolResult = await executeToolCall(project, { function: { name: toolName, arguments: toolCall.function?.arguments } }, allProjectAgents, allEnabledSkills, reply);
@@ -957,10 +947,8 @@ ${skillsPrompt}
           }
           
           console.log(`【${targetAgent.name}】 Tool result: ${JSON.stringify(toolResult).slice(0, 200)}`);
-          
-          // 添加工具结果到历史
           currentMessages.push({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(toolResult) } as any);
-        // 继续循环，让模型处理工具结果
+        }
         continue;
       }
       
@@ -973,8 +961,7 @@ ${skillsPrompt}
     if (!delegationResult) {
       delegationResult = 'Task completed but no result was generated';
     }
-
-
+    
     console.log('');
     console.log('═'.repeat(60));
     console.log(`【${targetAgent.name}】 DELEGATION COMPLETE`);
@@ -984,38 +971,21 @@ ${skillsPrompt}
     console.log(`【${targetAgent.name}】 Result preview: ${delegationResult.slice(0, 200)}${delegationResult.length > 200 ? '...' : ''}`);
     console.log('═'.repeat(60));
     console.log('');
-
+    
     // 发送委托完成消息到前端
     if (reply?.raw?.write) {
       try {
-        reply.raw.write(`data: ${JSON.stringify({ 
-          type: 'agent_end',
-          agentName: targetAgent.name,
-          result: delegationResult
-        })}\n\n`);
-      } catch (e) {
-        // SSE 写入失败，忽略
-      }
+        reply.raw.write(`data: ${JSON.stringify({ type: 'agent_end', agentName: targetAgent.name, result: delegationResult })}\n\n`);
+      } catch (e) {}
     }
-
-    return {
-      success: true,
-      agent: targetAgent.name,
-      task: task,
-      result: delegationResult
-    };
+    
+    return { success: true, agent: targetAgent.name, task: task, result: delegationResult };
   } catch (error: any) {
-    // 发送委托失败消息到前端
+    console.error(`【${targetAgent.name}】 Delegation error: ${error.message}`);
     if (reply?.raw?.write) {
       try {
-        reply.raw.write(`data: ${JSON.stringify({ 
-          type: 'agent_error',
-          agentName: targetAgent.name,
-          error: error.message
-        })}\n\n`);
-      } catch (e) {
-        // SSE 写入失败，忽略
-      }
+        reply.raw.write(`data: ${JSON.stringify({ type: 'agent_error', agentName: targetAgent.name, error: error.message })}\n\n`);
+      } catch (e) {}
     }
     return { error: `Delegation failed: ${error.message}` };
   }
