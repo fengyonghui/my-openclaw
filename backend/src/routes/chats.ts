@@ -484,6 +484,26 @@ async function executeToolCall(project: any, toolCall: ToolCall, allProjectAgent
 // 处理 sed -n 'N,Mp' 命令（Linux 行范围提取）
 // Linux: sed -n '150,229p' file → 显示第 150-229 行
 // Windows: powershell -Command "Get-Content file | Select-Object -Skip 149 -First 80"
+// 处理 tail -n N 命令（显示最后 N 行）
+// Linux: tail -n 200 file → 显示最后 200 行
+// Windows: powershell -Command "Get-Content file | Select-Object -Last 200"
+const tailMatch = finalCommand.match(/(?:tail|more)\s+-n\s+(\d+)\s+(.+)/i);
+if (tailMatch) {
+  const lines = parseInt(tailMatch[1]);
+  const filePath = tailMatch[2].replace(/\\\\/g, '/');
+  finalCommand = `powershell -Command "Get-Content '${filePath}' | Select-Object -Last ${lines}"`;
+}
+
+// 处理管道中的 tail -n N
+// Linux: cat file | tail -n 200
+// Windows: type file | powershell -Command "$input | Select-Object -Last 200"
+const pipeTailMatch = finalCommand.match(/(.+)\|\s*(?:tail|more)\s+-n\s+(\d+)/i);
+if (pipeTailMatch) {
+  const firstPart = pipeTailMatch[1].trim();
+  const lines = parseInt(pipeTailMatch[2]);
+  finalCommand = `powershell -Command "${firstPart} | Select-Object -Last ${lines}"`;
+}
+
 const sedMatch = finalCommand.match(/sed\s+-n\s+'(\d+),(\d+)p'\s+(.+)/i);
 if (sedMatch) {
   const startLine = parseInt(sedMatch[1]);
