@@ -5,6 +5,7 @@ import { DbService } from '../services/DbService.js';
 import { FileToolService } from '../services/FileToolService.js';
 import { getBuiltinShellSkill, getBuiltinFileIOSkill } from '../services/BuiltinSkills.js';
 import { pruneContext, compactContext, getContextStats, Message } from '../services/ContextManager.js';
+import { buildToolList, resolveToolName, validateToolCall, BUILTIN_TOOL_DEFINITIONS } from '../services/ToolDefinitions.js';
 
 type ToolCall = {
   id?: string;
@@ -275,6 +276,7 @@ async function executeToolCall(project: any, toolCall: ToolCall, allProjectAgent
     case 'delegate_to_agent':
       return await executeAgentDelegation(project, args, allProjectAgents, allEnabledSkills, reply || null);
     // shell-cmd
+    case 'shell_exec':
     case 'shell-cmd': {
       const { exec } = await import('child_process');
       const os = await import('os');
@@ -1127,33 +1129,18 @@ export async function ChatRoutes(fastify: FastifyInstance) {
       const fallbackModels = allModels.filter(m => m.id !== primaryModel.id);
       const modelsToTry = [primaryModel, ...fallbackModels].slice(0, 3); // 最多尝试前3个模型
 
-      // 获取工具
-      // 1. 内置工具
-      const builtin = [getBuiltinShellSkill()].filter(Boolean).map(s => ({
-        type: 'function',
-        function: {
-          name: s.name,
-          description: s.description || '',
-          parameters: {
-            type: 'object',
-            properties: { 
-              command: { type: 'string', description: 'Shell command to execute' },
-              path: { type: 'string', description: 'File path' }
-            },
-            required: []
-          }
-        }
-      }));
-
-      // 2. 项目/全局技能 (从数据库加载)
-  const projectSkills = allEnabledSkills.map(s => ({ type: 'function', function: { name: s.name, description: s.description || '', parameters: { type: 'object', properties: { command: { type: 'string', description: s.description || '' }, path: { type: 'string', description: 'File path' }, content: { type: 'string', description: 'File content for write operations' }, oldText: { type: 'string', description: 'Original text for edit operations' }, newText: { type: 'string', description: 'New text for edit operations' } }, required: [] } } }));
-  // 3. 合并所有工具（优先使用 getFileToolsForProject 的内置工具定义）
-  const fileTools = getFileToolsForProject(project, allProjectAgents, coordinatorAgentId);
-  const fileToolNames = new Set(fileTools.map((t: any) => t.function.name));
-  const filteredProjectSkills = projectSkills.filter((s: any) => !fileToolNames.has(s.function.name));
-  const filteredBuiltin = builtin.filter((s: any) => !fileToolNames.has(s.function.name));
-  const tools = [...fileTools, ...filteredBuiltin, ...filteredProjectSkills];
-      console.log(`[Tools] builtin=${builtin.length}, projectSkills=${projectSkills.length}, total=${tools.length}`);
+      // 使用新的工具定义系统构建工具列表
+  const tools = buildToolList(project, allProjectAgents, coordinatorAgentId, allEnabledSkills);
+  
+  // 为了兼容性，保留旧的工具构建逻辑（如果有遗漏）
+  const legacyTools = getFileToolsForProject(project, allProjectAgents, coordinatorAgentId);
+  const legacyToolNames = new Set(tools.map((t: any) => t.function.name));
+  for (const t of legacyTools) {
+    if (!legacyToolNames.has(t.function.name)) {
+      tools.push(t);
+    }
+  }
+      console.log(`[Tools] total=${tools.length}`);
       if (tools.length > 0) {
         console.log(`[Tools] Tool names: ${tools.map((t: any) => t.function.name).join(', ')}`);
       }
