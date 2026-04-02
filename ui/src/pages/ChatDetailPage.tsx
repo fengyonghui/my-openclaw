@@ -1,4 +1,4 @@
-import { Bot, SendHorizonal, Sparkles, ChevronDown, Check, User, Cpu, Edit3, Settings, Search, X, Copy, CheckCircle2, Minus, Square, XCircle, GripHorizontal, Mic, MicOff, Paperclip, X as XIcon, Download, FileText, Users, MessageSquare } from 'lucide-react';
+import { Bot, SendHorizonal, Sparkles, ChevronDown, Check, User, Cpu, Edit3, Settings, Search, X, Copy, CheckCircle2, Minus, Square, XCircle, GripHorizontal, Mic, MicOff, Paperclip, X as XIcon, Download, FileText, Users, MessageSquare, RefreshCw } from 'lucide-react';
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Card, Button, Badge } from '../components/ui';
@@ -275,6 +275,94 @@ export function ChatDetailPage({ projectId, chatId, onMinimize }: { projectId: s
       setIsTyping(false);
     } catch (err) {
       console.error('Stop failed:', err);
+    }
+  };
+
+  // 重发用户消息（当助手响应失败时）
+  const handleResend = async (userMsg: Message) => {
+    if (isTyping) return;
+    
+    // 找到用户消息在列表中的位置
+    const msgIndex = messages.findIndex(m => m.id === userMsg.id);
+    if (msgIndex === -1) return;
+    
+    // 获取用户消息内容
+    const text = userMsg.content;
+    if (!text && (!userMsg.attachments || userMsg.attachments.length === 0)) return;
+    
+    // 生成新的助手消息ID
+    const assistantMsgId = (Date.now() + 1).toString();
+    const assistantMsg: Message = { id: assistantMsgId, role: 'assistant', content: '', status: 'streaming' };
+    
+    // 移除用户消息之后的所有消息（包括失败的助手响应）
+    setMessages(prev => {
+      const beforeUser = prev.slice(0, msgIndex + 1); // 保留到用户消息
+      return [...beforeUser, assistantMsg];
+    });
+    
+    setIsTyping(true);
+    
+    try {
+      const attachmentData = (userMsg.attachments || []).map(att => ({
+        id: att.id,
+        name: att.name,
+        type: att.type,
+        size: att.size,
+        dataUrl: att.dataUrl
+      }));
+      
+      const response = await fetch(`http://localhost:3001/api/v1/chats/${chatId}/resend`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messageId: userMsg.id,
+          content: text,
+          attachments: attachmentData,
+        }),
+      });
+      
+      if (!response.body) throw new Error('网络连接异常');
+      
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let partialLine = '';
+      let fullContent = '';
+      
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = (partialLine + chunk).split('\n');
+        partialLine = lines.pop() || '';
+        
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || !trimmed.startsWith('data: ')) continue;
+          const dataStr = trimmed.slice(6);
+          if (dataStr === '[DONE]') break;
+          
+          try {
+            const data = JSON.parse(dataStr);
+            if (data.chunk) {
+              fullContent += data.chunk;
+              setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: fullContent } : m));
+            }
+            if (data.info) {
+              fullContent += `\n\n${data.info}`;
+              setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: fullContent } : m));
+            }
+            if (data.status) {
+              setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, status: data.status } : m));
+            }
+          } catch (e) {}
+        }
+      }
+    } catch (err: any) {
+      setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: `错误: ${err.message}`, status: 'error' } : m));
+    } finally {
+      setIsTyping(false);
+      setMessages(prev => prev.map(m => m.id === assistantMsgId && m.status !== 'error' ? { ...m, status: undefined } : m));
     }
   };
 
@@ -673,7 +761,24 @@ export function ChatDetailPage({ projectId, chatId, onMinimize }: { projectId: s
                           )}
                         </div>
                         
-                        {/* 发送者标签 */}
+                                        {/* 重发按钮 - 仅在用户消息且下一条助手消息失败时显示 */}
+                {m.role === 'user' && (() => {
+                  const msgIndex = messages.findIndex(msg => msg.id === m.id);
+                  const nextMsg = messages[msgIndex + 1];
+                  const canResend = nextMsg && nextMsg.role === 'assistant' && 
+                    (nextMsg.status === 'error' || !nextMsg.content || nextMsg.content.trim() === '');
+                  return canResend && (
+                    <button
+                      onClick={() => handleResend(m)}
+                      disabled={isTyping}
+                      className="mt-2 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 text-xs font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" />
+                      重发
+                    </button>
+                  );
+                })()}
+{/* 发送者标签 */}
                         <span className="mt-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider px-1">
                           {m.role === 'user' ? '你' : (currentAgent?.name || '助手')}
                         </span>
