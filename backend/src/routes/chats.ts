@@ -827,7 +827,15 @@ async function executeAgentDelegation(project: any, args: any, allProjectAgents:
     return { error: `Agent "${agent_name}" not found. Available agents: ${allProjectAgents.map(a => a.name).join(', ')}` };
   }
 
-  console.log(`[Delegation] Task delegated to: ${targetAgent.name}, Task: ${task.slice(0, 50)}...`);
+  console.log('');
+  console.log('═'.repeat(60));
+  console.log('📋 DELEGATION START');
+  console.log('═'.repeat(60));
+  console.log(`  Agent: ${targetAgent.name}`);
+  console.log(`  Task: ${task.slice(0, 100)}${task.length > 100 ? '...' : ''}`);
+  console.log(`  Context: ${context ? context.slice(0, 50) + '...' : 'none'}`);
+  console.log('═'.repeat(60));
+  console.log('');
 
   // 发送委托开始消息到前端
   if (reply?.raw?.write) {
