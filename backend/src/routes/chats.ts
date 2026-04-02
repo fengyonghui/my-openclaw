@@ -1434,7 +1434,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
         };
               if (tools.length > 0) {
                 reqBody.tools = tools;
- reqBody.tool_choice = 'auto';  // 告诉模型可以选择使用工具
+ reqBody.tool_choice = 'required';  // 强制模型必须调用工具  // 告诉模型可以选择使用工具
                 console.log(`[DEBUG] Sending ${tools.length} tools: ${tools.map(t => t.function.name).join(', ')}`);
               }
 
