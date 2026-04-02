@@ -1449,7 +1449,10 @@ export async function ChatRoutes(fastify: FastifyInstance) {
   console.log('═'.repeat(60));
   console.log('');
   console.log('[DEBUG] About to send request with ' + finalMessages.length + ' messages');
-              const res = await fetch(apiUrl, {
+              console.log(`[DEBUG] Request body keys: ${Object.keys(reqBody)}`);
+console.log(`[DEBUG] Request body.tools: ${reqBody.tools ? reqBody.tools.length + ' tools: ' + reqBody.tools.map((t: any) => t.function?.name).join(', ') : 'undefined'}`);
+console.log(`[DEBUG] Request body.tool_choice: ${reqBody.tool_choice || 'undefined'}`);
+const res = await fetch(apiUrl, {
                 method: 'POST',
                 headers: { 
                   'Content-Type': 'application/json', 
