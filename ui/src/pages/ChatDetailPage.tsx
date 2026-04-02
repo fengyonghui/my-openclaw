@@ -750,7 +750,7 @@ export function ChatDetailPage({ projectId, chatId, onMinimize }: { projectId: s
                               )}
                             </div>
                           ) : (
-                            <p className="whitespace-pre-wrap text-sm leading-relaxed">{m.content}</p>
+                            <p className="whitespace-pre-wrap break-words overflow-wrap-anywhere text-sm leading-relaxed max-w-full">{m.content}</p>
                           )}
                           
                           {/* 状态显示 */}
