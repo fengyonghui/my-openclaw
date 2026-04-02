@@ -465,8 +465,8 @@ async function executeToolCall(project: any, toolCall: ToolCall, allProjectAgent
             'clear': 'cls',
             'which': 'where',
             'find': 'findstr',
-            'head': 'more +1 | more +1',  // 简化处理
-            'tail': 'more +1',  // 简化处理
+    'head': 'more', // Windows 下使用 more，不支持行数参数
+    'tail': 'more', // 简化处理
             'grep': 'findstr',
             'wc': 'find /c /v ""',  // 简化处理
           };
