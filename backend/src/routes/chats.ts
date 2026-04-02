@@ -1270,7 +1270,18 @@ export async function ChatRoutes(fastify: FastifyInstance) {
                 console.log(`[DEBUG] Sending ${tools.length} tools: ${tools.map(t => t.function.name).join(', ')}`);
               }
 
-              console.log(`[DEBUG] About to send request with ${finalMessages.length} messages`);
+              console.log('');
+  console.log('═'.repeat(60));
+  console.log('🤖 MODEL REQUEST');
+  console.log('═'.repeat(60));
+  console.log('  Model: ' + modelCfg.name + ' (' + modelCfg.modelId + ')');
+  console.log('  API URL: ' + apiUrl);
+  console.log('  Messages: ' + finalMessages.length);
+  console.log('  Tools: ' + (tools.length > 0 ? tools.map(t => t.function.name).join(', ') : 'none'));
+  console.log('  Max Tokens: ' + (modelCfg.maxTokens || 8192));
+  console.log('═'.repeat(60));
+  console.log('');
+  console.log('[DEBUG] About to send request with ' + finalMessages.length + ' messages');
               const res = await fetch(apiUrl, {
                 method: 'POST',
                 headers: { 
