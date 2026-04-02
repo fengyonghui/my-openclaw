@@ -1195,6 +1195,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
       const availableDelegates = allProjectAgents
         .filter((a: any) => String(a.id) !== String(coordinatorAgentId))
         .map(a => a.name);
+    console.log(`[DEBUG] coordinatorAgentId=${coordinatorAgentId}, allProjectAgents=${allProjectAgents.length}, availableDelegates=${availableDelegates.length}: ${availableDelegates.join(', ')}`);
       
       let teamPrompt = '';
       if (availableDelegates.length > 0) {
