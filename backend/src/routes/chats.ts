@@ -262,7 +262,70 @@ function getFileToolsForProject(project: any, teamAgents: any[] = [], coordinato
 async function executeToolCall(project: any, toolCall: ToolCall, allProjectAgents: any[], allEnabledSkills: any[], reply?: any) {
   const fn = toolCall.function?.name;
   const rawArgs = toolCall.function?.arguments || '{}';
-  const args = JSON.parse(rawArgs || '{}');
+  
+  // 尝试解析 JSON，如果失败则尝试修复
+  let args: any = {};
+  try {
+    args = JSON.parse(rawArgs || '{}');
+  } catch (parseError: any) {
+    console.error(`[JSON Parse Error] Failed to parse tool arguments: ${parseError.message}`);
+    console.error(`[JSON Parse Error] Raw args length: ${rawArgs.length}, first 200 chars: ${rawArgs.slice(0, 200)}`);
+    console.error(`[JSON Parse Error] Last 200 chars: ${rawArgs.slice(-200)}`);
+    
+    // 尝试修复常见的 JSON 问题
+    let fixedArgs = rawArgs;
+    
+    // 问题1: 字符串未终止 - 尝试添加结束引号和括号
+    if (parseError.message.includes('Unterminated string')) {
+      // 计算需要添加多少个引号和括号
+      const openBraces = (fixedArgs.match(/{/g) || []).length;
+      const closeBraces = (fixedArgs.match(/}/g) || []).length;
+      const openBrackets = (fixedArgs.match(/\[/g) || []).length;
+      const closeBrackets = (fixedArgs.match(/]/g) || []).length;
+      
+      // 如果内容参数被截断，尝试添加结束引号
+      // 格式通常是 {"path": "...", "content": "..."}
+      const contentMatch = fixedArgs.match(/"content"\s*:\s*"/);
+      if (contentMatch) {
+        // 找到 content 开始的位置
+        const contentStart = contentMatch.index! + contentMatch[0].length;
+        // 检查 content 是否有结束引号
+        const afterContent = fixedArgs.slice(contentStart);
+        // 简单修复：添加结束引号和括号
+        fixedArgs = fixedArgs + '"}}';
+      } else {
+        // 其他情况，尝试添加缺少的括号
+        const missingBraces = openBraces - closeBraces;
+        const missingBrackets = openBrackets - closeBrackets;
+        for (let i = 0; i < missingBrackets; i++) fixedArgs += ']';
+        for (let i = 0; i < missingBraces; i++) fixedArgs += '}';
+      }
+      
+      console.log(`[JSON Parse Error] Attempted fix, new length: ${fixedArgs.length}`);
+      
+      try {
+        args = JSON.parse(fixedArgs);
+        console.log(`[JSON Parse Error] Fix successful!`);
+        // 标记内容可能被截断
+        if (args.content && typeof args.content === 'string') {
+          args._contentTruncated = true;
+          args._originalLength = rawArgs.length;
+        }
+      } catch (retryError: any) {
+        console.error(`[JSON Parse Error] Fix failed: ${retryError.message}`);
+        return { 
+          error: `JSON 解析失败，模型返回的参数格式不正确。请尝试将文件内容分块写入，或使用更短的文件内容。错误: ${parseError.message}`,
+          _rawError: parseError.message,
+          _rawLength: rawArgs.length
+        };
+      }
+    } else {
+      return { 
+        error: `JSON 解析失败: ${parseError.message}`,
+        _rawError: parseError.message
+      };
+    }
+  }
 
   
   // 工具调用日志
@@ -279,8 +342,22 @@ async function executeToolCall(project: any, toolCall: ToolCall, allProjectAgent
       return await FileToolService.listFiles(project.workspace, args.path || '.', Number(args.depth) || 3);
     case 'read_file':
       return await FileToolService.readFile(project.workspace, args.path, Number(args.offset) || 1, Number(args.limit) || 200);
-    case 'write_file':
+    case 'write_file': {
+      // 检测内容是否被截断
+      if (args._contentTruncated) {
+        return { 
+          error: `⚠️ 文件内容被截断，无法完整写入。`,
+          suggestion: '请尝试以下方法：\n1. 将文件分成多个小块，分多次写入\n2. 先创建文件骨架，再用 edit_file 分批添加内容\n3. 减少文件内容长度',
+          originalLength: args._originalLength
+        };
+      }
+      // 检查文件大小限制（警告）
+      const contentLength = (args.content || '').length;
+      if (contentLength > 50000) {
+        console.log(`[WARN] Large file write: ${args.path}, ${contentLength} chars. Consider splitting.`);
+      }
       return await FileToolService.writeFile(project.workspace, args.path, args.content || '');
+    }
     case 'edit_file':
       return await FileToolService.editFile(project.workspace, args.path, args.oldText || '', args.newText || '');
     case 'delegate_to_agent':
@@ -1346,7 +1423,13 @@ export async function ChatRoutes(fastify: FastifyInstance) {
                   
                   // 对读取类工具结果进行处理，不保留内容到历史会话
                   const toolName = toolCall.function?.name;
-                  const toolArgs = JSON.parse(toolCall.function?.arguments || '{}');
+                  let toolArgs: any = {};
+                  try {
+                    toolArgs = JSON.parse(toolCall.function?.arguments || '{}');
+                  } catch (e) {
+                    // 如果解析失败，使用 executeToolCall 中已经处理过的 args
+                    toolArgs = {};
+                  }
                   const cmd = (toolArgs.command || '').toLowerCase();
                   const isReadCmd = toolName === 'read_file' || toolName === 'list_files' || 
                                     toolName === 'file-io' && (cmd === 'read_file' || cmd === 'read' || cmd === 'list_files' || cmd === 'list');
