@@ -8,6 +8,7 @@ import { ModelRoutes } from './routes/models.js';
 import { SkillRoutes } from './routes/skills.js';
 import { FileRoutes } from './routes/files.js';
 import { SystemToolsRoutes } from './routes/systemTools.js';
+import { SystemCommandsRoutes } from './routes/systemCommands.js';
 import { HeartbeatRoutes } from './routes/heartbeats.js';
 import { bootstrapSystemCommands } from './services/systemBootstrap.js';
 import { restoreHeartbeats } from './services/HeartbeatService.js';
@@ -32,6 +33,7 @@ await fastify.register(ModelRoutes, { prefix: '/api/v1/models' });
 await fastify.register(SkillRoutes, { prefix: '/api/v1/skills' });
 await fastify.register(FileRoutes, { prefix: '/api/v1' });
 await fastify.register(SystemToolsRoutes, { prefix: '/api/tools' });
+await fastify.register(SystemCommandsRoutes, { prefix: '/api/tools' });
 await fastify.register(HeartbeatRoutes, { prefix: '/api/v1/heartbeats' });
 
 // --- Start Server ---
