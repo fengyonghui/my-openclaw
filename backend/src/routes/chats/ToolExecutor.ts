@@ -407,7 +407,7 @@ export async function executeAgentDelegation(
     model: finalModel.modelId,
     messages: [agentSystemMessage, delegationMessage],
     stream: false,
-    max_tokens: finalModel.maxTokens || 4096,
+    max_tokens: finalModel.maxTokens || 16384,
     temperature: finalModel.temperature || 0.7
   };
 

@@ -168,6 +168,13 @@ export async function ChatRoutes(fastify: FastifyInstance) {
       const chatWithHistory = await DbService.getChat(chatId);
       const historyMessages = chatWithHistory?.messages || [];
       let apiMessages = buildHistoryMessages(historyMessages, 100, 2);
+  
+  // 限制历史消息数量，避免影响模型工具调用能力
+  const maxHistoryMessages = 30;
+  if (apiMessages.length > maxHistoryMessages) {
+    apiMessages = apiMessages.slice(-maxHistoryMessages);
+    console.log(`[Context] Limited to ${apiMessages.length} recent messages`);
+  }
 
       // 上下文管理
       const prunedMessages = pruneContext(apiMessages as Message[], {
@@ -208,12 +215,13 @@ export async function ChatRoutes(fastify: FastifyInstance) {
         while (modelRetryCount < MAX_RETRIES && !currentModelSuccess) {
           try {
             let guard = 0;
+			let lastToolCallSignature = '';
             while (guard++ < 8) {
               const reqBody: any = {
                 model: modelCfg.modelId,
                 messages: finalMessages,
                 stream: false,
-                max_tokens: modelCfg.maxTokens || 8192,
+                max_tokens: modelCfg.maxTokens || 32768,
                 temperature: modelCfg.temperature || 0.7
               };
 
@@ -254,6 +262,18 @@ export async function ChatRoutes(fastify: FastifyInstance) {
 
               if (toolCalls.length > 0) {
                 console.log(`[DEBUG] Processing ${toolCalls.length} tool call(s)`);
+      
+      // 检测重复的工具调用（防止死循环）
+      const currentSignature = toolCalls.map((tc: any) => 
+        tc.function?.name + ':' + JSON.stringify(tc.function?.arguments).slice(0, 100)
+      ).join('|');
+      
+      if (currentSignature === lastToolCallSignature) {
+        console.log('[WARN] Detected repeated tool call, breaking loop');
+        reply.raw.write(`data: ${JSON.stringify({ chunk: '\n\n⚠️ 检测到重复的工具调用，已自动停止。请尝试重新描述您的需求。' })}\n\n`);
+        break;
+      }
+      lastToolCallSignature = currentSignature;
 
                 // 🔧 保存工具调用时的部分内容
                 if (message.content) {
