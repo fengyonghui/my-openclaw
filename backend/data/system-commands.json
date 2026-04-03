@@ -3,7 +3,7 @@
   "isWindows": true,
   "isLinux": false,
   "isMac": false,
-  "timestamp": "2026-04-02T05:41:56.053Z",
+  "timestamp": "2026-04-03T08:30:45.315Z",
   "shell": "powershell",
   "readFile": "type \"文件路径\"",
   "readFileLines": "powershell -Command \"Get-Content -Path \\\"文件路径\\\" | Select-Object -First N\"",
