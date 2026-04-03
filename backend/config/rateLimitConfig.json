@@ -1,0 +1,49 @@
+{
+  "$schema": "./RateLimitConfig.schema.json",
+  "maxRetries": 3,
+  "baseDelayMs": 1000,
+  "maxDelayMs": 30000,
+  "cacheTTL": 300000,
+  "enableNotifications": true,
+  "autoSwitchModel": true,
+  "switchAfterRetries": 3,
+  "backoffStrategy": "exponential",
+  "enableJitter": true,
+  "jitterRange": 0.2,
+  
+  "_comments": {
+    "maxRetries": "每个模型最大重试次数（1-10）",
+    "baseDelayMs": "基础延迟时间（毫秒），指数退避的起点",
+    "maxDelayMs": "最大延迟时间（毫秒），退避上限",
+    "cacheTTL": "限流状态缓存时间（毫秒），默认5分钟",
+    "enableNotifications": "是否向前端发送限流通知",
+    "autoSwitchModel": "是否在重试失败后自动切换模型",
+    "switchAfterRetries": "切换模型前的重试次数",
+    "backoffStrategy": "退避策略：exponential（指数）、linear（线性）、fixed（固定）",
+    "enableJitter": "是否添加随机抖动（避免同时重试）",
+    "jitterRange": "抖动范围（0-0.5），0.2表示±20%"
+  },
+
+  "_presets": {
+    "aggressive": {
+      "description": "激进模式：快速重试，适合低延迟要求场景",
+      "maxRetries": 5,
+      "baseDelayMs": 500,
+      "maxDelayMs": 10000,
+      "backoffStrategy": "linear"
+    },
+    "conservative": {
+      "description": "保守模式：长时间等待，适合高负载场景",
+      "maxRetries": 2,
+      "baseDelayMs": 2000,
+      "maxDelayMs": 60000,
+      "backoffStrategy": "exponential"
+    },
+    "instant_switch": {
+      "description": "快速切换：不重试，直接切换模型",
+      "maxRetries": 1,
+      "switchAfterRetries": 1,
+      "autoSwitchModel": true
+    }
+  }
+}

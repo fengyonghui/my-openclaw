@@ -1,8 +1,7 @@
 /**
- * Chat Routes - 聊天路由（模块化版本 + partialContent 修复）
+ * Chat Routes - 聊天路由
  * 
  * 使用模块化设计，将功能拆分到多个子模块中
- * 修复：工具调用失败时保存已发送的部分内容
  */
 
 import { FastifyInstance } from 'fastify';
@@ -17,12 +16,16 @@ import {
   clearAbortController,
   stopChat,
   saveToMemoryFile,
+  loadMemoryFile,
   executeToolCall,
   buildSystemMessage,
+  transformMessage,
   buildHistoryMessages,
   cleanMentions,
+  makeModelRequest,
   extractToolCalls,
-  type ToolCall
+  type ToolCall,
+  type Message as ChatMessage
 } from './chats/index.js';
 
 export async function ChatRoutes(fastify: FastifyInstance) {
@@ -83,12 +86,13 @@ export async function ChatRoutes(fastify: FastifyInstance) {
     console.log(`[SSE Start] ChatID: ${chatId}, Content: ${content?.slice(0, 50)}...`);
 
     // 清理消息中的 @AgentName 提及
-    const { cleanContent } = cleanMentions(content);
+    const { cleanContent, mentions } = cleanMentions(content);
 
     // 保存用户消息
     await DbService.addMessageToChat(chatId, {
       role: 'user',
       content: cleanContent,
+      mentions,
       attachments: attachments || []
     } as any);
 
@@ -114,7 +118,6 @@ export async function ChatRoutes(fastify: FastifyInstance) {
     abortController.signal.addEventListener('abort', onAbort);
 
     let fullAssistantContent = '';
-    let partialContent = ''; // 🔧 保存工具调用时已发送的部分内容（必须在 try 块外定义）
 
     try {
       // 加载数据
@@ -132,10 +135,12 @@ export async function ChatRoutes(fastify: FastifyInstance) {
         const saved = await saveToMemoryFile(content, project.workspace);
         if (saved === 'success') {
           reply.raw.write(`data: ${JSON.stringify({ chunk: '✅ 已自动记录到 MEMORY.md\n\n' })}\n\n`);
+        } else if (saved === 'duplicate') {
+          reply.raw.write(`data: ${JSON.stringify({ chunk: 'ℹ️ 该信息已存在，无需重复记录\n\n' })}\n\n`);
         }
       }
 
-      // 获取配置
+      // 获取项目的 Agent 和技能配置
       const enabledAgentIds = project?.enabledAgentIds || [];
       const allGlobalAgents = await DbService.getAgents();
       const projectPrivateAgents = project?.projectAgents || [];
@@ -167,12 +172,17 @@ export async function ChatRoutes(fastify: FastifyInstance) {
       // 获取聊天历史
       const chatWithHistory = await DbService.getChat(chatId);
       const historyMessages = chatWithHistory?.messages || [];
+
+      // 构建消息
       let apiMessages = buildHistoryMessages(historyMessages, 100, 2);
 
       // 上下文管理
       const prunedMessages = pruneContext(apiMessages as Message[], {
         contextWindow: 128000,
-        keepLastAssistants: 3
+        keepLastAssistants: 3,
+        softTrimMaxChars: 4000,
+        softTrimHeadChars: 1500,
+        softTrimTailChars: 1500
       });
 
       const contextStats = getContextStats(prunedMessages as Message[]);
@@ -189,6 +199,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
       const fallbackModels = allModels.filter(m => m.id !== primaryModel.id).slice(0, 2);
       const modelsToTry = [primaryModel, ...fallbackModels];
 
+      // 发送请求
       const finalMessages = [systemMessage, ...apiMessages];
 
       let success = false;
@@ -226,9 +237,10 @@ export async function ChatRoutes(fastify: FastifyInstance) {
               console.log('═'.repeat(60));
               console.log('🤖 MODEL REQUEST');
               console.log('═'.repeat(60));
-              console.log(` Model: ${modelCfg.name}`);
+              console.log(` Model: ${modelCfg.name} (${modelCfg.modelId})`);
               console.log(` API URL: ${apiUrl}`);
               console.log(` Messages: ${finalMessages.length}`);
+              console.log(` Tools: ${tools.length > 0 ? tools.length : 'none'}`);
               console.log('═'.repeat(60));
               console.log('');
 
@@ -253,19 +265,11 @@ export async function ChatRoutes(fastify: FastifyInstance) {
               const toolCalls = extractToolCalls(choice);
 
               if (toolCalls.length > 0) {
+                // 处理工具调用
                 console.log(`[DEBUG] Processing ${toolCalls.length} tool call(s)`);
 
-                // 🔧 保存工具调用时的部分内容
-                if (message.content) {
-                  partialContent = message.content;
-                  reply.raw.write(`data: ${JSON.stringify({ 
-                    chunk: message.content, 
-                    type: 'assistant' 
-                  })}\n\n`);
-                }
-
-                reply.raw.write(`data: ${JSON.stringify({ 
-                  type: 'tool_call', 
+                reply.raw.write(`data: ${JSON.stringify({
+                  type: 'tool_call',
                   toolCalls: toolCalls.map((tc: any) => ({
                     id: tc.id,
                     name: tc.function?.name,
@@ -349,15 +353,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
       }
 
       if (!success || !pickedModelCfg) {
-        // 🔧 如果有部分内容，使用它而不是抛出错误
-        if (partialContent) {
-          console.log(`[Model] Using partial content due to failure`);
-          fullAssistantContent = partialContent;
-          success = true;
-          pickedModelCfg = modelsToTry[0];
-        } else {
-          throw new Error(`所有模型均不可用。最后错误: ${lastError}`);
-        }
+        throw new Error(`所有模型均不可用。最后错误: ${lastError}`);
       }
 
       // 模型切换通知
@@ -376,20 +372,12 @@ export async function ChatRoutes(fastify: FastifyInstance) {
         }
       }
 
-      // 🔧 发送最终响应（使用 fullAssistantContent 或 partialContent）
-      const finalContent = fullAssistantContent || partialContent;
-      if (finalContent) {
-        // 如果使用的是部分内容，添加说明
-        if (!fullAssistantContent && partialContent) {
-          reply.raw.write(`data: ${JSON.stringify({
-            chunk: partialContent + '\n\n⚠️ 注意：部分操作未能完成，以上是已生成的内容。'
-          })}\n\n`);
-        } else {
-          reply.raw.write(`data: ${JSON.stringify({ chunk: finalContent })}\n\n`);
-        }
+      // 发送最终响应
+      if (fullAssistantContent) {
+        reply.raw.write(`data: ${JSON.stringify({ chunk: fullAssistantContent })}\n\n`);
         await DbService.addMessageToChat(chatId, {
           role: 'assistant',
-          content: finalContent
+          content: fullAssistantContent
         });
       }
 
@@ -398,17 +386,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
     } catch (err: any) {
       console.error('[SSE Error Final]', err.message);
 
-      // 🔧 如果有部分内容，发送它
-      if (partialContent) {
-        reply.raw.write(`data: ${JSON.stringify({
-          chunk: partialContent + '\n\n⚠️ 注意：部分操作未能完成，以上是已生成的内容。'
-        })}\n\n`);
-        await DbService.addMessageToChat(chatId, {
-          role: 'assistant',
-          content: partialContent
-        });
-        reply.raw.write(`data: [DONE]\n\n`);
-      } else if (err.name === 'AbortError' || err.message?.includes('aborted')) {
+      if (err.name === 'AbortError' || err.message?.includes('aborted')) {
         console.log(`[SSE] Chat ${chatId} was stopped by user`);
       } else {
         reply.raw.write(`data: ${JSON.stringify({ chunk: `\n\n❌ 彻底失败: ${err.message}` })}\n\n`);
@@ -441,6 +419,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
   // POST /:id/resend - 重发用户消息
   // ============================================
   fastify.post('/:id/resend', async (request, reply) => {
+    // TODO: 实现重发逻辑
     return { success: false, message: '功能开发中' };
   });
 }
