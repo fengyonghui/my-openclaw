@@ -169,7 +169,7 @@ export function SettingsPage({ projectId, onSaved }: { projectId: string, onSave
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-indigo-50">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-indigo-50 overflow-y-auto">
       {/* 顶部导航 */}
       <div className="bg-white/80 backdrop-blur-xl border-b border-slate-200/50 sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-6 py-4">
@@ -284,7 +284,7 @@ export function SettingsPage({ projectId, onSaved }: { projectId: string, onSave
 
         {/* 模型设置 */}
         <div className={`space-y-6 transition-all ${activeSection !== 'model' ? 'hidden' : ''}`}>
-          <Card className="overflow-hidden">
+          <Card className="overflow-visible">
             <div className="bg-gradient-to-r from-cyan-500 to-blue-600 px-8 py-6">
               <div className="flex items-center gap-3 text-white">
                 <Cpu className="h-5 w-5 opacity-80" />
@@ -324,7 +324,7 @@ export function SettingsPage({ projectId, onSaved }: { projectId: string, onSave
                       </div>
                       
                       {/* 选项列表 */}
-                      <div className="max-h-60 overflow-y-auto">
+                      <div className="max-h-96 overflow-y-auto">
                         {filteredModels.length > 0 ? (
                           filteredModels.map(m => (
                             <div

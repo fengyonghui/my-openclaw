@@ -101,19 +101,35 @@
       "projectAgents": [],
       "coordinatorAgentId": "1",
       "createdAt": "2026-03-27T03:13:53.253Z"
+    },
+    {
+      "id": "springaichart",
+      "name": "SpringAiChart",
+      "description": "使用spring-ai-alibaba实现\n语音对话生成图表功能",
+      "workspace": "d:\\workspace\\onewindow\\SpringAiChart",
+      "defaultAgentId": "1",
+      "defaultModel": "1774231103881",
+      "ignorePatterns": [
+        "node_modules",
+        ".git",
+        "dist",
+        ".DS_Store",
+        "package-lock.json"
+      ],
+      "enabledSkillIds": [],
+      "projectSkills": [],
+      "enabledAgentIds": [
+        "1",
+        "2",
+        "1774659173367",
+        "1774670276206"
+      ],
+      "projectAgents": [],
+      "coordinatorAgentId": "1",
+      "createdAt": "2026-04-03T23:17:30.929Z"
     }
   ],
   "availableModels": [
-    {
-      "name": "gemini-3.1-pro-low",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "gemini-3.1-pro-low",
-      "id": "1774231103873",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
     {
       "name": "gpt-5.4-mini-2026-03-17",
       "provider": "Custom",
