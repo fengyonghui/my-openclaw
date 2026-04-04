@@ -163,6 +163,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
 
       // 构建工具列表
       const tools = buildToolList(project, allProjectAgents, coordinatorAgentId, allEnabledSkills);
+      console.log(`[Tools] Built ${tools.length} tools: ${tools.map(t => t.function?.name || t.name).join(', ')}`);
 
       // 获取聊天历史
       const chatWithHistory = await DbService.getChat(chatId);
@@ -228,6 +229,9 @@ export async function ChatRoutes(fastify: FastifyInstance) {
               if (tools.length > 0) {
                 reqBody.tools = tools;
                 reqBody.tool_choice = 'required';
+                console.log(`[Request] tools count: ${tools.length}, tool_choice: required`);
+              } else {
+                console.log(`[Request] No tools available!`);
               }
 
               console.log('');
