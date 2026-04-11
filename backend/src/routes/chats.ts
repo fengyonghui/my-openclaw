@@ -228,8 +228,8 @@ export async function ChatRoutes(fastify: FastifyInstance) {
 
               if (tools.length > 0) {
                 reqBody.tools = tools;
-                reqBody.tool_choice = 'required';
-                console.log(`[Request] tools count: ${tools.length}, tool_choice: required`);
+                reqBody.tool_choice = 'auto';
+                console.log(`[Request] tools count: ${tools.length}, tool_choice: auto`);
               } else {
                 console.log(`[Request] No tools available!`);
               }
