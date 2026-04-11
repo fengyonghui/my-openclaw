@@ -181,7 +181,7 @@ export function ProjectListPage({ onSelectProject }: { onSelectProject: (id: str
             <div className="text-center">
               <h1 className="text-2xl font-black text-slate-900">
                 <span className="bg-gradient-to-r from-slate-900 via-indigo-900 to-purple-900 bg-clip-text">
-                  OpenClaw
+                  My-OpenClaw
                 </span>
               </h1>
               <p className="text-sm text-slate-500 font-medium">智能协作平台</p>
