@@ -217,6 +217,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
           try {
             let guard = 0;
 			let lastToolCallSignature = '';
+			let repeatCallCount = 0;
             while (guard++ < 8) {
               const reqBody: any = {
                 model: modelCfg.modelId,
@@ -268,14 +269,21 @@ export async function ChatRoutes(fastify: FastifyInstance) {
                 console.log(`[DEBUG] Processing ${toolCalls.length} tool call(s)`);
       
       // 检测重复的工具调用（防止死循环）
+      // 只有连续3次相同调用才中断（允许模型重试）
       const currentSignature = toolCalls.map((tc: any) => 
         tc.function?.name + ':' + JSON.stringify(tc.function?.arguments).slice(0, 100)
       ).join('|');
       
       if (currentSignature === lastToolCallSignature) {
-        console.log('[WARN] Detected repeated tool call, breaking loop');
-        reply.raw.write(`data: ${JSON.stringify({ chunk: '\n\n⚠️ 检测到重复的工具调用，已自动停止。请尝试重新描述您的需求。' })}\n\n`);
-        break;
+        repeatCallCount++;
+        console.log(`[WARN] Same tool call repeated (${repeatCallCount} times)`);
+        if (repeatCallCount >= 3) {
+          console.log('[ERROR] Breaking loop after 3 repeated calls');
+          reply.raw.write(`data: ${JSON.stringify({ chunk: '\n\n⚠️ 检测到重复的工具调用（连续3次），已自动停止。请尝试重新描述您的需求。' })}\n\n`);
+          break;
+        }
+      } else {
+        repeatCallCount = 1;
       }
       lastToolCallSignature = currentSignature;
 
