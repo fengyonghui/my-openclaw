@@ -158,6 +158,22 @@ export async function executeShellCommand(project: any, args: any): Promise<Tool
     return { error: '缺少参数: command/cmd/exec' };
   }
 
+  // 安全检查：禁止不带参数的目录操作命令
+  const trimmedCmd = command.trim();
+  const dangerousCmds = ['mkdir', 'md', 'rmdir', 'rm', 'del', 'rm -rf', 'del /f /s /q'];
+  for (const dangerous of dangerousCmds) {
+    if (trimmedCmd === dangerous || trimmedCmd.startsWith(dangerous + ' ')) {
+      const parts = trimmedCmd.split(/\s+/);
+      if (parts.length < 2 || parts[1].startsWith('-')) {
+        return {
+          error: `命令 "${dangerous}" 缺少路径参数。请提供完整命令，如 "${dangerous} src/utils"`,
+          suggestion: '如果要创建目录，请使用完整路径参数'
+        };
+      }
+    }
+  }
+
+
   const isWSLPath = /^\/mnt\//.test(project.workspace);
   const isWindows = os.platform() === 'win32';
   let finalCommand = command;
