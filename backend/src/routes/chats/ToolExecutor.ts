@@ -173,11 +173,19 @@ export async function executeShellCommand(project: any, args: any): Promise<Tool
     }
   }
 
-
   const isWSLPath = /^\/mnt\//.test(project.workspace);
+  // 检测 Windows 风格的路径（如 d:\ 或 D:\）
+  const isWindowsPath = /^[a-zA-Z]:\\/.test(project.workspace);
   const isWindows = os.platform() === 'win32';
   let finalCommand = command;
   let cwd = project.workspace;
+
+  // 如果是 Windows 路径但在 WSL 环境下，转换为 WSL 路径
+  if (isWindowsPath && !isWSLPath) {
+    const driveLetter = project.workspace.charAt(0).toLowerCase();
+    cwd = '/mnt/' + driveLetter + '/' + project.workspace.substring(3).replace(/\\/g, '/');
+    return executeLinuxCommand(`wsl.exe ${command}`, cwd);
+  }
 
   // PowerShell 命令检测
   const isPowerShellCmd = command.trim().startsWith('if ') || 
