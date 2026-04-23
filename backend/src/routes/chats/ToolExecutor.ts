@@ -181,7 +181,7 @@ export async function executeShellCommand(project: any, args: any): Promise<Tool
   let cwd = project.workspace;
 
   // 如果是 Windows 路径但在 WSL 环境下，转换为 WSL 路径
-  if (isWindowsPath && !isWSLPath) {
+  if (isWindowsPath && !isWSLPath && os.platform() !== 'win32') {
     const driveLetter = project.workspace.charAt(0).toLowerCase();
     cwd = '/mnt/' + driveLetter + '/' + project.workspace.substring(3).replace(/\\/g, '/');
     return executeLinuxCommand(`wsl.exe ${command}`, cwd);
