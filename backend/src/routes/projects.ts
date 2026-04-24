@@ -2,7 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { DbService } from '../services/DbService.js';
 import { ProjectChatService } from '../services/ProjectChatService.js';
 import { toWSLPath } from '../services/PathService.js';
-import fs from 'node:fs/promises';
+import fs from 'node:fs';
 import path from 'node:path';
 
 export async function ProjectRoutes(fastify: FastifyInstance) {
@@ -62,8 +62,8 @@ export async function ProjectRoutes(fastify: FastifyInstance) {
     // 从项目目录获取会话
     const wslPath = toWSLPath(project.workspace);
     console.log(`[Projects] GET /${id}/chats - WSL path: ${wslPath}`);
-    console.log(`[Projects] WSL path exists: ${require('fs').existsSync(wslPath)}`);
-    console.log(`[Projects] Chats dir exists: ${require('fs').existsSync(wslPath + '/data/chats')}`);
+    console.log(`[Projects] WSL path exists: ${fs.existsSync(wslPath)}`);
+    console.log(`[Projects] Chats dir exists: ${fs.existsSync(path.join(wslPath, 'data', 'chats'))}`);
     
     const chats = await ProjectChatService.getChatsFromProject(wslPath);
     console.log(`[Projects] Found ${chats.length} chats`);
