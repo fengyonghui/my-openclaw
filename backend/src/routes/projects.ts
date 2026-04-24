@@ -1,8 +1,9 @@
 import { FastifyInstance } from 'fastify';
 import { DbService } from '../services/DbService.js';
 import { ProjectChatService } from '../services/ProjectChatService.js';
-import { toWSLPath } from '../services/PathService.js';
+import { getProjectWorkspacePath } from '../services/PathService.js';
 import fs from 'node:fs';
+import { readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 
 export async function ProjectRoutes(fastify: FastifyInstance) {
@@ -60,12 +61,12 @@ export async function ProjectRoutes(fastify: FastifyInstance) {
     }
     
     // 从项目目录获取会话
-    const wslPath = toWSLPath(project.workspace);
-    console.log(`[Projects] GET /${id}/chats - WSL path: ${wslPath}`);
-    console.log(`[Projects] WSL path exists: ${fs.existsSync(wslPath)}`);
-    console.log(`[Projects] Chats dir exists: ${fs.existsSync(path.join(wslPath, 'data', 'chats'))}`);
+    const projectPath = getProjectWorkspacePath(project.workspace);
+    console.log(`[Projects] GET /${id}/chats - projectPath: ${projectPath}`);
+    console.log(`[Projects] Path exists: ${fs.existsSync(projectPath)}`);
+    console.log(`[Projects] Chats dir exists: ${fs.existsSync(path.join(projectPath, 'data', 'chats'))}`);
     
-    const chats = await ProjectChatService.getChatsFromProject(wslPath);
+    const chats = await ProjectChatService.getChatsFromProject(projectPath);
     console.log(`[Projects] Found ${chats.length} chats`);
     return chats;
   });
@@ -172,7 +173,7 @@ export async function ProjectRoutes(fastify: FastifyInstance) {
 
     try {
       const results: any[] = [];
-      const entries = await fs.readdir(absoluteTargetDir, { withFileTypes: true });
+      const entries = await readdir(absoluteTargetDir, { withFileTypes: true });
 
       for (const entry of entries) {
         const relPath = path.join(subPath, entry.name).replace(/\\/g, '/');
@@ -181,7 +182,7 @@ export async function ProjectRoutes(fastify: FastifyInstance) {
         if (isHidden && showHidden !== 'true') continue;
 
         const fullPath = path.join(absoluteTargetDir, entry.name);
-        const stats = await fs.stat(fullPath);
+        const stats = await stat(fullPath);
         
         if (entry.isDirectory()) {
           results.push({ 

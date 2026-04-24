@@ -8,7 +8,7 @@
 import { FastifyInstance } from 'fastify';
 import { DbService } from '../services/DbService.js';
 import { ProjectChatService } from '../services/ProjectChatService.js';
-import { toWSLPath } from '../services/PathService.js';
+import { getProjectWorkspacePath } from '../services/PathService.js';
 import * as fs from 'fs';
 import { pruneContext, compactContext, getContextStats, Message } from '../services/ContextManager.js';
 import { buildToolList } from '../services/ToolDefinitions.js';
@@ -41,7 +41,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
       console.log(`[Chats] GET / projectId=${projectId}, found ${projects.length} projects`);
       const project = projects.find((p: any) => p.id === projectId);
       if (project) {
-        const wsPath = toWSLPath(project.workspace);
+        const wsPath = getProjectWorkspacePath(project.workspace);
         console.log(`[Chats] Project: ${project.name}, WSL path: ${wsPath}, exists: ${fs.existsSync(wsPath)}`);
         const chats = await ProjectChatService.getChatsFromProject(wsPath);
         console.log(`[Chats] Found ${chats.length} chats`);
@@ -54,7 +54,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
     const projects = await DbService.getProjects();
     let allChats: any[] = [];
     for (const project of projects) {
-      const chats = await ProjectChatService.getChatsFromProject(toWSLPath(project.workspace));
+      const chats = await ProjectChatService.getChatsFromProject(getProjectWorkspacePath(project.workspace));
       chats.forEach(c => c.projectName = project.name);
       allChats = allChats.concat(chats);
     }
@@ -72,14 +72,14 @@ export async function ChatRoutes(fastify: FastifyInstance) {
       const projects = await DbService.getProjects();
       const project = projects.find((p: any) => p.id === projectId);
       if (project) {
-        return await ProjectChatService.getChatFromProject(toWSLPath(project.workspace), id);
+        return await ProjectChatService.getChatFromProject(getProjectWorkspacePath(project.workspace), id);
       }
     }
     
     // 搜索所有项目
     const projects = await DbService.getProjects();
     for (const project of projects) {
-      const chat = await ProjectChatService.getChatFromProject(toWSLPath(project.workspace), id);
+      const chat = await ProjectChatService.getChatFromProject(getProjectWorkspacePath(project.workspace), id);
       if (chat) return chat;
     }
     return null;
@@ -97,10 +97,10 @@ export async function ChatRoutes(fastify: FastifyInstance) {
       const projects = await DbService.getProjects();
       const project = projects.find((p: any) => p.id === projectId);
       if (project) {
-        const chat = await ProjectChatService.getChatFromProject(toWSLPath(project.workspace), id);
+        const chat = await ProjectChatService.getChatFromProject(getProjectWorkspacePath(project.workspace), id);
         if (chat) {
           Object.assign(chat, updates);
-          await ProjectChatService.saveChatToProject(toWSLPath(project.workspace), chat);
+          await ProjectChatService.saveChatToProject(getProjectWorkspacePath(project.workspace), chat);
           return chat;
         }
       }
@@ -124,7 +124,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
       return { error: '项目不存在' };
     }
     
-    return await ProjectChatService.createChat(toWSLPath(project.workspace), projectId, title);
+    return await ProjectChatService.createChat(getProjectWorkspacePath(project.workspace), projectId, title);
   });
 
   // ============================================
@@ -138,7 +138,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
       const projects = await DbService.getProjects();
       const project = projects.find((p: any) => p.id === projectId);
       if (project) {
-        return { deleted: await ProjectChatService.deleteChat(toWSLPath(project.workspace), id) };
+        return { deleted: await ProjectChatService.deleteChat(getProjectWorkspacePath(project.workspace), id) };
       }
     }
     return { error: '缺少 projectId' };
@@ -157,7 +157,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
     const projects = await DbService.getProjects();
     let targetProject = null;
     for (const p of projects) {
-      const projectChats = await ProjectChatService.getChatsFromProject(toWSLPath(p.workspace));
+      const projectChats = await ProjectChatService.getChatsFromProject(getProjectWorkspacePath(p.workspace));
       if (projectChats.some(c => String(c.id) === String(chatId))) {
         targetProject = p;
         break;
@@ -173,7 +173,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
     const { cleanContent } = cleanMentions(content);
 
     // 保存用户消息到项目目录
-    await ProjectChatService.addMessageToChat(toWSLPath(targetProject.workspace), chatId, {
+    await ProjectChatService.addMessageToChat(getProjectWorkspacePath(targetProject.workspace), chatId, {
       role: 'user',
       content: cleanContent,
       attachments: attachments || []
@@ -205,7 +205,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
 
     try {
       // 加载会话
-      const chats = await ProjectChatService.getChatsFromProject(toWSLPath(toWSLPath(targetProject.workspace)));
+      const chats = await ProjectChatService.getChatsFromProject(getProjectWorkspacePath(getProjectWorkspacePath(targetProject.workspace)));
       const chat = chats.find(c => String(c.id) === String(chatId));
       const allModels = await DbService.getModels();
 
@@ -214,7 +214,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
 
       // 处理 MEMORY.md 触发
       if (content.startsWith('请注意') || content.startsWith('请记住')) {
-        const saved = await saveToMemoryFile(content, toWSLPath(toWSLPath(targetProject.workspace)));
+        const saved = await saveToMemoryFile(content, getProjectWorkspacePath(getProjectWorkspacePath(targetProject.workspace)));
         if (saved === 'success') {
           reply.raw.write(`data: ${JSON.stringify({ chunk: '✅ 已自动记录到 MEMORY.md\n\n' })}\n\n`);
         }
@@ -251,7 +251,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
       console.log(`[Tools] Built ${tools.length} tools: ${tools.map(t => t.function?.name || t.name).join(', ')}`);
 
       // 获取聊天历史
-      const chatWithHistory = await ProjectChatService.getChatFromProject(toWSLPath(toWSLPath(targetProject.workspace)), chatId);
+      const chatWithHistory = await ProjectChatService.getChatFromProject(getProjectWorkspacePath(getProjectWorkspacePath(targetProject.workspace)), chatId);
       const historyMessages = chatWithHistory?.messages || [];
       let apiMessages = buildHistoryMessages(historyMessages, 100, 2);
   
@@ -418,7 +418,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
                   });
 
                   // 保存工具结果到数据库
-                  await ProjectChatService.addMessageToChat(toWSLPath(targetProject.workspace), chatId, {
+                  await ProjectChatService.addMessageToChat(getProjectWorkspacePath(targetProject.workspace), chatId, {
                     role: 'tool',
                     tool_call_id: toolCall.id,
                     content: JSON.stringify(toolResult)
@@ -511,7 +511,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
         } else {
           reply.raw.write(`data: ${JSON.stringify({ chunk: finalContent })}\n\n`);
         }
-        await ProjectChatService.addMessageToChat(toWSLPath(targetProject.workspace), chatId, {
+        await ProjectChatService.addMessageToChat(getProjectWorkspacePath(targetProject.workspace), chatId, {
           role: 'assistant',
           content: finalContent
         });
@@ -527,7 +527,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
         reply.raw.write(`data: ${JSON.stringify({
           chunk: partialContent + '\n\n⚠️ 注意：部分操作未能完成，以上是已生成的内容。'
         })}\n\n`);
-        await ProjectChatService.addMessageToChat(toWSLPath(targetProject.workspace), chatId, {
+        await ProjectChatService.addMessageToChat(getProjectWorkspacePath(targetProject.workspace), chatId, {
           role: 'assistant',
           content: partialContent
         });
