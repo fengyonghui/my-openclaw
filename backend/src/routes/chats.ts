@@ -104,8 +104,20 @@ export async function ChatRoutes(fastify: FastifyInstance) {
           return chat;
         }
       }
+      return { error: '会话不存在' };
     }
-    return null;
+    
+    // 搜索所有项目
+    const projects = await DbService.getProjects();
+    for (const project of projects) {
+      const chat = await ProjectChatService.getChatFromProject(getProjectWorkspacePath(project.workspace), id);
+      if (chat) {
+        Object.assign(chat, updates);
+        await ProjectChatService.saveChatToProject(getProjectWorkspacePath(project.workspace), chat);
+        return chat;
+      }
+    }
+    return { error: '会话不存在' };
   });
 
   // ============================================
