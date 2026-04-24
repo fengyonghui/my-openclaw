@@ -34,7 +34,26 @@ export async function ChatRoutes(fastify: FastifyInstance) {
   // ============================================
   fastify.get('/', async (request) => {
     const { projectId } = request.query as { projectId?: string };
-    return await DbService.getChats(projectId);
+    
+    if (projectId) {
+      // 从指定项目获取会话
+      const projects = await DbService.getProjects();
+      const project = projects.find((p: any) => p.id === projectId);
+      if (project) {
+        return await ProjectChatService.getChatsFromProject(toWSLPath(project.workspace));
+      }
+      return [];
+    }
+    
+    // 返回所有项目的会话
+    const projects = await DbService.getProjects();
+    let allChats: any[] = [];
+    for (const project of projects) {
+      const chats = await ProjectChatService.getChatsFromProject(toWSLPath(project.workspace));
+      chats.forEach(c => c.projectName = project.name);
+      allChats = allChats.concat(chats);
+    }
+    return allChats.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
   });
 
   // ============================================
@@ -42,7 +61,23 @@ export async function ChatRoutes(fastify: FastifyInstance) {
   // ============================================
   fastify.get('/:id', async (request) => {
     const { id } = request.params as { id: string };
-    return await DbService.getChat(id);
+    const { projectId } = request.query as { projectId?: string };
+    
+    if (projectId) {
+      const projects = await DbService.getProjects();
+      const project = projects.find((p: any) => p.id === projectId);
+      if (project) {
+        return await ProjectChatService.getChatFromProject(toWSLPath(project.workspace), id);
+      }
+    }
+    
+    // 搜索所有项目
+    const projects = await DbService.getProjects();
+    for (const project of projects) {
+      const chat = await ProjectChatService.getChatFromProject(toWSLPath(project.workspace), id);
+      if (chat) return chat;
+    }
+    return null;
   });
 
   // ============================================
@@ -51,13 +86,21 @@ export async function ChatRoutes(fastify: FastifyInstance) {
   fastify.patch('/:id', async (request) => {
     const { id } = request.params as { id: string };
     const updates = request.body as any;
-    const db = await DbService.load();
-    const chat = db.chats.find((c: any) => String(c.id) === String(id));
-    if (chat) {
-      Object.assign(chat, updates);
-      await DbService.save();
+    const { projectId } = request.query as { projectId?: string };
+    
+    if (projectId) {
+      const projects = await DbService.getProjects();
+      const project = projects.find((p: any) => p.id === projectId);
+      if (project) {
+        const chat = await ProjectChatService.getChatFromProject(toWSLPath(project.workspace), id);
+        if (chat) {
+          Object.assign(chat, updates);
+          await ProjectChatService.saveChatToProject(toWSLPath(project.workspace), chat);
+          return chat;
+        }
+      }
     }
-    return chat;
+    return null;
   });
 
   // ============================================
@@ -65,7 +108,18 @@ export async function ChatRoutes(fastify: FastifyInstance) {
   // ============================================
   fastify.post('/', async (request) => {
     const { projectId, title, agentId } = request.body as any;
-    return await DbService.createChat(projectId, title, agentId);
+    
+    if (!projectId) {
+      return { error: '缺少 projectId' };
+    }
+    
+    const projects = await DbService.getProjects();
+    const project = projects.find((p: any) => p.id === projectId);
+    if (!project) {
+      return { error: '项目不存在' };
+    }
+    
+    return await ProjectChatService.createChat(toWSLPath(project.workspace), projectId, title);
   });
 
   // ============================================
@@ -73,7 +127,16 @@ export async function ChatRoutes(fastify: FastifyInstance) {
   // ============================================
   fastify.delete('/:id', async (request) => {
     const { id } = request.params as { id: string };
-    return await DbService.deleteChat(id);
+    const { projectId } = request.query as { projectId?: string };
+    
+    if (projectId) {
+      const projects = await DbService.getProjects();
+      const project = projects.find((p: any) => p.id === projectId);
+      if (project) {
+        return { deleted: await ProjectChatService.deleteChat(toWSLPath(project.workspace), id) };
+      }
+    }
+    return { error: '缺少 projectId' };
   });
 
   // ============================================

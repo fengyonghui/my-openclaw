@@ -988,7 +988,16 @@
       "defaultModelId": "1774231104188"
     }
   ],
-  "chats": [],
+  "chats": [
+    {
+      "id": "1776996089553",
+      "projectId": "onewindow-dv",
+      "title": "新对话",
+      "messages": [],
+      "updatedAt": "2026-04-24T02:01:29.553Z",
+      "modelId": "1774231104774"
+    }
+  ],
   "availableSkills": [
     {
       "name": "Self-Improvement Skill",
