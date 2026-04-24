@@ -265,7 +265,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
       // 获取聊天历史
       const chatWithHistory = await ProjectChatService.getChatFromProject(getProjectWorkspacePath(getProjectWorkspacePath(targetProject.workspace)), chatId);
       const historyMessages = chatWithHistory?.messages || [];
-      let apiMessages = buildHistoryMessages(historyMessages, 100, 2);
+      let apiMessages = buildHistoryMessages(historyMessages, 20, 2);
   
   // 限制历史消息数量，避免影响模型工具调用能力
   const maxHistoryMessages = 30;

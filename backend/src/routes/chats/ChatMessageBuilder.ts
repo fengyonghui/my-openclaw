@@ -173,6 +173,16 @@ export function buildHistoryMessages(
  apiMessages = historyMessages.map(m => normalizeMessageToolIds(transformMessage(m)));
  }
 
+ // 截断超长工具消息，避免单个巨大消息撑爆上下文
+ const MAX_TOOL_CONTENT = 4000;
+ apiMessages = apiMessages.map(m => {
+   if (m.role === 'tool' && typeof m.content === 'string' && m.content.length > MAX_TOOL_CONTENT) {
+     const preview = m.content.slice(0, 1500) + '\n\n... [内容过长，已截断] ...\n\n' + m.content.slice(-1500);
+     return { ...m, content: preview };
+   }
+   return m;
+ });
+
  return apiMessages;
 }
 
