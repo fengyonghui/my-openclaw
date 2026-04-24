@@ -38,9 +38,14 @@ export async function ChatRoutes(fastify: FastifyInstance) {
     if (projectId) {
       // 从指定项目获取会话
       const projects = await DbService.getProjects();
+      console.log(`[Chats] GET / projectId=${projectId}, found ${projects.length} projects`);
       const project = projects.find((p: any) => p.id === projectId);
       if (project) {
-        return await ProjectChatService.getChatsFromProject(toWSLPath(project.workspace));
+        const wsPath = toWSLPath(project.workspace);
+        console.log(`[Chats] Project: ${project.name}, WSL path: ${wsPath}, exists: ${fs.existsSync(wsPath)}`);
+        const chats = await ProjectChatService.getChatsFromProject(wsPath);
+        console.log(`[Chats] Found ${chats.length} chats`);
+        return chats;
       }
       return [];
     }
