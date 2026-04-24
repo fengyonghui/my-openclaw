@@ -339,6 +339,13 @@ export async function ChatRoutes(fastify: FastifyInstance) {
               console.log(` Model: ${modelCfg.name}`);
               console.log(` API URL: ${apiUrl}`);
               console.log(` Messages: ${finalMessages.length}`);
+              // 打印最后几条消息（用于排查 tool_call_id 问题）
+              const lastMsgs = finalMessages.slice(-4);
+              for (let i = 0; i < lastMsgs.length; i++) {
+                const m = lastMsgs[i] as any;
+                const preview = m.content ? String(m.content).slice(0, 60) : (m.tool_calls ? `[tool_calls:${m.tool_calls.length}]` : '');
+                console.log(`   msg[${finalMessages.length - lastMsgs.length + i}] role=${m.role}, tool_call_id=${m.tool_call_id || '-'}, content=${preview}`);
+              }
               console.log('═'.repeat(60));
               console.log('');
 
