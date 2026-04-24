@@ -1,0 +1,23 @@
+{
+  "id": "1774238124514",
+  "projectId": "my-openclaw",
+  "title": "模型管理页面",
+  "agentId": "1",
+  "messages": [
+    {
+      "role": "user",
+      "content": "在模型配置页面（ModelsPage.tsx）,将 搜索框及其后面的组件放在下一行",
+      "mentions": [],
+      "attachments": [],
+      "id": "1774587838810",
+      "timestamp": "2026-03-27T05:03:58.810Z"
+    },
+    {
+      "role": "assistant",
+      "content": "已将 `ModelsPage.tsx` 中的布局容器从响应式的横向排列（`lg:flex-row`）修改为统一的纵向排列（`flex-col`），这样搜索框及其配套的功能按钮将始终位于标题和描述文本的下方。\n\n修改点：\n- 移除了大屏幕下的 `lg:flex-row` 和 `lg:items-end`。\n- 将间距 `gap-6` 调整为 `gap-10`，使标题区与功能区之间有更清晰的视觉分隔。",
+      "id": "1774587946426",
+      "timestamp": "2026-03-27T05:05:46.426Z"
+    }
+  ],
+  "updatedAt": "2026-03-27T05:05:46.426Z"
+}
