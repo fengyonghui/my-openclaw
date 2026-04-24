@@ -4,13 +4,15 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { toWSLPath } from './PathService.js';
+import { getProjectWorkspacePath } from './PathService.js';
 
 export class ProjectChatService {
   
   // 根据项目工作区获取会话列表
   static async getChatsFromProject(projectWorkspace: string): Promise<any[]> {
-    const chatsDir = path.join(toWSLPath(projectWorkspace), 'data', 'chats');
+    const projectPath = getProjectWorkspacePath(projectWorkspace);
+    const chatsDir = path.join(projectPath, 'data', 'chats');
+    
     if (!fs.existsSync(chatsDir)) {
       return [];
     }
@@ -24,7 +26,9 @@ export class ProjectChatService {
 
   // 获取单个会话
   static async getChatFromProject(projectWorkspace: string, chatId: string): Promise<any | null> {
-    const chatFile = path.join(toWSLPath(projectWorkspace), 'data', 'chats', `${chatId}.json`);
+    const projectPath = getProjectWorkspacePath(projectWorkspace);
+    const chatFile = path.join(projectPath, 'data', 'chats', `${chatId}.json`);
+    
     if (!fs.existsSync(chatFile)) {
       return null;
     }
@@ -33,7 +37,8 @@ export class ProjectChatService {
 
   // 保存会话到项目目录
   static async saveChatToProject(projectWorkspace: string, chat: any): Promise<void> {
-    const chatsDir = path.join(toWSLPath(projectWorkspace), 'data', 'chats');
+    const projectPath = getProjectWorkspacePath(projectWorkspace);
+    const chatsDir = path.join(projectPath, 'data', 'chats');
     fs.mkdirSync(chatsDir, { recursive: true });
     
     chat.updatedAt = new Date().toISOString();
@@ -80,7 +85,9 @@ export class ProjectChatService {
 
   // 删除会话
   static async deleteChat(projectWorkspace: string, chatId: string): Promise<boolean> {
-    const chatFile = path.join(toWSLPath(projectWorkspace), 'data', 'chats', `${chatId}.json`);
+    const projectPath = getProjectWorkspacePath(projectWorkspace);
+    const chatFile = path.join(projectPath, 'data', 'chats', `${chatId}.json`);
+    
     if (fs.existsSync(chatFile)) {
       fs.unlinkSync(chatFile);
       return true;
