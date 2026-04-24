@@ -7,6 +7,9 @@
 
 import { FastifyInstance } from 'fastify';
 import { DbService } from '../services/DbService.js';
+import { ProjectChatService } from '../services/ProjectChatService.js';
+import { toWSLPath } from '../services/PathService.js';
+import * as fs from 'fs';
 import { pruneContext, compactContext, getContextStats, Message } from '../services/ContextManager.js';
 import { buildToolList } from '../services/ToolDefinitions.js';
 import { parseApiError, setModelRateLimited, calculateBackoff } from '../services/RateLimitHandler.js';
@@ -82,15 +85,31 @@ export async function ChatRoutes(fastify: FastifyInstance) {
 
     console.log(`[SSE Start] ChatID: ${chatId}, Content: ${content?.slice(0, 50)}...`);
 
+    // 找到包含此会话的项目
+    const projects = await DbService.getProjects();
+    let targetProject = null;
+    for (const p of projects) {
+      const projectChats = await ProjectChatService.getChatsFromProject(toWSLPath(p.workspace));
+      if (projectChats.some(c => String(c.id) === String(chatId))) {
+        targetProject = p;
+        break;
+      }
+    }
+    
+    if (!targetProject) {
+      console.error(`[SSE Error] 未找到会话 ${chatId} 所属项目`);
+      return reply.code(404).send({ error: '未找到所属项目' });
+    }
+    
     // 清理消息中的 @AgentName 提及
     const { cleanContent } = cleanMentions(content);
 
-    // 保存用户消息
-    await DbService.addMessageToChat(chatId, {
+    // 保存用户消息到项目目录
+    await ProjectChatService.addMessageToChat(targetProject.workspace, chatId, {
       role: 'user',
       content: cleanContent,
       attachments: attachments || []
-    } as any);
+    });
 
     // 设置 SSE 响应头
     reply.raw.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
@@ -117,56 +136,54 @@ export async function ChatRoutes(fastify: FastifyInstance) {
     let partialContent = ''; // 🔧 保存工具调用时已发送的部分内容（必须在 try 块外定义）
 
     try {
-      // 加载数据
-      const projects = await DbService.getProjects();
-      const chats = await DbService.getChats();
+      // 加载会话
+      const chats = await ProjectChatService.getChatsFromProject(targetProject.workspace);
       const chat = chats.find(c => String(c.id) === String(chatId));
-      const project = projects.find(p => p.id === chat?.projectId);
       const allModels = await DbService.getModels();
 
-      if (!project) throw new Error('未找到所属项目');
+      if (!targetProject) throw new Error('未找到所属项目');
       if (!allModels || allModels.length === 0) throw new Error('系统中未配置任何模型');
 
       // 处理 MEMORY.md 触发
       if (content.startsWith('请注意') || content.startsWith('请记住')) {
-        const saved = await saveToMemoryFile(content, project.workspace);
+        const saved = await saveToMemoryFile(content, targetProject.workspace);
         if (saved === 'success') {
           reply.raw.write(`data: ${JSON.stringify({ chunk: '✅ 已自动记录到 MEMORY.md\n\n' })}\n\n`);
         }
       }
 
       // 获取配置
-      const enabledAgentIds = project?.enabledAgentIds || [];
+      const enabledAgentIds = targetProject?.enabledAgentIds || [];
       const allGlobalAgents = await DbService.getAgents();
-      const projectPrivateAgents = project?.projectAgents || [];
+      const projectPrivateAgents = targetProject?.projectAgents || [];
       const allProjectAgents = [
         ...allGlobalAgents.filter(a => enabledAgentIds.includes(a.id)),
         ...projectPrivateAgents
       ];
 
-      const coordinatorAgentId = project?.coordinatorAgentId || chat?.agentId || '1';
+      const coordinatorAgentId = targetProject?.coordinatorAgentId || chat?.agentId || '1';
       const coordinatorAgent = allProjectAgents.find((a: any) => String(a.id) === String(coordinatorAgentId));
 
-      const enabledSkillIds = project?.enabledSkillIds || [];
+      const enabledSkillIds = targetProject?.enabledSkillIds || [];
       const allGlobalSkills = await DbService.getGlobalSkills();
       const globalProjectSkills = allGlobalSkills.filter(s => enabledSkillIds.includes(s.id));
-      const projectPrivateSkills = project?.projectSkills || [];
+      const projectPrivateSkills = targetProject?.projectSkills || [];
       const allEnabledSkills = [...globalProjectSkills, ...projectPrivateSkills];
 
       // 构建系统消息
       const systemMessage = buildSystemMessage({
-        project,
+        project: targetProject,
         coordinatorAgent,
         allProjectAgents,
         allEnabledSkills
       });
 
       // 构建工具列表
-      const tools = buildToolList(project, allProjectAgents, coordinatorAgentId, allEnabledSkills);
+      const tools = buildToolList(targetProject, allProjectAgents, coordinatorAgentId, allEnabledSkills);
       console.log(`[Tools] Built ${tools.length} tools: ${tools.map(t => t.function?.name || t.name).join(', ')}`);
 
       // 获取聊天历史
-      const chatWithHistory = await DbService.getChat(chatId);
+      const chatWithHistory = await ProjectChatService.getChatFromProject(targetProject.workspace, chatId);
       const historyMessages = chatWithHistory?.messages || [];
       let apiMessages = buildHistoryMessages(historyMessages, 100, 2);
   
@@ -192,7 +209,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
       }
 
       // 构建模型队列
-      const activeModelId = chat?.modelId || project?.defaultModel;
+      const activeModelId = chat?.modelId || targetProject?.defaultModel;
       const primaryModel = allModels.find(m => m.id === activeModelId) || allModels[0];
       const fallbackModels = allModels.filter(m => m.id !== primaryModel.id).slice(0, 2);
       const modelsToTry = [primaryModel, ...fallbackModels];
@@ -314,7 +331,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
                 for (const toolCall of toolCalls) {
                   let toolResult: any;
                   try {
-                    toolResult = await executeToolCall(project, toolCall, allProjectAgents, allEnabledSkills, reply);
+                    toolResult = await executeToolCall(targetProject, toolCall, allProjectAgents, allEnabledSkills, reply);
                   } catch (err: any) {
                     toolResult = { error: err.message };
                   }
@@ -333,7 +350,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
                   });
 
                   // 保存工具结果到数据库
-                  await DbService.addMessageToChat(chatId, {
+                  await ProjectChatService.addMessageToChat(targetProject.workspace, chatId, {
                     role: 'tool',
                     tool_call_id: toolCall.id,
                     content: JSON.stringify(toolResult)
@@ -426,7 +443,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
         } else {
           reply.raw.write(`data: ${JSON.stringify({ chunk: finalContent })}\n\n`);
         }
-        await DbService.addMessageToChat(chatId, {
+        await ProjectChatService.addMessageToChat(targetProject.workspace, chatId, {
           role: 'assistant',
           content: finalContent
         });
@@ -442,7 +459,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
         reply.raw.write(`data: ${JSON.stringify({
           chunk: partialContent + '\n\n⚠️ 注意：部分操作未能完成，以上是已生成的内容。'
         })}\n\n`);
-        await DbService.addMessageToChat(chatId, {
+        await ProjectChatService.addMessageToChat(targetProject.workspace, chatId, {
           role: 'assistant',
           content: partialContent
         });
