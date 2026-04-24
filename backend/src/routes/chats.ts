@@ -369,9 +369,28 @@ export async function ChatRoutes(fastify: FastifyInstance) {
               const message = choice?.message || {};
               const toolCalls = extractToolCalls(choice);
 
+              // 🔍 打印 API 返回的 tool_calls ID（用于排查格式问题）
               if (toolCalls.length > 0) {
-                console.log(`[DEBUG] Processing ${toolCalls.length} tool call(s)`);
+                console.log(`[DEBUG] API returned ${toolCalls.length} tool_call(s):`);
                 for (const tc of toolCalls) {
+                  console.log(`[DEBUG]   id="${tc.id}", name=${tc.function?.name}`);
+                }
+              }
+
+              // 🔧 规范化 tool_call IDs，确保格式正确（call_ 前缀，不含连字符）
+              const normalizedToolCalls = toolCalls.map((tc: any) => {
+                let id = tc.id || '';
+                if (!id.startsWith('call_')) {
+                  const oldId = id;
+                  id = `call_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+                  console.log(`[WARN] tool_call id "${oldId}" doesn't match expected format, normalized to "${id}"`);
+                }
+                return { ...tc, id };
+              });
+
+              if (normalizedToolCalls.length > 0) {
+                console.log(`[DEBUG] Processing ${normalizedToolCalls.length} tool call(s)`);
+                for (const tc of normalizedToolCalls) {
                   console.log(`[DEBUG]   tool_call id=${tc.id}, name=${tc.function?.name}`);
                 }
                 // 记录 tool role message 数量
@@ -380,7 +399,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
       
       // 检测重复的工具调用（防止死循环）
       // 只有连续3次相同调用才中断（允许模型重试）
-      const currentSignature = toolCalls.map((tc: any) => 
+      const currentSignature = normalizedToolCalls.map((tc: any) => 
         tc.function?.name + ':' + JSON.stringify(tc.function?.arguments).slice(0, 100)
       ).join('|');
       
@@ -408,7 +427,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
 
                 reply.raw.write(`data: ${JSON.stringify({ 
                   type: 'tool_call', 
-                  toolCalls: toolCalls.map((tc: any) => ({
+                  toolCalls: normalizedToolCalls.map((tc: any) => ({
                     id: tc.id,
                     name: tc.function?.name,
                     arguments: tc.function?.arguments
@@ -418,10 +437,10 @@ export async function ChatRoutes(fastify: FastifyInstance) {
                 finalMessages.push({
                   role: 'assistant',
                   content: message.content || '',
-                  tool_calls: toolCalls
+                  tool_calls: normalizedToolCalls
                 });
 
-                for (const toolCall of toolCalls) {
+                for (const toolCall of normalizedToolCalls) {
                   let toolResult: any;
                   try {
                     toolResult = await executeToolCall(targetProject, toolCall, allProjectAgents, allEnabledSkills, reply);
