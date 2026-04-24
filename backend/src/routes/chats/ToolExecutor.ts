@@ -173,6 +173,51 @@ export async function executeShellCommand(project: any, args: any): Promise<Tool
     }
   }
 
+  const isWindows = os.platform() === 'win32';
+  let cwd = project.workspace;
+
+  // 检测 bash/Unix 命令格式
+  const bashPatterns = [
+    /mkdir -p/,
+    /cat >/,
+    /\| grep/,
+    /\| head/,
+    /\| tail/,
+    /\| wc/,
+    /\| sort/,
+    /\| uniq/,
+    /chmod /,
+    /chown /,
+    /ln -s/,
+    /tar -/,
+    /gunzip/,
+    /gzip /,
+    /curl -/,
+    /wget /,
+    /ps aux/,
+    /kill -/,
+    /export /,
+    /source /,
+    /\$\{/,
+    /\$\(\(/,
+  ];
+
+  const isBashCommand = bashPatterns.some(p => p.test(command));
+
+  if (isBashCommand && isWindows) {
+    return {
+      error: '检测到 bash 命令格式但在 Windows 环境下运行',
+      suggestion: `请使用 Windows 命令格式。例如：\n` +
+        '- mkdir → md 或 New-Item -ItemType Directory\n' +
+        '- cat > file.txt → (Get-Content).SetContent() 或重定向\n' +
+        '- ls → dir\n' +
+        '- rm → del\n' +
+        '- grep → Select-String\n' +
+        '- cp → Copy-Item\n' +
+        '- mv → Move-Item'
+    };
+  }
+
   const isWSLPath = /^\/mnt\//.test(project.workspace);
   // 检测 Windows 风格的路径（如 d:\ 或 D:\）
   const isWindowsPath = /^[a-zA-Z]:\\/.test(project.workspace);
