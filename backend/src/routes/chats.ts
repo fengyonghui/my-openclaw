@@ -331,6 +331,13 @@ export async function ChatRoutes(fastify: FastifyInstance) {
                     tool_call_id: toolCall.id,
                     content: JSON.stringify(toolResult)
                   });
+
+                  // 保存工具结果到数据库
+                  await DbService.addMessageToChat(chatId, {
+                    role: 'tool',
+                    tool_call_id: toolCall.id,
+                    content: JSON.stringify(toolResult)
+                  });
                 }
                 continue;
               }
