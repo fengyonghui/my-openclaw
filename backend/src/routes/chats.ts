@@ -343,11 +343,21 @@ export async function ChatRoutes(fastify: FastifyInstance) {
               const lastMsgs = finalMessages.slice(-4);
               for (let i = 0; i < lastMsgs.length; i++) {
                 const m = lastMsgs[i] as any;
-                const preview = m.content ? String(m.content).slice(0, 60) : (m.tool_calls ? `[tool_calls:${m.tool_calls.length}]` : '');
-                console.log(`   msg[${finalMessages.length - lastMsgs.length + i}] role=${m.role}, tool_call_id=${m.tool_call_id || '-'}, content=${preview}`);
+                const tcId = m.tool_call_id || (m.tool_calls?.[0]?.id) || '-';
+                const tcPreview = m.tool_calls ? `[tool_calls:${m.tool_calls.length}]` : '';
+                const content = m.content;
+                const contentPreview = typeof content === 'string' ? content.slice(0, 60) : (Array.isArray(content) ? '[array]' : tcPreview || String(content || '').slice(0, 40));
+                console.log(`   msg[${finalMessages.length - lastMsgs.length + i}] role=${m.role}, tc_id=${tcId}, content=${contentPreview}`);
               }
               console.log('═'.repeat(60));
               console.log('');
+
+              // 🔍 打印请求体（用于排查 invalid chat setting）
+              console.log('[DEBUG] reqBody keys:', Object.keys(reqBody));
+              console.log('[DEBUG] reqBody.messages count:', reqBody.messages?.length);
+              if (reqBody.tools) {
+                console.log('[DEBUG] reqBody.tools count:', reqBody.tools.length);
+              }
 
               const res = await fetch(apiUrl, {
                 method: 'POST',
@@ -361,7 +371,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
 
               if (!res.ok) {
                 const errText = await res.text();
-                throw new Error(`HTTP ${res.status}: ${errText.slice(0, 100)}`);
+                throw new Error(`HTTP ${res.status}: ${errText}`);
               }
 
               const data: any = await res.json();
