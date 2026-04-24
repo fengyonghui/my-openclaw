@@ -89,6 +89,11 @@ export function buildSystemMessage(context: ChatContext): Message {
 export function transformMessage(m: any): Message {
  const base: Message = { role: m.role, content: m.content || '' };
 
+ // 如果是工具消息，添加 tool_call_id
+ if (m.role === 'tool') {
+   return { ...base, tool_call_id: normalizeToolCallId(m.tool_call_id) };
+ }
+
  // 如果有附件（图片等），使用多模态格式
  if (m.attachments && m.attachments.length > 0) {
  const content: any[] = [];
@@ -121,6 +126,35 @@ export function transformMessage(m: any): Message {
 }
 
 /**
+ * 规范化 tool_call ID（确保 call_ 前缀格式）
+ */
+export function normalizeToolCallId(id: string | undefined): string {
+ if (!id || !id.startsWith('call_')) {
+   return `call_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+ }
+ return id;
+}
+
+/**
+ * 规范化消息中的所有 tool_call IDs（用于 assistant 和 tool 消息）
+ */
+export function normalizeMessageToolIds(m: any): any {
+ if (m.role === 'tool') {
+   return { ...m, tool_call_id: normalizeToolCallId(m.tool_call_id) };
+ }
+ if (m.role === 'assistant' && m.tool_calls) {
+   return {
+     ...m,
+     tool_calls: m.tool_calls.map((tc: any) => ({
+       ...tc,
+       id: normalizeToolCallId(tc.id)
+     }))
+   };
+ }
+ return m;
+}
+
+/**
  * 构建对话历史消息
  */
 export function buildHistoryMessages(
@@ -132,11 +166,11 @@ export function buildHistoryMessages(
 
  if (historyMessages.length > contextWindow + initialIntentCount) {
  apiMessages = [
- ...historyMessages.slice(0, initialIntentCount).map(transformMessage),
- ...historyMessages.slice(-contextWindow).map(transformMessage)
+ ...historyMessages.slice(0, initialIntentCount).map(m => normalizeMessageToolIds(transformMessage(m))),
+ ...historyMessages.slice(-contextWindow).map(m => normalizeMessageToolIds(transformMessage(m)))
  ];
  } else {
- apiMessages = historyMessages.map(transformMessage);
+ apiMessages = historyMessages.map(m => normalizeMessageToolIds(transformMessage(m)));
  }
 
  return apiMessages;
@@ -154,6 +188,8 @@ export function cleanMentions(content: string): { cleanContent: string; mentions
 export default {
  buildSystemMessage,
  transformMessage,
+ normalizeToolCallId,
+ normalizeMessageToolIds,
  buildHistoryMessages,
  cleanMentions
 };
