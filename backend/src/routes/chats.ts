@@ -274,17 +274,22 @@ export async function ChatRoutes(fastify: FastifyInstance) {
     console.log(`[Context] Limited to ${apiMessages.length} recent messages`);
   }
 
-      // 上下文管理
+      // 上下文管理 - 使用较小的 contextWindow 确保超长消息被裁剪
+      // mx27 上下文窗口约 100K，这里用 32K 触发压缩（mx27 报告了 162K tokens）
       const prunedMessages = pruneContext(apiMessages as Message[], {
-        contextWindow: 128000,
+        contextWindow: 32000,
         keepLastAssistants: 3
       });
 
       const contextStats = getContextStats(prunedMessages as Message[]);
-      console.log(`[Context] Messages: ${contextStats.messageCount}, Tokens: ~${contextStats.estimatedTokens}`);
+      console.log(`[Context] Before prune: ${apiMessages.length} msgs, ~${Math.round((apiMessages.reduce((s: number, m: any) => s + (m.content?.length || 0), 0)) / 4)} tokens`);
+      console.log(`[Context] After prune: ${contextStats.messageCount} msgs, ~${contextStats.estimatedTokens} tokens, usage=${contextStats.usagePercent}%`);
 
       if (contextStats.needsCompaction) {
-        const { compacted } = await compactContext(prunedMessages as Message[]);
+        console.log(`[Context] Starting compaction (${contextStats.estimatedTokens} tokens -> target ${4000})...`);
+        const { compacted, summary } = await compactContext(prunedMessages as Message[]);
+        const compactStats = getContextStats(compacted as Message[]);
+        console.log(`[Context] Compaction done: ${compactStats.messageCount} messages, ~${compactStats.estimatedTokens} tokens`);
         apiMessages = compacted as any[];
       }
 
