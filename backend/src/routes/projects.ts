@@ -62,7 +62,12 @@ export async function ProjectRoutes(fastify: FastifyInstance) {
     // 从项目目录获取会话
     const wslPath = toWSLPath(project.workspace);
     console.log(`[Projects] GET /${id}/chats - WSL path: ${wslPath}`);
-    return await ProjectChatService.getChatsFromProject(wslPath);
+    console.log(`[Projects] WSL path exists: ${require('fs').existsSync(wslPath)}`);
+    console.log(`[Projects] Chats dir exists: ${require('fs').existsSync(wslPath + '/data/chats')}`);
+    
+    const chats = await ProjectChatService.getChatsFromProject(wslPath);
+    console.log(`[Projects] Found ${chats.length} chats`);
+    return chats;
   });
 
   // 获取项目下的 Agent
