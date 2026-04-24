@@ -1,5 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { DbService } from '../services/DbService.js';
+import { ProjectChatService } from '../services/ProjectChatService.js';
+import { toWSLPath } from '../services/PathService.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
@@ -58,10 +60,9 @@ export async function ProjectRoutes(fastify: FastifyInstance) {
     }
     
     // 从项目目录获取会话
-    const { toWSLPath } = await import('../services/PathService.js');
-    const { ProjectChatService } = await import('../services/ProjectChatService.js');
-    
-    return await ProjectChatService.getChatsFromProject(toWSLPath(project.workspace));
+    const wslPath = toWSLPath(project.workspace);
+    console.log(`[Projects] GET /${id}/chats - WSL path: ${wslPath}`);
+    return await ProjectChatService.getChatsFromProject(wslPath);
   });
 
   // 获取项目下的 Agent
