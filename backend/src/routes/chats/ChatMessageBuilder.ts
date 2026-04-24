@@ -94,6 +94,17 @@ export function transformMessage(m: any): Message {
    return { ...base, tool_call_id: normalizeToolCallId(m.tool_call_id) };
  }
 
+ // 如果是助手消息且有 tool_calls，保留并规范化
+ if (m.role === 'assistant' && m.tool_calls) {
+   return {
+     ...base,
+     tool_calls: m.tool_calls.map((tc: any) => ({
+       ...tc,
+       id: normalizeToolCallId(tc.id)
+     }))
+   };
+ }
+
  // 如果有附件（图片等），使用多模态格式
  if (m.attachments && m.attachments.length > 0) {
  const content: any[] = [];
