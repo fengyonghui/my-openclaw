@@ -206,7 +206,7 @@ export function ChatDetailPage({ projectId, chatId, onMinimize }: { projectId: s
         const [pRes, mRes, cRes] = await Promise.all([
           fetch(`http://localhost:3001/api/v1/projects/${projectId}`),
           fetch(`http://localhost:3001/api/v1/models`),
-          fetch(`http://localhost:3001/api/v1/chats/${chatId}`),
+          fetch(`http://localhost:3001/api/v1/chats/${chatId}?projectId=${projectId}`),
         ]);
         const pData = await pRes.json();
         const mData = await mRes.json();
@@ -236,7 +236,7 @@ export function ChatDetailPage({ projectId, chatId, onMinimize }: { projectId: s
 
   const handleUpdateChat = async (updates: any) => {
     try {
-      const res = await fetch(`http://localhost:3001/api/v1/chats/${chatId}`, {
+      const res = await fetch(`http://localhost:3001/api/v1/chats/${chatId}?projectId=${projectId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates),
