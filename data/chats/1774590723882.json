@@ -1,0 +1,25 @@
+{
+  "id": "1774590723882",
+  "projectId": "my-openclaw",
+  "title": "文件列表",
+  "messages": [
+    {
+      "role": "user",
+      "content": "在Workspace Explorer页面， 添加功能： 在选定目录及子目录下按 文本关键字 查询 功能。 功能类似IDE一样",
+      "mentions": [],
+      "attachments": [],
+      "id": "1774590820729",
+      "timestamp": "2026-03-27T05:53:40.729Z"
+    },
+    {
+      "role": "user",
+      "content": "在Workspace Explorer页面， 添加功能： 在选定目录及子目录下按 文本关键字 查询 功能。 功能类似IDE一样",
+      "mentions": [],
+      "attachments": [],
+      "id": "1774590933414",
+      "timestamp": "2026-03-27T05:55:33.414Z"
+    }
+  ],
+  "updatedAt": "2026-03-27T05:55:33.414Z",
+  "modelId": "1774231104774"
+}
