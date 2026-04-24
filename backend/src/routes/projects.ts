@@ -48,7 +48,20 @@ export async function ProjectRoutes(fastify: FastifyInstance) {
   // 获取项目下的会话
   fastify.get('/:id/chats', async (request) => {
     const { id } = request.params as { id: string };
-    return await DbService.getChats(id);
+    
+    // 获取项目信息
+    const projects = await DbService.getProjects();
+    const project = projects.find((p: any) => p.id === id);
+    
+    if (!project) {
+      return [];
+    }
+    
+    // 从项目目录获取会话
+    const { toWSLPath } = await import('../services/PathService.js');
+    const { ProjectChatService } = await import('../services/ProjectChatService.js');
+    
+    return await ProjectChatService.getChatsFromProject(toWSLPath(project.workspace));
   });
 
   // 获取项目下的 Agent
