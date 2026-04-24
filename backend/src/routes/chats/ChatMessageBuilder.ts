@@ -184,6 +184,32 @@ export function buildHistoryMessages(
  apiMessages = historyMessages.map(m => normalizeMessageToolIds(transformMessage(m)));
  }
 
+ // 收集所有有效的 tool_call_ids（来自 assistant.tool_calls）
+ const validToolCallIds = new Set<string>();
+ for (const m of apiMessages) {
+   if (m.role === 'assistant' && m.tool_calls) {
+     for (const tc of m.tool_calls) {
+       if (tc.id) validToolCallIds.add(tc.id);
+     }
+   }
+ }
+
+ // 过滤孤立 tool 消息（没有对应 assistant.tool_calls 的 tool 结果）
+ // 这些是因为 assistant 消息没有保存到数据库导致的孤儿
+ const filteredMessages: Message[] = [];
+ for (const m of apiMessages) {
+   if (m.role === 'tool') {
+     if (validToolCallIds.has(m.tool_call_id || '')) {
+       filteredMessages.push(m);
+     } else {
+       console.log(`[DEBUG] Dropping orphan tool message: tool_call_id=${m.tool_call_id}`);
+     }
+   } else {
+     filteredMessages.push(m);
+   }
+ }
+ apiMessages = filteredMessages;
+
  // 截断超长工具消息，避免单个巨大消息撑爆上下文
  const MAX_TOOL_CONTENT = 4000;
  apiMessages = apiMessages.map(m => {
