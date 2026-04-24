@@ -3,6 +3,7 @@ import cors from '@fastify/cors';
 import { ProjectRoutes } from './routes/projects.js';
 import { AgentRoutes } from './routes/agents.js';
 import { ChatRoutes } from './routes/chats.js';
+import { ProjectChatRoutes } from './routes/project-chats.js';
 import { SystemRoutes } from './routes/system.js';
 import { ModelRoutes } from './routes/models.js';
 import { SkillRoutes } from './routes/skills.js';
@@ -28,6 +29,7 @@ await fastify.register(cors, {
 await fastify.register(ProjectRoutes, { prefix: '/api/v1/projects' });
 await fastify.register(AgentRoutes, { prefix: '/api/v1/agents' });
 await fastify.register(ChatRoutes, { prefix: '/api/v1/chats' });
+await fastify.register(ProjectChatRoutes, { prefix: '/api/v1/project-chats' });
 await fastify.register(SystemRoutes, { prefix: '/api/v1/system' });
 await fastify.register(ModelRoutes, { prefix: '/api/v1/models' });
 await fastify.register(SkillRoutes, { prefix: '/api/v1/skills' });
