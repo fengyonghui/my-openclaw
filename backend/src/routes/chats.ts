@@ -364,6 +364,12 @@ export async function ChatRoutes(fastify: FastifyInstance) {
 
               if (toolCalls.length > 0) {
                 console.log(`[DEBUG] Processing ${toolCalls.length} tool call(s)`);
+                for (const tc of toolCalls) {
+                  console.log(`[DEBUG]   tool_call id=${tc.id}, name=${tc.function?.name}`);
+                }
+                // 记录 tool role message 数量
+                const toolMsgCount = finalMessages.filter((m: any) => m.role === 'tool').length;
+                console.log(`[DEBUG]   finalMessages currently has ${toolMsgCount} tool messages`);
       
       // 检测重复的工具调用（防止死循环）
       // 只有连续3次相同调用才中断（允许模型重试）
