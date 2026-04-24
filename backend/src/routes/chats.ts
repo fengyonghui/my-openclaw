@@ -105,7 +105,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
     const { cleanContent } = cleanMentions(content);
 
     // 保存用户消息到项目目录
-    await ProjectChatService.addMessageToChat(targetProject.workspace, chatId, {
+    await ProjectChatService.addMessageToChat(toWSLPath(targetProject.workspace), chatId, {
       role: 'user',
       content: cleanContent,
       attachments: attachments || []
@@ -137,7 +137,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
 
     try {
       // 加载会话
-      const chats = await ProjectChatService.getChatsFromProject(targetProject.workspace);
+      const chats = await ProjectChatService.getChatsFromProject(toWSLPath(toWSLPath(targetProject.workspace)));
       const chat = chats.find(c => String(c.id) === String(chatId));
       const allModels = await DbService.getModels();
 
@@ -146,7 +146,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
 
       // 处理 MEMORY.md 触发
       if (content.startsWith('请注意') || content.startsWith('请记住')) {
-        const saved = await saveToMemoryFile(content, targetProject.workspace);
+        const saved = await saveToMemoryFile(content, toWSLPath(toWSLPath(targetProject.workspace)));
         if (saved === 'success') {
           reply.raw.write(`data: ${JSON.stringify({ chunk: '✅ 已自动记录到 MEMORY.md\n\n' })}\n\n`);
         }
@@ -183,7 +183,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
       console.log(`[Tools] Built ${tools.length} tools: ${tools.map(t => t.function?.name || t.name).join(', ')}`);
 
       // 获取聊天历史
-      const chatWithHistory = await ProjectChatService.getChatFromProject(targetProject.workspace, chatId);
+      const chatWithHistory = await ProjectChatService.getChatFromProject(toWSLPath(toWSLPath(targetProject.workspace)), chatId);
       const historyMessages = chatWithHistory?.messages || [];
       let apiMessages = buildHistoryMessages(historyMessages, 100, 2);
   
@@ -350,7 +350,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
                   });
 
                   // 保存工具结果到数据库
-                  await ProjectChatService.addMessageToChat(targetProject.workspace, chatId, {
+                  await ProjectChatService.addMessageToChat(toWSLPath(targetProject.workspace), chatId, {
                     role: 'tool',
                     tool_call_id: toolCall.id,
                     content: JSON.stringify(toolResult)
@@ -443,7 +443,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
         } else {
           reply.raw.write(`data: ${JSON.stringify({ chunk: finalContent })}\n\n`);
         }
-        await ProjectChatService.addMessageToChat(targetProject.workspace, chatId, {
+        await ProjectChatService.addMessageToChat(toWSLPath(targetProject.workspace), chatId, {
           role: 'assistant',
           content: finalContent
         });
@@ -459,7 +459,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
         reply.raw.write(`data: ${JSON.stringify({
           chunk: partialContent + '\n\n⚠️ 注意：部分操作未能完成，以上是已生成的内容。'
         })}\n\n`);
-        await ProjectChatService.addMessageToChat(targetProject.workspace, chatId, {
+        await ProjectChatService.addMessageToChat(toWSLPath(targetProject.workspace), chatId, {
           role: 'assistant',
           content: partialContent
         });
