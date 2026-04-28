@@ -8,6 +8,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { loadMemoryFile } from './MemoryFileHandler.js';
+import { getSystemInfo, getSystemCommands } from '../../services/SystemCommands.js';
+import { getProjectWorkspacePath } from '../../services/PathService.js';
 
 export interface Message {
  role: 'system' | 'user' | 'assistant' | 'tool';
@@ -24,63 +26,107 @@ export interface ChatContext {
 }
 
 /**
- * 构建系统消息
+ * 构建系统消息（包含跨平台命令参考）
  */
 export function buildSystemMessage(context: ChatContext): Message {
- const { project, coordinatorAgent, allProjectAgents, allEnabledSkills } = context;
+  const { project, coordinatorAgent, allProjectAgents, allEnabledSkills } = context;
 
- // Agent 身份提示
- let agentRolePrompt = '';
- if (coordinatorAgent) {
- agentRolePrompt = `\n## YOUR IDENTITY\nYou are **${coordinatorAgent.name}**${coordinatorAgent.role ? ` (${coordinatorAgent.role})` : ''}. ` +
- `${coordinatorAgent.description || 'A professional AI assistant.'}\n`;
+  // 获取当前平台信息和命令集（Hermes 跨平台核心）
+  const sysInfo = getSystemInfo();
+  const cmds = getSystemCommands();
+  const workspace = getProjectWorkspacePath(project.workspace);
 
- if (coordinatorAgent.instructions) {
- agentRolePrompt += `\n## YOUR INSTRUCTIONS\n${coordinatorAgent.instructions}\n`;
- }
- }
+  // 平台标识（用于告知模型）
+  const platformSection = `
+## PLATFORM
+- platform: **${sysInfo.platformName}** (${sysInfo.platform})
+- shell: **${sysInfo.shell}** (${sysInfo.shellPath})
+- workspace: \`${workspace}\`
+- path separator: \`${sysInfo.pathSeparator}\`
 
- // 团队成员提示
- const availableDelegates = allProjectAgents
- .filter((a: any) => String(a.id) !== String(coordinatorAgent?.id))
- .map((a: any) => a.name);
+## SHELL COMMANDS (${sysInfo.platformName})
+Use these commands for shell_exec tool. DO NOT guess commands.
 
- let teamPrompt = '';
- if (availableDelegates.length > 0) {
- const delegateDetails = allProjectAgents
- .filter((a: any) => String(a.id) !== String(coordinatorAgent?.id))
- .map((a: any) => `- ${a.name}${a.role ? ` (${a.role})` : ''}: ${a.description || ''}`)
- .join('\n');
+**File operations:**
+- list directory: ${cmds.listDir}
+- read file: ${cmds.readFile}
+- read first N lines: ${cmds.readFileLines}
+- create directory: ${cmds.createDir}
+- delete file: ${cmds.deleteFile}
+- copy file: ${cmds.copyFile}
+- move file: ${cmds.moveFile}
 
- teamPrompt = `\n\n## YOUR TEAM\nYou can delegate tasks to these team members:\n${delegateDetails}`;
- }
+**Text search:**
+- search in file: ${cmds.searchInFile}
+- find files by name: ${cmds.findFiles}
 
- // 加载项目 MEMORY.md
- const memoryPrompt = '\n\n## PROJECT MEMORY\n' + loadMemoryFile(project.workspace);
+**Process:**
+- list processes: ${cmds.listProcesses}
+- kill process: ${cmds.killProcess}
 
- // 构建系统消息内容
- const systemContent = `You are an AI assistant working inside project workspace: **${project.workspace}**\n` +
- `Project: ${project.name}\n` +
- `${agentRolePrompt}` +
- `${teamPrompt}` +
- `${memoryPrompt}` +
- `\n\n## TOOL CALLING RULES\n` +
- `- Use tools to perform actions. Do not just describe what you will do.\n` +
- `- If a tool call fails, READ the error message carefully and FIX the arguments\n` +
- `- For write_file: ALWAYS include BOTH path AND content parameters\n` +
- `- For edit_file: include path, oldText (exact text to find), and newText\n` +
- `\n\n## CRITICAL: FILE CONTENT RULES\n` +
-`- NEVER write user messages or error descriptions as file content\n` +
-`- When asked to implement a feature, write ACTUAL CODE, not descriptions\n` +
-`- write_file content must be COMPLETE file content, not a placeholder\n` +
-`- Do NOT write phrases like "完整文件内容" as content\n` +
-`\n\n## IMPORTANT RULES\n` +
- `- When a task requires specific expertise, delegate it to the appropriate team member\n` +
- `- Always use read_file before editing files\n` +
- `- You can understand and analyze images when provided\n` +
- `- Provide clear, concise, and helpful responses`;
+**Network:**
+- list ports: ${cmds.listPorts}
 
- return { role: 'system', content: systemContent };
+**Git:**
+- git status: ${cmds.gitStatus}
+- git diff: ${cmds.gitDiff}
+- git log: ${cmds.gitLog}
+`;
+
+  // Agent 身份提示
+  let agentRolePrompt = '';
+  if (coordinatorAgent) {
+  agentRolePrompt = `\n## YOUR IDENTITY\nYou are **${coordinatorAgent.name}**${coordinatorAgent.role ? ` (${coordinatorAgent.role})` : ''}. ` +
+  `${coordinatorAgent.description || 'A professional AI assistant.'}\n`;
+
+  if (coordinatorAgent.instructions) {
+  agentRolePrompt += `\n## YOUR INSTRUCTIONS\n${coordinatorAgent.instructions}\n`;
+  }
+  }
+
+  // 团队成员提示
+  const availableDelegates = allProjectAgents
+  .filter((a: any) => String(a.id) !== String(coordinatorAgent?.id))
+  .map((a: any) => a.name);
+
+  let teamPrompt = '';
+  if (availableDelegates.length > 0) {
+  const delegateDetails = allProjectAgents
+  .filter((a: any) => String(a.id) !== String(coordinatorAgent?.id))
+  .map((a: any) => `- ${a.name}${a.role ? ` (${a.role})` : ''}: ${a.description || ''}`)
+  .join('\n');
+
+  teamPrompt = `\n\n## YOUR TEAM\nYou can delegate tasks to these team members:\n${delegateDetails}`;
+  }
+
+  // 加载项目 MEMORY.md
+  const memoryPrompt = '\n\n## PROJECT MEMORY\n' + loadMemoryFile(project.workspace);
+
+  // 构建系统消息内容
+  const systemContent =
+    `You are an AI assistant working inside project workspace: **${workspace}**\n` +
+    `Project: ${project.name}\n` +
+    `${agentRolePrompt}` +
+    `${teamPrompt}` +
+    `${memoryPrompt}` +
+    `${platformSection}` +
+    `\n\n## TOOL CALLING RULES\n` +
+    `- Use tools to perform actions. Do not just describe what you will do.\n` +
+    `- If a tool call fails, READ the error message carefully and FIX the arguments\n` +
+    `- For write_file: ALWAYS include BOTH path AND content parameters\n` +
+    `- For edit_file: include path, oldText (exact text to find), and newText\n` +
+    `\n\n## CRITICAL: FILE CONTENT RULES\n` +
+    `- NEVER write user messages or error descriptions as file content\n` +
+    `- When asked to implement a feature, write ACTUAL CODE, not descriptions\n` +
+    `- write_file content must be COMPLETE file content, not a placeholder\n` +
+    `- Do NOT write phrases like "完整文件内容" as content\n` +
+    `\n\n## IMPORTANT RULES\n` +
+    `- When a task requires specific expertise, delegate it to the appropriate team member\n` +
+    `- Always use read_file before editing files\n` +
+    `- You can understand and analyze images when provided\n` +
+    `- Provide clear, concise, and helpful responses`;
+
+  return { role: 'system', content: systemContent };
 }
 
 /**

@@ -1,16 +1,21 @@
 /**
  * ToolExecutor - 工具调用执行器
- * 
+ *
  * 处理各种工具调用的执行逻辑
+ * 使用 Hermes 的跨平台方案：
+ *   - getSystemInfo() 获取平台/shell 信息
+ *   - toWSLPath() 将 Windows 路径转为 /mnt/d/...
+ *   - SystemCommands 中的命令映射
  */
 
 import * as path from 'path';
 import * as fs from 'fs';
-import * as os from 'os';
 import { exec } from 'child_process';
 import { FileToolService } from '../../services/FileToolService.js';
 import { getBuiltinShellSkill, getBuiltinFileIOSkill } from '../../services/BuiltinSkills.js';
 import { DbService } from '../../services/DbService.js';
+import { getSystemInfo } from '../../services/SystemCommands.js';
+import { toWSLPath, getProjectWorkspacePath } from '../../services/PathService.js';
 
 export type ToolCall = {
   id?: string;
@@ -173,12 +178,15 @@ export async function executeShellCommand(project: any, args: any): Promise<Tool
     }
   }
 
-  const isWindows = os.platform() === 'win32';
-  let cwd = project.workspace;
+  // 使用 Hermes 跨平台方案
+  const sys = getSystemInfo();
+  const isWindows = sys.isWindows;
+  const isLinux = sys.isLinux;
 
-  // 路径格式检测
-  const isWSLPath = /^\/mnt\//.test(project.workspace);
-  const isWindowsPath = /^[a-zA-Z]:[\\\/]/.test(project.workspace);
+  // 本地执行路径（Node.js fs/exec 用）
+  const localWorkspace = getProjectWorkspacePath(project.workspace);
+  // WSL 执行路径（传给 wsl.exe 的 cwd）
+  const wslWorkspace = toWSLPath(project.workspace);
 
   // 检测 bash/Unix 命令格式
   const bashPatterns = [
@@ -208,51 +216,37 @@ export async function executeShellCommand(project: any, args: any): Promise<Tool
 
   const isBashCommand = bashPatterns.some(p => p.test(command));
 
-  // WSL 路径（/mnt/d/...）：直接通过 wsl.exe 执行
-  if (isWSLPath) {
-    return executeLinuxCommand(`wsl.exe ${command}`, project.workspace);
-  }
+  // PowerShell 命令检测
+  const isPowerShellCmd = command.trim().startsWith('if ') ||
+    /^(Test-|Remove-|Write-|Get-|New-|Set-)/i.test(command.trim());
 
-  // Windows 路径（d:/workspace/...）：需要转换为 /mnt/d/...
-  // bash 命令 → 通过 wsl.exe 执行
-  // Windows 原生命令 → 通过 cmd.exe 或 powershell 执行
-  if (isWindowsPath) {
-    const driveLetter = project.workspace.charAt(0).toLowerCase();
-    const normalized = project.workspace.replace(/\\/g, '/');
-    const wslCwd = '/mnt/' + driveLetter + '/' + normalized.substring(3);
+  // ============================================================
+  // Hermes 跨平台执行路由
+  // ============================================================
+  //
+  // Windows (win32): bash 命令 → wsl.exe 执行，其余 → cmd.exe / powershell
+  // Linux / WSL: 直接执行（本地或通过 wsl.exe）
+  //
 
-    if (isBashCommand) {
-      // bash 命令在 Windows 上通过 WSL 执行
-      return executeLinuxCommand(`wsl.exe ${command}`, wslCwd);
-    }
-
-    // PowerShell 命令检测
-    const isPowerShellCmd = command.trim().startsWith('if ') ||
-      /^(Test-|Remove-|Write-|Get-|New-|Set-)/i.test(command.trim());
-
-    if (isPowerShellCmd) {
-      return executePowerShellCommand(command, cwd);
-    } else {
-      return executeWindowsCommand(command, cwd);
-    }
-  }
-
-  // 原生 Linux 环境（workspace 不含驱动器号）
   if (isWindows) {
-    // 原生 Windows 但 workspace 是 Linux 路径 → 尝试 WSL
-    if (isBashCommand) {
-      return executeLinuxCommand(`wsl.exe ${command}`, cwd);
-    }
-    const isPowerShellCmd = command.trim().startsWith('if ') ||
-      /^(Test-|Remove-|Write-|Get-|New-|Set-)/i.test(command.trim());
+    // Windows 原生执行
     if (isPowerShellCmd) {
-      return executePowerShellCommand(command, cwd);
+      return executePowerShellCommand(command, localWorkspace);
     }
-    return executeWindowsCommand(command, cwd);
+    // cmd.exe 或其他 Windows 命令
+    return executeWindowsCommand(command, localWorkspace);
   }
 
-  // 原生 Linux
-  return executeLinuxCommand(command, cwd);
+  // Linux / WSL 环境
+  // WSL 路径 (/mnt/d/...) 或 bash 命令 → 通过 wsl.exe 执行
+  const wslPath = /^\/mnt\//.test(project.workspace);
+  if (wslPath || isBashCommand) {
+    // wsl.exe 执行，cwd 使用 WSL 路径格式
+    return executeLinuxCommand(`wsl.exe ${command}`, wslWorkspace);
+  }
+
+  // 原生 Linux（workspace 不含驱动器号）
+  return executeLinuxCommand(command, localWorkspace);
 }
 
 /**
