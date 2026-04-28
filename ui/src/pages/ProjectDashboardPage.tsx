@@ -2,6 +2,7 @@ import { Bot, FolderOpen, MessageSquare, Plus, Cpu, Sparkles, Search, Trash2, X,
 import { useState, useEffect, useMemo } from 'react';
 import { Card, Button } from '../components/ui';
 import { useProject } from '../contexts/ProjectContext';
+import { RuntimeStatusPanel } from '../components/runtime/RuntimeStatusPanel';
 
 export function ProjectDashboardPage({ projectId, onOpenChat, onProjectUpdated }: { projectId: string; onOpenChat?: (chatId: string) => void; onProjectUpdated?: () => void }) {
   const [project, setProject] = useState<any>(null);
@@ -250,6 +251,11 @@ export function ProjectDashboardPage({ projectId, onOpenChat, onProjectUpdated }
               </div>
             </div>
           )}
+
+          {/* Phase 4: Runtime Status Panel */}
+          <div className="mb-10">
+            <RuntimeStatusPanel projectId={projectId} projectName={project?.name} />
+          </div>
         </div>
       </div>
 

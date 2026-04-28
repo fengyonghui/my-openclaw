@@ -11,6 +11,7 @@ import { FileRoutes } from './routes/files.js';
 import { SystemToolsRoutes } from './routes/systemTools.js';
 import { SystemCommandsRoutes } from './routes/systemCommands.js';
 import { HeartbeatRoutes } from './routes/heartbeats.js';
+import { FeatureFlagsRoutes } from './routes/feature-flags.js';
 import { bootstrapSystemCommands } from './services/systemBootstrap.js';
 import { restoreHeartbeats } from './services/HeartbeatService.js';
 
@@ -37,6 +38,7 @@ await fastify.register(FileRoutes, { prefix: '/api/v1' });
 await fastify.register(SystemToolsRoutes, { prefix: '/api/tools' });
 await fastify.register(SystemCommandsRoutes, { prefix: '/api/tools' });
 await fastify.register(HeartbeatRoutes, { prefix: '/api/v1/heartbeats' });
+await fastify.register(FeatureFlagsRoutes, { prefix: '/api/v1/flags' });
 
 // --- Start Server ---
 try {
