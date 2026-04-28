@@ -219,7 +219,6 @@ export async function executeShellCommand(project: any, args: any): Promise<Tool
   }
 
   const isWSLPath = /^\/mnt\//.test(project.workspace);
-  // 检测 Windows 风格的路径（如 d:\ 或 D:\）
   const isWindowsPath = /^[a-zA-Z]:\\/.test(project.workspace);
   let finalCommand = command;
 
@@ -231,7 +230,7 @@ export async function executeShellCommand(project: any, args: any): Promise<Tool
   }
 
   // PowerShell 命令检测
-  const isPowerShellCmd = command.trim().startsWith('if ') || 
+  const isPowerShellCmd = command.trim().startsWith('if ') ||
     /^(Test-|Remove-|Write-|Get-|New-|Set-)/i.test(command.trim());
 
   if (isWindows && !isWSLPath) {
@@ -242,9 +241,14 @@ export async function executeShellCommand(project: any, args: any): Promise<Tool
     }
   } else {
     // WSL 或 Linux 环境
-    const execCmd = isWSLPath ? `wsl.exe ${command}` : command;
-    cwd = isWSLPath ? '/' + project.workspace.replace(/^\/(mnt\/.)/, '$1').replace(/\\/g, '/') : project.workspace;
-    return executeLinuxCommand(execCmd, cwd);
+    if (isWSLPath) {
+      // project.workspace 已经是 /mnt/d/... 格式，直接用
+      const execCmd = `wsl.exe ${command}`;
+      return executeLinuxCommand(execCmd, project.workspace);
+    } else {
+      // 原生 Linux workspace（不含驱动器号）
+      return executeLinuxCommand(command, cwd);
+    }
   }
 }
 
