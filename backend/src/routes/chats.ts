@@ -13,6 +13,7 @@ import * as fs from 'fs';
 import { pruneContext, compactContext, getContextStats, Message } from '../services/ContextManager.js';
 import { buildToolList } from '../services/ToolDefinitions.js';
 import { parseApiError, setModelRateLimited, calculateBackoff } from '../services/RateLimitHandler.js';
+import { projectRuntimeManager } from '../services/ProjectRuntimeManager.js';
 
 // 导入模块化组件
 import {
@@ -167,7 +168,11 @@ export async function ChatRoutes(fastify: FastifyInstance) {
       const projects = await DbService.getProjects();
       const project = projects.find((p: any) => p.id === projectId);
       if (project) {
-        return { deleted: await ProjectChatService.deleteChat(getProjectWorkspacePath(project.workspace), id) };
+        const wsPath = getProjectWorkspacePath(project.workspace);
+        const deleted = await ProjectChatService.deleteChat(wsPath, id);
+        // Phase 4: 清理运行时会话
+        projectRuntimeManager.removeChatSession(id);
+        return { deleted };
       }
     }
     return { error: '缺少 projectId' };
@@ -218,6 +223,16 @@ export async function ChatRoutes(fastify: FastifyInstance) {
     // 创建 AbortController
     const abortController = new AbortController();
     setAbortController(chatId, abortController);
+
+    // Phase 4: 创建运行时会话
+    projectRuntimeManager.createChatSession({
+      chatId,
+      projectId: targetProject.id,
+      agentId: chat?.agentId || targetProject.coordinatorAgentId || '',
+      modelId: chat?.modelId || targetProject.defaultModel || '',
+      abortController,
+    });
+    projectRuntimeManager.startStreaming(chatId, `sse_${chatId}_${Date.now()}`);
 
     const onAbort = () => {
       console.log(`[SSE Stop] Chat ${chatId} aborted by user`);
@@ -477,6 +492,13 @@ export async function ChatRoutes(fastify: FastifyInstance) {
                   let toolResult: any;
                   try {
                     toolResult = await executeToolCall(targetProject, toolCall, allProjectAgents, allEnabledSkills, reply);
+                    projectRuntimeManager.incrementToolCalls(chatId);
+                    projectRuntimeManager.getEventService().record('tool_call', {
+                      chatId,
+                      projectId: targetProject.id,
+                      toolName: toolCall.function?.name || toolCall.function?.name || 'unknown',
+                      toolArgs: JSON.parse(toolCall.function?.arguments || '{}'),
+                    });
                   } catch (err: any) {
                     toolResult = { error: err.message };
                   }
@@ -618,6 +640,9 @@ export async function ChatRoutes(fastify: FastifyInstance) {
     } finally {
       abortController.signal.removeEventListener('abort', onAbort);
       clearAbortController(chatId);
+      // Phase 4: 清理运行时会话
+      projectRuntimeManager.stopStreaming(chatId);
+      projectRuntimeManager.removeChatSession(chatId);
       try { reply.raw.end(); } catch {}
     }
   });
@@ -630,6 +655,9 @@ export async function ChatRoutes(fastify: FastifyInstance) {
     console.log(`[Stop] Request to stop chat ${chatId}`);
 
     const stopped = stopChat(chatId);
+    // Phase 4: 清理运行时会话
+    projectRuntimeManager.stopStreaming(chatId);
+    projectRuntimeManager.removeChatSession(chatId);
     if (stopped) {
       console.log(`[Stop] Successfully stopped chat ${chatId}`);
       return { success: true, message: '已停止生成' };

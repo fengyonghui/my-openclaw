@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { DbService } from '../services/DbService.js';
 import { ProjectChatService } from '../services/ProjectChatService.js';
 import { getProjectWorkspacePath } from '../services/PathService.js';
+import { projectRuntimeManager } from '../services/ProjectRuntimeManager.js';
 import fs from 'node:fs';
 import { readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
@@ -231,7 +232,7 @@ export async function ProjectRoutes(fastify: FastifyInstance) {
     return await DbService.getProjectSkills(id);
   });
 
-  // ===== 项目运行状态 API =====
+  // ===== 项目运行状态 API (Phase 4) =====
   fastify.get('/:id/status', async (request, reply) => {
     const { id } = request.params as { id: string };
     const project = await DbService.getProject(id);
@@ -252,6 +253,11 @@ export async function ProjectRoutes(fastify: FastifyInstance) {
     // 获取全局 Agent 列表
     const agents = await DbService.getProjectAgents(id);
 
+    // Phase 4: 运行时状态
+    const runtime = projectRuntimeManager.getProjectStatus(id);
+    const lockStats = projectRuntimeManager.getLockService().getStats();
+    const events = projectRuntimeManager.getProjectEvents(id, 20);
+
     return {
       projectId: id,
       projectName: project.name,
@@ -269,7 +275,26 @@ export async function ProjectRoutes(fastify: FastifyInstance) {
       coordinatorAgentId: project.coordinatorAgentId,
       defaultModel: project.defaultModel,
       enabledAgentIds: project.enabledAgentIds || [],
-      enabledSkillIds: project.enabledSkillIds || []
+      enabledSkillIds: project.enabledSkillIds || [],
+      // Phase 4: 运行时数据
+      runtime: {
+        online: runtime.online,
+        activeChats: runtime.activeChats,
+        activeStreams: runtime.activeStreams,
+        totalSessions: runtime.totalSessions,
+        totalToolCalls: runtime.totalToolCalls,
+        agentProcesses: runtime.agentProcesses,
+        lastActivity: runtime.lastActivity,
+        uptime: runtime.uptime,
+        locked: runtime.locked,
+        lockedFiles: runtime.lockedFiles,
+        lockStats: lockStats.byProject[id] || 0,
+        recentEvents: events.slice(0, 10).map(e => ({
+          type: e.type,
+          timestamp: e.timestamp,
+          chatId: e.chatId,
+        })),
+      }
     };
   });
 
