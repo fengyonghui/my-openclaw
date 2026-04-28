@@ -66,13 +66,15 @@ export class ProjectChatService {
   }
 
   // 创建新会话
-  static async createChat(projectWorkspace: string, projectId: string, title: string): Promise<any> {
+  static async createChat(projectWorkspace: string, projectId: string, title: string, agentId?: string, modelId?: string): Promise<any> {
     const chatId = Date.now().toString();
     const now = new Date().toISOString();
     
     const chat = {
       id: chatId,
       projectId,
+      agentId: agentId || undefined,
+      modelId: modelId || undefined,
       title: title || '新会话',
       messages: [],
       createdAt: now,

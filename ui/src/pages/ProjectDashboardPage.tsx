@@ -67,7 +67,7 @@ export function ProjectDashboardPage({ projectId, onOpenChat, onProjectUpdated }
   const handleDeleteChat = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
     if (!confirm('确定要删除该会话吗？')) return;
-    const res = await fetch(`http://localhost:3001/api/v1/chats/${id}`, { method: 'DELETE' });
+    const res = await fetch(`http://localhost:3001/api/v1/chats/${id}?projectId=${projectId}`, { method: 'DELETE' });
     if (res.ok) {
       setChats(prev => prev.filter(c => String(c.id) !== String(id)));
     }

@@ -231,6 +231,48 @@ export async function ProjectRoutes(fastify: FastifyInstance) {
     return await DbService.getProjectSkills(id);
   });
 
+  // ===== 项目运行状态 API =====
+  fastify.get('/:id/status', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const project = await DbService.getProject(id);
+    if (!project) return reply.status(404).send({ error: '项目未找到' });
+
+    const dataService = new ProjectDataService(project.workspace);
+    const chats = dataService.getChats();
+
+    // 获取活跃会话（最近 24h 内有更新的）
+    const oneDayAgo = new Date(Date.now() - 86400000).getTime();
+    const recentChats = chats.filter(c => new Date(c.updatedAt).getTime() > oneDayAgo);
+
+    // 获取心跳配置和状态
+    const heartbeats = await DbService.getProjectHeartbeats(id);
+    const { getStatus } = await import('../services/HeartbeatService.js');
+    const heartbeatStatus = getStatus(id);
+
+    // 获取全局 Agent 列表
+    const agents = await DbService.getProjectAgents(id);
+
+    return {
+      projectId: id,
+      projectName: project.name,
+      workspace: project.workspace,
+      totalChats: chats.length,
+      recentChats: recentChats.length,
+      recentChatIds: recentChats.slice(0, 10).map(c => ({ id: c.id, title: c.title || c.name, updatedAt: c.updatedAt })),
+      heartbeats: heartbeats.map(h => ({
+        id: h.id,
+        name: h.name,
+        enabled: h.enabled,
+        running: heartbeatStatus?.running || false
+      })),
+      agents: agents.map(a => ({ id: a.id, name: a.name, role: a.role })),
+      coordinatorAgentId: project.coordinatorAgentId,
+      defaultModel: project.defaultModel,
+      enabledAgentIds: project.enabledAgentIds || [],
+      enabledSkillIds: project.enabledSkillIds || []
+    };
+  });
+
   // 获取所有可用 Skill (供项目安装)
   fastify.get('/:id/skills/available', async () => {
     return await DbService.getGlobalSkills();
