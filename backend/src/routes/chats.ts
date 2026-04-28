@@ -43,6 +43,130 @@ function safeToolContent(result: any): string {
   }
 }
 
+/**
+ * 验证一个字符串是否为合法的 JSON（object 或 array）。
+ */
+function isValidJson(str: string): boolean {
+  const trimmed = str.trim();
+  if ((trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+      (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+    try {
+      JSON.parse(trimmed);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
+/**
+ * 检测 content 是否为损坏的 JSON（模型输出的 thinking/reasoning 内容
+ * 被错误地写入 tool result 等场景）。
+ * 损坏的 JSON 通常有这些特征：
+ * - 字符串未闭合（Unterminated string）
+ * - 对象/数组未闭合（缺少 } 或 ]）
+ * - 含有 JSON 语法错误关键词
+ */
+function isCorruptedJsonContent(content: any): boolean {
+  if (typeof content !== 'string') return false;
+  const trimmed = content.trim();
+
+  // 检测未闭合的字符串（以引号结尾但无闭合引号）
+  // 例如: {"path":"backend/enh
+  if (/:\s*"[^"]*$/.test(trimmed) && !trimmed.endsWith('"')) {
+    return true;
+  }
+  // 检测未闭合的对象/数组
+  // 例如: {"path":"...","content":{
+  if (/\{[^}]*$/.test(trimmed) || /\[[^\]]*$/.test(trimmed)) {
+    return true;
+  }
+  // 检测含有 JSON 错误关键词（模型将错误信息当作文本存入了 JSON）
+  // 例如: {"error":"Unterminated string in JSON at position 2386
+  if (trimmed.includes('Unterminated string') ||
+      trimmed.includes('Unexpected token') ||
+      trimmed.includes('JSON.parse') ||
+      /position \d+/.test(trimmed)) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * 清理消息内容：
+ * 1. 移除 incomplete JSON（未闭合的字符串/对象/数组）
+ * 2. 移除含有 JSON 错误关键词的 content
+ * 3. 检测并处理双重 JSON 编码字符串
+ */
+function sanitizeMessageContent(content: any): any {
+  // 非字符串 content（数组、null 等）直接返回
+  if (typeof content !== 'string') return content;
+
+  // 如果 content 本身是合法 JSON，返回原值
+  if (isValidJson(content)) return content;
+
+  // 如果是损坏的 JSON，替换为安全占位符
+  if (isCorruptedJsonContent(content)) {
+    console.warn('[Sanitize] Replacing corrupted content:', content.slice(0, 80));
+    return '[工具结果内容已损坏，已跳过]';
+  }
+
+  // 处理双重编码的 JSON 字符串
+  // 例如: '"{\"path\":\"...\"}"' （外层引号内的 JSON 字符串）
+  const doubleEncodedMatch = content.match(/^"(.*)"$/s);
+  if (doubleEncodedMatch) {
+    const inner = doubleEncodedMatch[1];
+    if (isValidJson(inner)) {
+      try {
+        return JSON.parse(inner); // 还原为 object
+      } catch {
+        // inner 不是有效 JSON，保持原样
+      }
+    }
+  }
+
+  return content;
+}
+
+/**
+ * 清理整个消息数组：
+ * - 检查每条消息的 content
+ * - 对 tool result 字段做双重 JSON 编码检测
+ */
+function sanitizeMessages(messages: any[]): any[] {
+  return messages.map(msg => {
+    const sanitized = { ...msg };
+
+    // 清理 content 字段
+    if ('content' in sanitized) {
+      sanitized.content = sanitizeMessageContent(sanitized.content);
+    }
+
+    // 对于 tool result（DB 中存储为字符串的），尝试解析还原
+    if (sanitized.role === 'tool' && typeof sanitized.content === 'string') {
+      const trimmed = sanitized.content.trim();
+      if ((trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+          (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          // 验证解析后不是错误对象
+          if (!isCorruptedJsonContent(JSON.stringify(parsed))) {
+            sanitized.content = parsed;
+          }
+        } catch {
+          // 解析失败，保持字符串但确保是合法 JSON
+          if (!isValidJson(trimmed)) {
+            sanitized.content = '[无法解析的工具结果]';
+          }
+        }
+      }
+    }
+
+    return sanitized;
+  });
+}
+
 // 导入模块化组件
 import {
   setAbortController,
@@ -423,6 +547,21 @@ export async function ChatRoutes(fastify: FastifyInstance) {
               console.log('[DEBUG] reqBody.messages count:', reqBody.messages?.length);
               if (reqBody.tools) {
                 console.log('[DEBUG] reqBody.tools count:', reqBody.tools.length);
+              }
+
+              // 🧹 在送入模型之前，清理所有消息中的损坏 JSON 内容
+              const sanitizedMessages = sanitizeMessages(reqBody.messages);
+              reqBody.messages = sanitizedMessages;
+
+              // 验证 reqBody JSON 有效（开发调试）
+              try {
+                const serialized = JSON.stringify(reqBody);
+                JSON.parse(serialized); // 确保无损坏
+              } catch (err: any) {
+                console.error('[Sanitize] FATAL: reqBody still invalid after sanitize!', err.message);
+                // 移除所有 tool role 的消息（最可能的故障源）
+                reqBody.messages = reqBody.messages.filter((m: any) => m.role !== 'tool');
+                console.warn('[Sanitize] Removed all tool messages, retrying with', reqBody.messages.length, 'messages');
               }
 
               const res = await fetch(apiUrl, {
@@ -815,6 +954,10 @@ export async function ChatRoutes(fastify: FastifyInstance) {
               reqBody.tools = tools;
               reqBody.tool_choice = 'auto';
             }
+
+            // 🧹 清理所有消息中的损坏 JSON 内容
+            const sanitizedMessages = sanitizeMessages(reqBody.messages);
+            reqBody.messages = sanitizedMessages;
 
             const res = await fetch(modelCfg.baseUrl, {
               method: 'POST',
