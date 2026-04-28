@@ -224,12 +224,12 @@ export async function ChatRoutes(fastify: FastifyInstance) {
     const abortController = new AbortController();
     setAbortController(chatId, abortController);
 
-    // Phase 4: 创建运行时会话
+    // Phase 4: 创建运行时会话（agentId/modelId 从 targetProject 读取，chat 加载后再更新）
     projectRuntimeManager.createChatSession({
       chatId,
       projectId: targetProject.id,
-      agentId: chat?.agentId || targetProject.coordinatorAgentId || '',
-      modelId: chat?.modelId || targetProject.defaultModel || '',
+      agentId: targetProject.coordinatorAgentId || '',
+      modelId: targetProject.defaultModel || '',
       abortController,
     });
     projectRuntimeManager.startStreaming(chatId, `sse_${chatId}_${Date.now()}`);
