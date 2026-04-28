@@ -930,4 +930,4 @@ export async function ChatRoutes(fastify: FastifyInstance) {
       try { reply.raw.end(); } catch {}
     }
   });
-});
+}
