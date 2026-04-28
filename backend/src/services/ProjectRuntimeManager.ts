@@ -67,12 +67,6 @@ export interface WorkspaceLockInfo {
 }
 
 // ============================================
-// 单例
-// ============================================
-
-export const projectRuntimeManager = new ProjectRuntimeManager();
-
-// ============================================
 // 主类
 // ============================================
 
@@ -500,5 +494,11 @@ export class ProjectRuntimeManager extends EventEmitter {
     return Array.from(activeProjectIds).map(id => this.getProjectStatus(id));
   }
 }
+
+// ============================================
+// 单例（类定义之后实例化，避免 ESM 初始化顺序问题）
+// ============================================
+
+export const projectRuntimeManager = new ProjectRuntimeManager();
 
 export default projectRuntimeManager;
