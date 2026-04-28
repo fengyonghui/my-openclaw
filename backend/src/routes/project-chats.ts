@@ -73,7 +73,7 @@ export async function ProjectChatRoutes(fastify: FastifyInstance) {
     }
 
     const dataService = new ProjectDataService(project.workspace);
-    const chat = dataService.createChat(name || '', projectId);
+    const chat = dataService.createChat(name || '', projectId, project.coordinatorAgentId, project.defaultModel);
 
     return chat;
   });

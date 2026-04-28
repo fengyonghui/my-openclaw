@@ -9,6 +9,8 @@ export interface ProjectChat {
   id: string;
   name: string;
   projectId: string;
+  agentId?: string;   // 创建时绑定的 Agent ID
+  modelId?: string;  // 使用的模型 ID
   messages: any[];
   createdAt: string;
   updatedAt: string;
@@ -71,7 +73,7 @@ export class ProjectDataService {
   }
 
   // 创建新会话
-  createChat(name: string, projectId: string): ProjectChat {
+  createChat(name: string, projectId: string, agentId?: string, modelId?: string): ProjectChat {
     const chatId = Date.now().toString();
     const now = new Date().toISOString();
     
@@ -79,6 +81,8 @@ export class ProjectDataService {
       id: chatId,
       name: name || `会话 ${new Date().toLocaleString('zh-CN')}`,
       projectId,
+      agentId: agentId || undefined,
+      modelId: modelId || undefined,
       messages: [],
       createdAt: now,
       updatedAt: now
