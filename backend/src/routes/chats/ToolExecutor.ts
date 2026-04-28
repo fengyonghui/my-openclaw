@@ -176,6 +176,10 @@ export async function executeShellCommand(project: any, args: any): Promise<Tool
   const isWindows = os.platform() === 'win32';
   let cwd = project.workspace;
 
+  // 路径格式检测
+  const isWSLPath = /^\/mnt\//.test(project.workspace);
+  const isWindowsPath = /^[a-zA-Z]:[\\\/]/.test(project.workspace);
+
   // 检测 bash/Unix 命令格式
   const bashPatterns = [
     /mkdir -p/,
@@ -204,52 +208,51 @@ export async function executeShellCommand(project: any, args: any): Promise<Tool
 
   const isBashCommand = bashPatterns.some(p => p.test(command));
 
-  if (isBashCommand && isWindows) {
-    return {
-      error: '检测到 bash 命令格式但在 Windows 环境下运行',
-      suggestion: `请使用 Windows 命令格式。例如：\n` +
-        '- mkdir → md 或 New-Item -ItemType Directory\n' +
-        '- cat > file.txt → (Get-Content).SetContent() 或重定向\n' +
-        '- ls → dir\n' +
-        '- rm → del\n' +
-        '- grep → Select-String\n' +
-        '- cp → Copy-Item\n' +
-        '- mv → Move-Item'
-    };
+  // WSL 路径（/mnt/d/...）：直接通过 wsl.exe 执行
+  if (isWSLPath) {
+    return executeLinuxCommand(`wsl.exe ${command}`, project.workspace);
   }
 
-  const isWSLPath = /^\/mnt\//.test(project.workspace);
-  const isWindowsPath = /^[a-zA-Z]:\\/.test(project.workspace);
-  let finalCommand = command;
-
-  // 如果是 Windows 路径但在 WSL 环境下，转换为 WSL 路径
-  if (isWindowsPath && !isWSLPath && os.platform() !== 'win32') {
+  // Windows 路径（d:/workspace/...）：需要转换为 /mnt/d/...
+  // bash 命令 → 通过 wsl.exe 执行
+  // Windows 原生命令 → 通过 cmd.exe 或 powershell 执行
+  if (isWindowsPath) {
     const driveLetter = project.workspace.charAt(0).toLowerCase();
-    cwd = '/mnt/' + driveLetter + '/' + project.workspace.substring(3).replace(/\\/g, '/');
-    return executeLinuxCommand(`wsl.exe ${command}`, cwd);
-  }
+    const normalized = project.workspace.replace(/\\/g, '/');
+    const wslCwd = '/mnt/' + driveLetter + '/' + normalized.substring(3);
 
-  // PowerShell 命令检测
-  const isPowerShellCmd = command.trim().startsWith('if ') ||
-    /^(Test-|Remove-|Write-|Get-|New-|Set-)/i.test(command.trim());
+    if (isBashCommand) {
+      // bash 命令在 Windows 上通过 WSL 执行
+      return executeLinuxCommand(`wsl.exe ${command}`, wslCwd);
+    }
 
-  if (isWindows && !isWSLPath) {
+    // PowerShell 命令检测
+    const isPowerShellCmd = command.trim().startsWith('if ') ||
+      /^(Test-|Remove-|Write-|Get-|New-|Set-)/i.test(command.trim());
+
     if (isPowerShellCmd) {
       return executePowerShellCommand(command, cwd);
     } else {
       return executeWindowsCommand(command, cwd);
     }
-  } else {
-    // WSL 或 Linux 环境
-    if (isWSLPath) {
-      // project.workspace 已经是 /mnt/d/... 格式，直接用
-      const execCmd = `wsl.exe ${command}`;
-      return executeLinuxCommand(execCmd, project.workspace);
-    } else {
-      // 原生 Linux workspace（不含驱动器号）
-      return executeLinuxCommand(command, cwd);
-    }
   }
+
+  // 原生 Linux 环境（workspace 不含驱动器号）
+  if (isWindows) {
+    // 原生 Windows 但 workspace 是 Linux 路径 → 尝试 WSL
+    if (isBashCommand) {
+      return executeLinuxCommand(`wsl.exe ${command}`, cwd);
+    }
+    const isPowerShellCmd = command.trim().startsWith('if ') ||
+      /^(Test-|Remove-|Write-|Get-|New-|Set-)/i.test(command.trim());
+    if (isPowerShellCmd) {
+      return executePowerShellCommand(command, cwd);
+    }
+    return executeWindowsCommand(command, cwd);
+  }
+
+  // 原生 Linux
+  return executeLinuxCommand(command, cwd);
 }
 
 /**
