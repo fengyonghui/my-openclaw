@@ -15,6 +15,34 @@ import { buildToolList } from '../services/ToolDefinitions.js';
 import { parseApiError, setModelRateLimited, calculateBackoff } from '../services/RateLimitHandler.js';
 import { projectRuntimeManager } from '../services/ProjectRuntimeManager.js';
 
+/**
+ * 安全地将工具结果序列化为 JSON 字符串。
+ * 确保 content 字段不会因为原始文件内容包含非法字符而破坏整个 payload。
+ */
+function safeToolContent(result: any): string {
+  try {
+    const str = JSON.stringify(result);
+    // 验证 JSON 有效
+    JSON.parse(str);
+    return str;
+  } catch {
+    // 如果序列化失败或验证失败，用安全的方式处理
+    try {
+      // 尝试强制转义任何问题字符
+      const safe = JSON.stringify(String(result));
+      JSON.parse(safe); // 验证
+      return safe;
+    } catch {
+      // 最后兜底：移除所有控制字符后强制序列化
+      const obj = typeof result === 'object' && result !== null
+        ? result
+        : { value: String(result) };
+      const cleaned = JSON.parse(JSON.stringify(obj).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, ''));
+      return JSON.stringify(cleaned);
+    }
+  }
+}
+
 // 导入模块化组件
 import {
   setAbortController,
@@ -513,14 +541,14 @@ export async function ChatRoutes(fastify: FastifyInstance) {
                   finalMessages.push({
                     role: 'tool',
                     tool_call_id: toolCall.id,
-                    content: JSON.stringify(toolResult)
+                    content: safeToolContent(toolResult)
                   });
 
                   // 保存工具结果到数据库
                   await ProjectChatService.addMessageToChat(getProjectWorkspacePath(targetProject.workspace), chatId, {
                     role: 'tool',
                     tool_call_id: toolCall.id,
-                    content: JSON.stringify(toolResult)
+                    content: safeToolContent(toolResult)
                   });
                 }
                 continue;
@@ -875,7 +903,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
                 finalMessages.push({
                   role: 'tool',
                   tool_call_id: toolCall.id,
-                  content: JSON.stringify(displayResult, null, 2)
+                  content: safeToolContent(displayResult)
                 });
               }
               continue;

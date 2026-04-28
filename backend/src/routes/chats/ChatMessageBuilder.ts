@@ -87,7 +87,25 @@ export function buildSystemMessage(context: ChatContext): Message {
  * 转换消息格式（支持多模态）
  */
 export function transformMessage(m: any): Message {
- const base: Message = { role: m.role, content: m.content || '' };
+  let base: Message;
+
+  // 处理 content 字段：
+  // 1. 如果是 JSON 字符串（来自 DB 存储的 tool result），先 parse 还原为 object
+  // 2. 如果是普通字符串或 object，保持原样
+  let rawContent = m.content;
+  if (typeof rawContent === 'string') {
+    const trimmed = rawContent.trim();
+    if ((trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+        (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+      try {
+        rawContent = JSON.parse(trimmed);
+      } catch {
+        // 不是 JSON 字符串，保持原样
+      }
+    }
+  }
+
+  base = { role: m.role, content: rawContent };
 
  // 如果是工具消息，添加 tool_call_id
  if (m.role === 'tool') {
