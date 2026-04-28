@@ -9,7 +9,6 @@ import * as path from 'path';
 import * as os from 'os';
 import { loadMemoryFile } from './MemoryFileHandler.js';
 import { getSystemInfo, getSystemCommands } from '../../services/SystemCommands.js';
-import { getProjectWorkspacePath } from '../../services/PathService.js';
 
 export interface Message {
  role: 'system' | 'user' | 'assistant' | 'tool';
@@ -32,9 +31,11 @@ export function buildSystemMessage(context: ChatContext): Message {
   const { project, coordinatorAgent, allProjectAgents, allEnabledSkills } = context;
 
   // 获取当前平台信息和命令集（Hermes 跨平台核心）
+  // 注意：不在此处调用 getProjectWorkspacePath()，避免与 executeShellCommand() 连续调用冲突
   const sysInfo = getSystemInfo();
   const cmds = getSystemCommands();
-  const workspace = getProjectWorkspacePath(project.workspace);
+  // workspace 直接使用 project.workspace，避免连续调用 getProjectWorkspacePath()
+  const workspace = project.workspace;
 
   // 平台标识（用于告知模型）
   const platformSection = `
