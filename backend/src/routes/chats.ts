@@ -667,9 +667,267 @@ export async function ChatRoutes(fastify: FastifyInstance) {
   });
 
   // ============================================
-  // POST /:id/resend - 重发用户消息
+  // POST /:id/resend - 重发用户消息（复用 /send 的核心流式逻辑）
   // ============================================
   fastify.post('/:id/resend', async (request, reply) => {
-    return { success: false, message: '功能开发中' };
+    const { id: chatId } = request.params as any;
+    const { content, attachments } = request.body as any;
+
+    console.log(`[Resend] ChatID: ${chatId}, Content: ${content?.slice(0, 50)}...`);
+
+    // 找到所属项目
+    const projects = await DbService.getProjects();
+    let targetProject = null;
+    for (const p of projects) {
+      const projectChats = await ProjectChatService.getChatsFromProject(getProjectWorkspacePath(p.workspace));
+      if (projectChats.some(c => String(c.id) === String(chatId))) {
+        targetProject = p;
+        break;
+      }
+    }
+    if (!targetProject) {
+      return reply.code(404).send({ error: '未找到所属项目' });
+    }
+
+    // 设置 SSE 响应头
+    reply.raw.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    reply.raw.setHeader('Cache-Control', 'no-cache');
+    reply.raw.setHeader('Connection', 'keep-alive');
+    reply.raw.setHeader('Access-Control-Allow-Origin', '*');
+    reply.raw.write(`data: ${JSON.stringify({ chunk: '' })}\n\n`);
+
+    // 创建 AbortController
+    const abortController = new AbortController();
+    setAbortController(chatId, abortController);
+
+    // Phase 4: 创建/更新运行时会话
+    projectRuntimeManager.createChatSession({
+      chatId,
+      projectId: targetProject.id,
+      agentId: targetProject.coordinatorAgentId || '',
+      modelId: targetProject.defaultModel || '',
+      abortController,
+    });
+    projectRuntimeManager.startStreaming(chatId, `resend_${chatId}_${Date.now()}`);
+
+    const onAbort = () => {
+      console.log(`[Resend Stop] Chat ${chatId} aborted`);
+      try {
+        reply.raw.write(`data: ${JSON.stringify({ chunk: '\n\n⏹️ 已停止生成' })}\n\n`);
+        reply.raw.write(`data: [DONE]\n\n`);
+        reply.raw.end();
+      } catch {}
+    };
+    abortController.signal.addEventListener('abort', onAbort);
+
+    let fullAssistantContent = '';
+    let partialContent = '';
+
+    try {
+      const workspacePath = getProjectWorkspacePath(targetProject.workspace);
+      const chat = await ProjectChatService.getChatFromProject(workspacePath, chatId);
+      const allModels = await DbService.getModels();
+      if (!allModels || allModels.length === 0) throw new Error('系统中未配置任何模型');
+
+      // 复用 /send 相同的模型选择和流式处理逻辑
+      const modelsToTry = [
+        ...(chat?.modelId ? allModels.filter((m: any) => m.id === chat.modelId) : []),
+        ...allModels.filter((m: any) => m.id === targetProject.defaultModel),
+        ...allModels,
+      ].filter((m: any, i: number, arr: any[]) => arr.findIndex((x: any) => x.id === m.id) === i);
+
+      let success = false;
+      let pickedModelCfg: any = null;
+      let lastError = '';
+      let activeModelId = chat?.modelId || targetProject.defaultModel || '';
+
+      for (const model of modelsToTry) {
+        try {
+          const modelCfg: any = {
+            baseUrl: model.baseUrl,
+            apiKey: model.apiKey,
+            modelId: model.modelId,
+            name: model.name,
+            maxTokens: model.maxTokens,
+            temperature: model.temperature,
+          };
+
+          const enabledAgentIds = targetProject?.enabledAgentIds || [];
+          const allGlobalAgents = await DbService.getAgents();
+          const projectPrivateAgents = targetProject?.projectAgents || [];
+          const allProjectAgents = [...allGlobalAgents.filter((a: any) => enabledAgentIds.includes(a.id)), ...projectPrivateAgents];
+
+          const enabledSkillIds = targetProject?.enabledSkillIds || [];
+          const globalSkills = await DbService.getGlobalSkills();
+          const allEnabledSkills = globalSkills.filter((s: any) => enabledSkillIds.includes(s.id));
+
+          // 构建消息历史（复用相同逻辑）
+          const systemMessage = buildSystemMessage(targetProject, allProjectAgents, allEnabledSkills);
+          const historyMessages = buildHistoryMessages(chat?.messages || [], []);
+          const finalMessages = [systemMessage, ...historyMessages];
+
+          const tools = buildToolList(allProjectAgents, allEnabledSkills);
+
+          // 发送初始消息
+          reply.raw.write(`data: ${JSON.stringify({ type: 'assistant', chunk: '' })}\n\n`);
+
+          let guard = 0;
+          const MAX_GUARDS = 8;
+
+          while (guard++ < MAX_GUARDS) {
+            const reqBody: any = {
+              model: modelCfg.modelId,
+              messages: finalMessages,
+              stream: false,
+              max_tokens: modelCfg.maxTokens || 32768,
+              temperature: modelCfg.temperature || 0.7
+            };
+
+            if (tools.length > 0) {
+              reqBody.tools = tools;
+              reqBody.tool_choice = 'auto';
+            }
+
+            const res = await fetch(modelCfg.baseUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${modelCfg.apiKey}`
+              },
+              body: JSON.stringify(reqBody),
+              signal: abortController.signal
+            });
+
+            if (!res.ok) {
+              const errText = await res.text();
+              throw new Error(`HTTP ${res.status}: ${errText.slice(0, 100)}`);
+            }
+
+            const data: any = await res.json();
+            const choice = data.choices?.[0];
+            const message = choice?.message || {};
+            const toolCalls = extractToolCalls(choice);
+
+            // 发送助手消息到前端
+            if (message.content) {
+              reply.raw.write(`data: ${JSON.stringify({ chunk: message.content })}\n\n`);
+              fullAssistantContent += message.content;
+            }
+
+            if (toolCalls.length > 0) {
+              reply.raw.write(`data: ${JSON.stringify({
+                type: 'tool_call',
+                toolCalls: toolCalls.map((tc: any) => ({
+                  id: tc.id,
+                  name: tc.function?.name,
+                  arguments: tc.function?.arguments
+                }))
+              })}\n\n`);
+
+              finalMessages.push({
+                role: 'assistant',
+                content: message.content || '',
+                tool_calls: toolCalls
+              });
+
+              for (const toolCall of toolCalls) {
+                let toolResult: any;
+                try {
+                  toolResult = await executeToolCall(targetProject, toolCall, allProjectAgents, allEnabledSkills, reply);
+                  projectRuntimeManager.incrementToolCalls(chatId);
+                  projectRuntimeManager.getEventService().record('tool_call', {
+                    chatId,
+                    projectId: targetProject.id,
+                    toolName: toolCall.function?.name || 'unknown',
+                    toolArgs: JSON.parse(toolCall.function?.arguments || '{}'),
+                  });
+                } catch (err: any) {
+                  toolResult = { error: err.message };
+                }
+
+                const toolName = toolCall.function?.name;
+                const toolArgs = JSON.parse(toolCall.function?.arguments || '{}');
+                const cmd = (toolArgs.command || '').toLowerCase();
+                const isReadCmd = toolName === 'read_file' || toolName === 'list_files' ||
+                  (toolName === 'file-io' && (cmd === 'read_file' || cmd === 'read' || cmd === 'list_files' || cmd === 'list'));
+
+                let displayResult: any;
+                if (isReadCmd) {
+                  displayResult = {
+                    success: true,
+                    message: toolResult.message || '✅ 操作完成',
+                    path: toolResult.path,
+                    totalLines: toolResult.totalLines,
+                    entriesCount: toolResult.entries?.length,
+                    preview: toolResult.content ? toolResult.content.split('\n').slice(0, 3).join('\n') + '\n...' : undefined
+                  };
+                } else {
+                  displayResult = toolResult;
+                }
+
+                reply.raw.write(`data: ${JSON.stringify({
+                  type: 'tool_result',
+                  toolCallId: toolCall.id,
+                  toolName: toolCall.function?.name,
+                  result: displayResult
+                })}\n\n`);
+
+                finalMessages.push({
+                  role: 'tool',
+                  tool_call_id: toolCall.id,
+                  content: JSON.stringify(displayResult, null, 2)
+                });
+              }
+              continue;
+            }
+
+            // 无工具调用，退出循环
+            success = true;
+            pickedModelCfg = modelCfg;
+            break;
+          }
+
+          if (success) break;
+        } catch (err: any) {
+          lastError = err.message;
+          if (err.name === 'AbortError') throw err;
+        }
+      }
+
+      if (!success) {
+        throw new Error(`所有模型均不可用: ${lastError}`);
+      }
+
+      // 发送完成
+      if (fullAssistantContent) {
+        reply.raw.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+      }
+      reply.raw.write(`data: [DONE]\n\n`);
+
+      // 保存助手响应到聊天
+      if (fullAssistantContent) {
+        await ProjectChatService.addMessageToChat(workspacePath, chatId, {
+          role: 'assistant',
+          content: fullAssistantContent
+        });
+      }
+
+    } catch (err: any) {
+      console.error('[Resend Error]', err.message);
+      if (partialContent) {
+        reply.raw.write(`data: ${JSON.stringify({
+          chunk: partialContent + '\n\n⚠️ 注意：部分操作未能完成'
+        })}\n\n`);
+      } else if (err.name !== 'AbortError') {
+        reply.raw.write(`data: ${JSON.stringify({ chunk: `\n\n❌ 失败: ${err.message}` })}\n\n`);
+      }
+      reply.raw.write(`data: [DONE]\n\n`);
+    } finally {
+      abortController.signal.removeEventListener('abort', onAbort);
+      clearAbortController(chatId);
+      projectRuntimeManager.stopStreaming(chatId);
+      projectRuntimeManager.removeChatSession(chatId);
+      try { reply.raw.end(); } catch {}
+    }
   });
-}
+});
