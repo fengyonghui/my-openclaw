@@ -210,15 +210,32 @@ export function buildHistoryMessages(
  }
  apiMessages = filteredMessages;
 
- // 截断超长工具消息，避免单个巨大消息撑爆上下文
- const MAX_TOOL_CONTENT = 4000;
- apiMessages = apiMessages.map(m => {
-   if (m.role === 'tool' && typeof m.content === 'string' && m.content.length > MAX_TOOL_CONTENT) {
-     const preview = m.content.slice(0, 1500) + '\n\n... [内容过长，已截断] ...\n\n' + m.content.slice(-1500);
-     return { ...m, content: preview };
-   }
-   return m;
- });
+  // 截断超长工具消息，避免单个巨大消息撑爆上下文
+  // 安全截断：只保留后 N 字符，确保 JSON 有效；移除控制字符避免破坏 payload
+  const MAX_TOOL_CONTENT = 4000;
+  apiMessages = apiMessages.map(m => {
+    if (m.role === 'tool') {
+      let content = m.content;
+      // 确保 content 是字符串（从 DB 加载时可能是 object）
+      if (typeof content !== 'string') {
+        try {
+          content = JSON.stringify(content);
+        } catch {
+          content = String(content);
+        }
+      }
+      // 移除控制字符（\x00-\x08, \x0B, \x0C, \x0E-\x1F），保留 \n \r \t
+      // 同时截断到安全长度（避免超长单消息）
+      if (content.length > MAX_TOOL_CONTENT) {
+        const safe = content.slice(0, MAX_TOOL_CONTENT).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+        content = safe + '\n\n[内容过长，已截断]';
+      }
+      if (content !== m.content) {
+        return { ...m, content };
+      }
+    }
+    return m;
+  });
 
  return apiMessages;
 }
