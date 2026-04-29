@@ -253,9 +253,9 @@ export function SettingsPage({ projectId, onSaved }: { projectId: string, onSave
                 <div className="relative">
                   <Globe className="absolute left-5 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
                   <input
-                    className="w-full pl-14 pr-5 py-4 rounded-2xl bg-slate-50 border border-slate-200 outline-none focus:border-amber-500 focus:ring-4 focus:ring-amber-100 text-slate-800 font-mono text-sm transition-all"
+                    className="w-full pl-14 pr-5 py-4 rounded-2xl bg-slate-100 border border-slate-200 text-slate-500 font-mono text-sm cursor-not-allowed"
                     value={editState.workspace}
-                    onChange={e => handleBasicChange({ workspace: e.target.value })}
+                    readOnly
                   />
                 </div>
                 <p className="text-xs text-slate-400 mt-2">Agent 的工作目录，用于文件操作和代码管理</p>
