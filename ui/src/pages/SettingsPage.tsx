@@ -24,16 +24,26 @@ export function SettingsPage({ projectId, onSaved }: { projectId: string, onSave
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 执行保存（基础配置 & 模型设置 共用）
-  const persistEditState = async () => {
+  const persistEditState = async (data?: Partial<typeof editState>) => {
+    const payload = data || editState;
+    console.log('[Settings] persistEditState payload:', JSON.stringify(payload));
     try {
       setIsSaving(true);
       const res = await fetch(`http://localhost:3001/api/v1/projects/${projectId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(editState)
+        body: JSON.stringify(payload)
       });
+      console.log('[Settings] persistEditState response status:', res.status);
       if (res.ok) {
-        setProject(await res.json());
+        const updated = await res.json();
+        console.log('[Settings] saved, new defaultModel:', updated.defaultModel);
+        // 只更新 project，不更新 editState（避免覆盖用户正在编辑的内容）
+        setProject(updated);
+        // 如果 payload 是完整数据则同步 editState
+        if (data) {
+          setEditState(payload as typeof editState);
+        }
         onSaved?.();
         setSavedMsg('已保存');
         setTimeout(() => setSavedMsg(''), 2000);
@@ -46,10 +56,10 @@ export function SettingsPage({ projectId, onSaved }: { projectId: string, onSave
     }
   };
 
-  // 防抖自动保存（基础配置/模型设置切换时若有未保存变更则立即保存）
+  // 防抖自动保存（基础配置变更后 600ms 无操作再保存）
   const scheduleAutoSave = () => {
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
-    autoSaveTimer.current = setTimeout(persistEditState, 600);
+    autoSaveTimer.current = setTimeout(() => persistEditState(), 600);
   };
 
   // 基础配置变更 -> 防抖保存
@@ -58,12 +68,9 @@ export function SettingsPage({ projectId, onSaved }: { projectId: string, onSave
     scheduleAutoSave();
   };
 
-  // 模型选择变更 -> 立即保存（无需等防抖，用户意图明确）
+  // 模型选择变更 -> 立即保存（传入新值而非依赖闭包中的旧 state）
   const handleModelChange = (modelId: string) => {
-    setEditState(prev => ({ ...prev, defaultModel: modelId }));
-    // 立即触发保存
-    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
-    persistEditState();
+    persistEditState({ ...editState, defaultModel: modelId });
   };
 
   // 默认模型搜索

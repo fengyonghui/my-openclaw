@@ -37,10 +37,14 @@ export async function ProjectRoutes(fastify: FastifyInstance) {
   fastify.patch('/:id', async (request) => {
     const { id } = request.params as { id: string };
     const updates = request.body as any;
+    console.log(`[PATCH /projects/${id}] body:`, JSON.stringify(updates));
     const project = await DbService.getProject(id);
     if (project) {
       Object.assign(project, updates);
       await DbService.saveProject(project);
+      console.log(`[PATCH /projects/${id}] saved, new defaultModel:`, project.defaultModel);
+    } else {
+      console.error(`[PATCH /projects/${id}] project not found!`);
     }
     return project;
   });
