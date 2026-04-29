@@ -3,7 +3,6 @@ import { AppShell } from './components/layout/AppShell';
 import { ChatDetailPage } from './pages/ChatDetailPage';
 import { ProjectDashboardPage } from './pages/ProjectDashboardPage';
 import { ProjectListPage } from './pages/ProjectListPage';
-import { AgentsPage } from './pages/AgentsPage';
 import { FilesPage } from './pages/FilesPage';
 import { ActivityPage } from './pages/ActivityPage';
 import { MemoryPage } from './pages/MemoryPage';
@@ -12,7 +11,7 @@ import { ModelsPage } from './pages/ModelsPage';
 import { ContextPanel } from './components/layout/ContextPanel';
 import { ProjectProvider } from './contexts/ProjectContext';
 
-export type AppView = 'dashboard' | 'chat' | 'agents' | 'files' | 'memory' | 'activity' | 'settings' | 'models';
+export type AppView = 'dashboard' | 'chat' | 'files' | 'memory' | 'activity' | 'settings' | 'models';
 
 export default function App() {
   const [projectId, setProjectId] = useState<string | null>(null);
@@ -35,7 +34,6 @@ export default function App() {
         {(() => {
           switch (view) {
             case 'chat': return <ChatDetailPage chatId={activeChatId || '1'} projectId={projectId} onMinimize={() => setView('dashboard')} />;
-            case 'agents': return <AgentsPage projectId={projectId} />;
             case 'files': return <FilesPage projectId={projectId} />;
             case 'activity': return <ActivityPage projectId={projectId} />;
             case 'memory': return <MemoryPage projectId={projectId} />;
