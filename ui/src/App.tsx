@@ -7,11 +7,10 @@ import { FilesPage } from './pages/FilesPage';
 import { ActivityPage } from './pages/ActivityPage';
 import { MemoryPage } from './pages/MemoryPage';
 import { SettingsPage } from './pages/SettingsPage';
-import { ModelsPage } from './pages/ModelsPage';
 import { ContextPanel } from './components/layout/ContextPanel';
 import { ProjectProvider } from './contexts/ProjectContext';
 
-export type AppView = 'dashboard' | 'chat' | 'files' | 'memory' | 'activity' | 'settings' | 'models';
+export type AppView = 'dashboard' | 'chat' | 'files' | 'memory' | 'activity' | 'settings';
 
 export default function App() {
   const [projectId, setProjectId] = useState<string | null>(null);
@@ -38,7 +37,6 @@ export default function App() {
             case 'activity': return <ActivityPage projectId={projectId} />;
             case 'memory': return <MemoryPage projectId={projectId} />;
             case 'settings': return <SettingsPage projectId={projectId} onSaved={triggerRefresh} />;
-            case 'models': return <ModelsPage />;
             case 'dashboard':
             default: return <ProjectDashboardPage projectId={projectId} onOpenChat={(chatId) => { setActiveChatId(chatId); setView('chat'); }} onProjectUpdated={triggerRefresh} />;
           }
