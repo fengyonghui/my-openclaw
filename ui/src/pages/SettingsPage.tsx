@@ -1,4 +1,4 @@
-import { Settings, Shield, Cpu, Save, Trash2, Layout, Globe, X, FolderOpen, ChevronRight, Search, ChevronDown, Wrench } from 'lucide-react';
+import { Settings, Shield, Cpu, Trash2, Layout, Globe, FolderOpen, ChevronRight, Search, ChevronDown, Wrench, CheckCircle2 } from 'lucide-react';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { Card, Button } from '../components/ui';
 import { SkillsPage } from './SkillsPage';
@@ -8,8 +8,9 @@ export function SettingsPage({ projectId, onSaved }: { projectId: string, onSave
   const [project, setProject] = useState<any>(null);
   const [models, setModels] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [activeSection, setActiveSection] = useState('basic');
+  const [savedMsg, setSavedMsg] = useState('');       // 自动保存提示
+  const [isSaving, setIsSaving] = useState(false);
 
   // 临时编辑状态
   const [editState, setEditState] = useState({
@@ -18,6 +19,52 @@ export function SettingsPage({ projectId, onSaved }: { projectId: string, onSave
     defaultModel: '',
     workspace: ''
   });
+
+  // 自动保存防抖定时器
+  const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 执行保存（基础配置 & 模型设置 共用）
+  const persistEditState = async () => {
+    try {
+      setIsSaving(true);
+      const res = await fetch(`http://localhost:3001/api/v1/projects/${projectId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editState)
+      });
+      if (res.ok) {
+        setProject(await res.json());
+        onSaved?.();
+        setSavedMsg('已保存');
+        setTimeout(() => setSavedMsg(''), 2000);
+      }
+    } catch (err) {
+      console.error('[Settings] 保存失败', err);
+      setSavedMsg('保存失败');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // 防抖自动保存（基础配置/模型设置切换时若有未保存变更则立即保存）
+  const scheduleAutoSave = () => {
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    autoSaveTimer.current = setTimeout(persistEditState, 600);
+  };
+
+  // 基础配置变更 -> 防抖保存
+  const handleBasicChange = (patch: Partial<typeof editState>) => {
+    setEditState(prev => ({ ...prev, ...patch }));
+    scheduleAutoSave();
+  };
+
+  // 模型选择变更 -> 立即保存（无需等防抖，用户意图明确）
+  const handleModelChange = (modelId: string) => {
+    setEditState(prev => ({ ...prev, defaultModel: modelId }));
+    // 立即触发保存
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    persistEditState();
+  };
 
   // 默认模型搜索
   const [modelSearchOpen, setModelSearchOpen] = useState(false);
@@ -70,21 +117,6 @@ export function SettingsPage({ projectId, onSaved }: { projectId: string, onSave
     init();
   }, [projectId]);
 
-  const handleSave = async () => {
-    try {
-      setSaving(true);
-      const res = await fetch(`http://localhost:3001/api/v1/projects/${projectId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(editState)
-      });
-      if (res.ok) {
-        setProject(await res.json());
-        onSaved?.();
-      }
-    } catch (err) { console.error(err); } finally { setSaving(false); }
-  };
-
   const sections = [
     { id: 'basic', label: '基础配置', icon: Layout },
     { id: 'model', label: '模型设置', icon: Cpu },
@@ -121,14 +153,19 @@ export function SettingsPage({ projectId, onSaved }: { projectId: string, onSave
                 <p className="text-sm text-slate-500">{project?.name}</p>
               </div>
             </div>
-            <Button 
-              className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 shadow-lg shadow-indigo-200"
-              icon={Save}
-              onClick={handleSave}
-              disabled={saving}
-            >
-              {saving ? '保存中...' : '保存更改'}
-            </Button>
+            {/* 自动保存指示器 */}
+            {isSaving && (
+              <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-100 text-slate-500 text-sm font-medium">
+                <div className="w-4 h-4 border-2 border-slate-300 border-t-slate-500 rounded-full animate-spin" />
+                保存中...
+              </div>
+            )}
+            {!isSaving && savedMsg && (
+              <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm font-bold">
+                <CheckCircle2 className="h-4 w-4" />
+                {savedMsg}
+              </div>
+            )}
           </div>
 
           {/* 标签页导航 */}
@@ -172,7 +209,7 @@ export function SettingsPage({ projectId, onSaved }: { projectId: string, onSave
                   <input
                     className="w-full px-5 py-4 rounded-2xl bg-slate-50 border border-slate-200 outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 text-slate-800 font-medium transition-all"
                     value={editState.name}
-                    onChange={e => setEditState({...editState, name: e.target.value})}
+                    onChange={e => handleBasicChange({ name: e.target.value })}
                   />
                 </div>
                 <div className="space-y-2">
@@ -186,11 +223,11 @@ export function SettingsPage({ projectId, onSaved }: { projectId: string, onSave
               </div>
               <div className="space-y-2">
                 <label className="text-xs font-bold uppercase text-slate-400 tracking-wider">项目描述</label>
-                <textarea
-                  className="w-full px-5 py-4 rounded-2xl bg-slate-50 border border-slate-200 outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 text-slate-800 font-medium min-h-[120px] resize-none transition-all"
-                  value={editState.description}
-                  onChange={e => setEditState({...editState, description: e.target.value})}
-                />
+                  <textarea
+                    className="w-full px-5 py-4 rounded-2xl bg-slate-50 border border-slate-200 outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 text-slate-800 font-medium min-h-[120px] resize-none transition-all"
+                    value={editState.description}
+                    onChange={e => handleBasicChange({ description: e.target.value })}
+                  />
               </div>
             </div>
           </Card>
@@ -211,7 +248,7 @@ export function SettingsPage({ projectId, onSaved }: { projectId: string, onSave
                   <input
                     className="w-full pl-14 pr-5 py-4 rounded-2xl bg-slate-50 border border-slate-200 outline-none focus:border-amber-500 focus:ring-4 focus:ring-amber-100 text-slate-800 font-mono text-sm transition-all"
                     value={editState.workspace}
-                    onChange={e => setEditState({...editState, workspace: e.target.value})}
+                    onChange={e => handleBasicChange({ workspace: e.target.value })}
                   />
                 </div>
                 <p className="text-xs text-slate-400 mt-2">Agent 的工作目录，用于文件操作和代码管理</p>
@@ -271,7 +308,7 @@ export function SettingsPage({ projectId, onSaved }: { projectId: string, onSave
                                 m.id === editState.defaultModel ? 'bg-cyan-50' : ''
                               }`}
                               onClick={() => {
-                                setEditState({...editState, defaultModel: m.id});
+                                handleModelChange(m.id);
                                 setModelSearchOpen(false);
                                 setModelSearchQuery('');
                               }}
