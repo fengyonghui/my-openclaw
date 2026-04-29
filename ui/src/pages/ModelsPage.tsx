@@ -251,8 +251,8 @@ export function ModelsPage() {
                                 <Server className="h-3 w-3 shrink-0 text-slate-300" />
                                 <span className="font-mono">{model.baseUrl}</span>
                               </span>
-                              <span className="shrink-0 px-2 py-1 rounded-md bg-slate-100 font-mono">T={model.temperature.toFixed(1)}</span>
-                              <span className="shrink-0 px-2 py-1 rounded-md bg-slate-100 font-mono">Max={model.maxTokens.toLocaleString()}</span>
+                              <span className="shrink-0 px-2 py-1 rounded-md bg-slate-100 font-mono">T={typeof model.temperature === 'number' ? model.temperature.toFixed(1) : '0.7'}</span>
+                              <span className="shrink-0 px-2 py-1 rounded-md bg-slate-100 font-mono">Max={typeof model.maxTokens === 'number' ? model.maxTokens.toLocaleString() : '4096'}</span>
                             </div>
                           </div>
                           <button onClick={() => handleDelete(model.id)} disabled={deletingId === model.id}

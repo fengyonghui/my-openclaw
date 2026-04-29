@@ -109,6 +109,16 @@ export class ProjectDataService {
     return false;
   }
 
+  // 删除指定消息及其之后的所有消息
+  deleteMessagesFrom(chatId: string, fromMessageId: string): void {
+    const chat = this.getChat(chatId);
+    if (!chat) return;
+    const idx = chat.messages.findIndex((m: any) => String(m.id) === String(fromMessageId));
+    if (idx === -1) return;
+    chat.messages = chat.messages.slice(0, idx);
+    this.saveChat(chat);
+  }
+
   // 添加消息到会话
   addMessage(chatId: string, message: any): void {
     const chat = this.getChat(chatId);

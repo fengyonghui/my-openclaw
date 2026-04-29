@@ -243,7 +243,7 @@ export async function fetchWithRateLimitHandling(
  */
 export function cleanupRateLimitCache(): void {
   const now = Date.now();
-  for (const [modelId, cached] of rateLimitCache.entries()) {
+  for (const [modelId, cached] of Array.from(rateLimitCache.entries())) {
     if (now - cached.timestamp > CACHE_TTL) {
       rateLimitCache.delete(modelId);
     }

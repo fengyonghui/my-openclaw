@@ -4,14 +4,12 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { getProjectWorkspacePath } from './PathService.js';
 
 export class ProjectChatService {
   
-  // 根据项目工作区获取会话列表
+  // 根据项目工作区获取会话列表（调用方已处理路径转换）
   static async getChatsFromProject(projectWorkspace: string): Promise<any[]> {
-    const projectPath = getProjectWorkspacePath(projectWorkspace);
-    const chatsDir = path.join(projectPath, 'data', 'chats');
+    const chatsDir = path.join(projectWorkspace, 'data', 'chats');
     
     if (!fs.existsSync(chatsDir)) {
       return [];
@@ -24,10 +22,9 @@ export class ProjectChatService {
     }).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
   }
 
-  // 获取单个会话
+  // 获取单个会话（调用方已处理路径转换）
   static async getChatFromProject(projectWorkspace: string, chatId: string): Promise<any | null> {
-    const projectPath = getProjectWorkspacePath(projectWorkspace);
-    const chatFile = path.join(projectPath, 'data', 'chats', `${chatId}.json`);
+    const chatFile = path.join(projectWorkspace, 'data', 'chats', `${chatId}.json`);
     
     if (!fs.existsSync(chatFile)) {
       return null;
@@ -35,10 +32,9 @@ export class ProjectChatService {
     return JSON.parse(fs.readFileSync(chatFile, 'utf-8'));
   }
 
-  // 保存会话到项目目录
+  // 保存会话到项目目录（调用方已处理路径转换）
   static async saveChatToProject(projectWorkspace: string, chat: any): Promise<void> {
-    const projectPath = getProjectWorkspacePath(projectWorkspace);
-    const chatsDir = path.join(projectPath, 'data', 'chats');
+    const chatsDir = path.join(projectWorkspace, 'data', 'chats');
     fs.mkdirSync(chatsDir, { recursive: true });
     
     chat.updatedAt = new Date().toISOString();
@@ -55,6 +51,16 @@ export class ProjectChatService {
     }
     
     if (!chat.messages) chat.messages = [];
+
+    // 去重：带 tool_call_id 的消息不重复保存（避免 resend 多次导致孤儿累积）
+    if (message.role === 'tool' && message.tool_call_id) {
+      const exists = chat.messages.some((m: any) => m.tool_call_id === message.tool_call_id);
+      if (exists) {
+        console.log(`[ProjectChat] Duplicate tool message skipped: tool_call_id=${message.tool_call_id}`);
+        return;
+      }
+    }
+
     chat.messages.push({
       ...message,
       id: Date.now().toString(),
@@ -85,10 +91,9 @@ export class ProjectChatService {
     return chat;
   }
 
-  // 删除会话
+  // 删除会话（调用方已处理路径转换）
   static async deleteChat(projectWorkspace: string, chatId: string): Promise<boolean> {
-    const projectPath = getProjectWorkspacePath(projectWorkspace);
-    const chatFile = path.join(projectPath, 'data', 'chats', `${chatId}.json`);
+    const chatFile = path.join(projectWorkspace, 'data', 'chats', `${chatId}.json`);
     
     if (fs.existsSync(chatFile)) {
       fs.unlinkSync(chatFile);

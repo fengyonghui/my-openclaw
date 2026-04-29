@@ -49,7 +49,7 @@ export function ProjectListPage({ onSelectProject }: { onSelectProject: (id: str
   }, [projects, projectSearchQuery]);
 
   const getModelName = (id: string) => {
-    const model = globalModels.find(m => m.id === id);
+    const model = globalModels.find(m => m.id === id || m.modelId === id);
     return model ? model.name : id;
   };
 
@@ -297,10 +297,13 @@ export function ProjectListPage({ onSelectProject }: { onSelectProject: (id: str
         ) : (
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 pb-10">
             {filteredProjects.map((project, idx) => (
-              <button
+              <div
                 key={project.id}
+                role="button"
+                tabIndex={0}
                 onClick={() => onSelectProject(project.id)}
-                className="group text-left"
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelectProject(project.id); } }}
+                className="group text-left cursor-pointer"
                 style={{ animationDelay: `${idx * 80}ms` }}
               >
                 <div className="relative p-7 rounded-3xl bg-white/80 backdrop-blur-sm border border-slate-200/50 shadow-sm hover:shadow-2xl hover:border-indigo-200/50 transition-all duration-300 hover:-translate-y-2 overflow-hidden">
@@ -346,7 +349,7 @@ export function ProjectListPage({ onSelectProject }: { onSelectProject: (id: str
                     </div>
                   </div>
                 </div>
-              </button>
+              </div>
             ))}
           </div>
         )}

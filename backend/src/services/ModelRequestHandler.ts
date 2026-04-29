@@ -109,6 +109,7 @@ export async function makeModelRequest(
   };
 
   // 遍历模型队列
+  let lastError: any = null;
   for (const currentModel of allModels) {
     // 跳过已失败的模型
     if (failedModelIds.includes(currentModel.id)) continue;
@@ -139,8 +140,7 @@ export async function makeModelRequest(
     
     // 发送请求（带重试）
     const maxRetries = 3;
-    let lastError: any = null;
-    
+
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       stats.totalAttempts++;
       
@@ -168,7 +168,7 @@ export async function makeModelRequest(
           throw error;
         }
         
-        const data = await response.json();
+        const data: any = await response.json();
         const choice = data.choices?.[0];
         const message = choice?.message || {};
         
@@ -279,12 +279,12 @@ export async function makeModelRequest(
 /**
  * SSE 流式请求处理器（支持 429 处理）
  */
-export async function makeStreamingModelRequest(
+export async function* makeStreamingModelRequest(
   primaryModel: ModelConfig,
   fallbackModels: ModelConfig[],
   messages: ChatMessage[],
   options: ModelRequestOptions = {}
-): Promise<AsyncGenerator<string, void, unknown>> {
+): AsyncGenerator<string, void, unknown> {
   const {
     tools = [],
     toolChoice = 'auto',

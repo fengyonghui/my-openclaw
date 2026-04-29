@@ -147,6 +147,30 @@ export async function ProjectChatRoutes(fastify: FastifyInstance) {
     return { success: true };
   });
 
+  // 删除指定消息及其之后的所有消息
+  fastify.delete('/:id/messages', async (request, reply) => {
+    const { id, projectId } = request.params as any;
+    const { projectId: queryProjectId } = request.query as any;
+    const { fromMessageId } = request.body as { fromMessageId?: string };
+
+    const effectiveProjectId = projectId || queryProjectId;
+    if (!effectiveProjectId) {
+      return reply.code(400).send({ error: '缺少 projectId 参数' });
+    }
+    if (!fromMessageId) {
+      return reply.code(400).send({ error: '缺少 fromMessageId 参数' });
+    }
+
+    const projects = await DbService.getProjects();
+    const project = projects.find((p: any) => p.id === effectiveProjectId);
+    if (!project) {
+      return reply.code(404).send({ error: '项目不存在' });
+    }
+
+    const dataService = new ProjectDataService(project.workspace);
+    dataService.deleteMessagesFrom(id, fromMessageId);
+    return { success: true };
+  });
   // 加载项目上下文（MEMORY.md + REQUIREMENT.md + 会话历史）
   fastify.get('/context', async (request, reply) => {
     const { projectId, chatId } = request.query as any;

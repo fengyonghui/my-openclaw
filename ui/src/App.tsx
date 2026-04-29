@@ -8,12 +8,11 @@ import { FilesPage } from './pages/FilesPage';
 import { ActivityPage } from './pages/ActivityPage';
 import { MemoryPage } from './pages/MemoryPage';
 import { SettingsPage } from './pages/SettingsPage';
-import { SkillsPage } from './pages/SkillsPage';
 import { ModelsPage } from './pages/ModelsPage';
 import { ContextPanel } from './components/layout/ContextPanel';
 import { ProjectProvider } from './contexts/ProjectContext';
 
-export type AppView = 'dashboard' | 'chat' | 'agents' | 'files' | 'memory' | 'activity' | 'settings' | 'skills' | 'models';
+export type AppView = 'dashboard' | 'chat' | 'agents' | 'files' | 'memory' | 'activity' | 'settings' | 'models';
 
 export default function App() {
   const [projectId, setProjectId] = useState<string | null>(null);
@@ -40,7 +39,6 @@ export default function App() {
             case 'files': return <FilesPage projectId={projectId} />;
             case 'activity': return <ActivityPage projectId={projectId} />;
             case 'memory': return <MemoryPage projectId={projectId} />;
-            case 'skills': return <SkillsPage projectId={projectId} />;
             case 'settings': return <SettingsPage projectId={projectId} onSaved={triggerRefresh} />;
             case 'models': return <ModelsPage />;
             case 'dashboard':

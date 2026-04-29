@@ -1,4 +1,4 @@
-import { Bot, SendHorizonal, Sparkles, ChevronDown, Check, User, Cpu, Edit3, Settings, Search, X, Copy, CheckCircle2, Minus, Square, XCircle, GripHorizontal, Mic, MicOff, Paperclip, X as XIcon, Download, FileText, Users, MessageSquare, RefreshCw } from 'lucide-react';
+import { Bot, SendHorizonal, Sparkles, ChevronDown, Check, User, Cpu, Edit3, Settings, Search, X, Copy, CheckCircle2, Minus, Square, XCircle, GripHorizontal, Mic, MicOff, Paperclip, X as XIcon, Download, FileText, Users, MessageSquare, RefreshCw, Trash2 } from 'lucide-react';
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Card, Button, Badge } from '../components/ui';
@@ -380,6 +380,23 @@ export function ChatDetailPage({ projectId, chatId, onMinimize }: { projectId: s
     } finally {
       setIsTyping(false);
       setMessages(prev => prev.map(m => m.id === assistantMsgId && m.status !== 'error' ? { ...m, status: undefined } : m));
+    }
+  };
+
+  // 删除指定消息及其后续消息（前端 + 持久化）
+  const handleDelete = async (msg: Message) => {
+    const msgIndex = messages.findIndex(m => m.id === msg.id);
+    if (msgIndex === -1) return;
+    setMessages(prev => prev.slice(0, msgIndex));
+    // 同步到数据库
+    try {
+      await fetch(`http://localhost:3001/api/v1/chats/${chatId}/messages?projectId=${projectId}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fromMessageId: msg.id }),
+      });
+    } catch (err) {
+      console.error('[Delete] 持久化失败', err);
     }
   };
 
@@ -794,21 +811,29 @@ export function ChatDetailPage({ projectId, chatId, onMinimize }: { projectId: s
                           )}
                         </div>
                         
-                                        {/* 重发按钮 - 仅在用户消息且下一条助手消息失败时显示 */}
+                                        {/* 重发和删除按钮 - 每个用户消息 */}
                 {m.role === 'user' && (() => {
                   const msgIndex = messages.findIndex(msg => msg.id === m.id);
                   const nextMsg = messages[msgIndex + 1];
-                  const canResend = nextMsg && nextMsg.role === 'assistant' && 
-                    (nextMsg.status === 'error' || !nextMsg.content || nextMsg.content.trim() === '');
-                  return canResend && (
-                    <button
-                      onClick={() => handleResend(m)}
-                      disabled={isTyping}
-                      className="mt-2 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 text-xs font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <RefreshCw className="h-3.5 w-3.5" />
-                      重发
-                    </button>
+                  return (
+                    <div className="mt-2 flex gap-2">
+                      <button
+                        onClick={() => handleResend(m)}
+                        disabled={isTyping}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 text-xs font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <RefreshCw className="h-3.5 w-3.5" />
+                        重发
+                      </button>
+                      <button
+                        onClick={() => handleDelete(m)}
+                        disabled={isTyping}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-600 text-xs font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        删除
+                      </button>
+                    </div>
                   );
                 })()}
 {/* 发送者标签 */}

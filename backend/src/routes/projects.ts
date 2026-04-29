@@ -1,6 +1,8 @@
 import { FastifyInstance } from 'fastify';
 import { DbService } from '../services/DbService.js';
 import { ProjectChatService } from '../services/ProjectChatService.js';
+import { ProjectDataService } from '../services/ProjectDataService.js';
+import { HeartbeatService } from '../services/HeartbeatService.js';
 import { getProjectWorkspacePath } from '../services/PathService.js';
 import { projectRuntimeManager } from '../services/ProjectRuntimeManager.js';
 import fs from 'node:fs';
@@ -247,8 +249,7 @@ export async function ProjectRoutes(fastify: FastifyInstance) {
 
     // 获取心跳配置和状态
     const heartbeats = await DbService.getProjectHeartbeats(id);
-    const { getStatus } = await import('../services/HeartbeatService.js');
-    const heartbeatStatus = getStatus(id);
+    const heartbeatStatus = HeartbeatService.getStatus(id);
 
     // 获取全局 Agent 列表
     const agents = await DbService.getProjectAgents(id);
@@ -264,7 +265,7 @@ export async function ProjectRoutes(fastify: FastifyInstance) {
       workspace: project.workspace,
       totalChats: chats.length,
       recentChats: recentChats.length,
-      recentChatIds: recentChats.slice(0, 10).map(c => ({ id: c.id, title: c.title || c.name, updatedAt: c.updatedAt })),
+      recentChatIds: recentChats.slice(0, 10).map(c => ({ id: c.id, title: (c as any).title || c.name, updatedAt: c.updatedAt })),
       heartbeats: heartbeats.map(h => ({
         id: h.id,
         name: h.name,
