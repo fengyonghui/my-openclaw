@@ -348,4 +348,4 @@ export class SessionEventService extends EventEmitter {
   }
 }
 
-export default new SessionEventService();
+export default SessionEventService;

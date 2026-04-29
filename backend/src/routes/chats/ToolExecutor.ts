@@ -156,6 +156,11 @@ async function handleWriteFile(project: any, args: any): Promise<ToolResult> {
 
 /**
  * 执行 Shell 命令
+ *
+ * 三系统统一路由：
+ * 1. Windows (win32)     → 原生 cmd.exe/powershell，路径保持 Windows 格式 (D:\...)
+ * 2. WSL                → wsl.exe 执行，路径转换为 /mnt/d/... 格式
+ * 3. Linux (原生)       → 原生执行，路径保持 Linux 格式
  */
 export async function executeShellCommand(project: any, args: any): Promise<ToolResult> {
   const command = args.command || args.cmd || args.exec;
@@ -163,7 +168,12 @@ export async function executeShellCommand(project: any, args: any): Promise<Tool
     return { error: '缺少参数: command/cmd/exec' };
   }
 
-  // 安全检查：禁止不带参数的目录操作命令
+  const sys = getSystemInfo();
+  // 调试：输出平台检测结果
+  console.log(`[Shell] Detected: platform=${sys.platform}, isWSL=${sys.isWSL}, isWindows=${sys.isWindows}, isLinux=${sys.isLinux}, wslDistro=${sys.wslDistro}`);
+  console.log(`[Shell] Workspace (raw): ${project.workspace}`);
+
+  // 安全检查：禁止不带路径的目录操作命令
   const trimmedCmd = command.trim();
   const dangerousCmds = ['mkdir', 'md', 'rmdir', 'rm', 'del', 'rm -rf', 'del /f /s /q'];
   for (const dangerous of dangerousCmds) {
@@ -178,84 +188,62 @@ export async function executeShellCommand(project: any, args: any): Promise<Tool
     }
   }
 
-  // 使用 Hermes 跨平台方案
-  const sys = getSystemInfo();
-  const isWindows = sys.isWindows;
-  const isLinux = sys.isLinux;
-
-  // 本地执行路径（Node.js fs/exec 用）
-  const localWorkspace = getProjectWorkspacePath(project.workspace);
-  // WSL 执行路径（传给 wsl.exe 的 cwd）
-  const wslWorkspace = toWSLPath(project.workspace);
-
-  // 检测 bash/Unix 命令格式
-  const bashPatterns = [
-    /mkdir -p/,
-    /cat >/,
-    /\| grep/,
-    /\| head/,
-    /\| tail/,
-    /\| wc/,
-    /\| sort/,
-    /\| uniq/,
-    /chmod /,
-    /chown /,
-    /ln -s/,
-    /tar -/,
-    /gunzip/,
-    /gzip /,
-    /curl -/,
-    /wget /,
-    /ps aux/,
-    /kill -/,
-    /export /,
-    /source /,
-    /\$\{/,
-    /\$\(\(/,
-  ];
-
-  const isBashCommand = bashPatterns.some(p => p.test(command));
-
-  // PowerShell 命令检测
-  const isPowerShellCmd = command.trim().startsWith('if ') ||
-    /^(Test-|Remove-|Write-|Get-|New-|Set-)/i.test(command.trim());
-
   // ============================================================
-  // Hermes 跨平台执行路由
+  // 统一路由：根据检测到的系统类型决定执行方式
   // ============================================================
-  //
-  // Windows (win32): bash 命令 → wsl.exe 执行，其余 → cmd.exe / powershell
-  // Linux / WSL: 直接执行（本地或通过 wsl.exe）
-  //
 
-  if (isWindows) {
-    // Windows 原生执行
+  if (sys.isWindows) {
+    // ── Windows 原生执行 ──
+    // 路径保持 Windows 格式（project.workspace 本身即 Windows 路径）
+    const cwd = project.workspace;
+    const isPowerShellCmd = /^(Test-|Remove-|Write-|Get-|New-|Set-)/i.test(trimmedCmd) ||
+                             trimmedCmd.startsWith('if ');
     if (isPowerShellCmd) {
-      return executePowerShellCommand(command, localWorkspace);
+      return executePowerShellCommand(command, cwd);
     }
-    // cmd.exe 或其他 Windows 命令
-    return executeWindowsCommand(command, localWorkspace);
+    return executeWindowsCommand(command, cwd);
   }
 
-  // Linux / WSL 环境
-  // WSL 路径 (/mnt/d/...) 或 bash 命令 → 通过 wsl.exe 执行
-  const wslPath = /^\/mnt\//.test(project.workspace);
-  if (wslPath || isBashCommand) {
-    // wsl.exe 执行，cwd 使用 WSL 路径格式
+  if (sys.isWSL) {
+    // ── WSL 环境执行 ──
+    // 所有路径统一转为 /mnt/d/... 格式，通过 wsl.exe 执行
+    const wslWorkspace = toWSLPath(project.workspace);
     return executeLinuxCommand(`wsl.exe ${command}`, wslWorkspace);
   }
 
-  // 原生 Linux（workspace 不含驱动器号）
+  // ── 原生 Linux/macOS 执行 ──
+  const localWorkspace = getProjectWorkspacePath(project.workspace);
   return executeLinuxCommand(command, localWorkspace);
 }
 
 /**
  * 执行 PowerShell 命令
+ *
+ * 问题修复：
+ * 1. 末尾反斜杠（如 C:\）：PowerShell -Command "..." 中 \ 在闭合 " 前被当作转义符 → 替换为 /
+ * 2. shell 重定向（2>&1）：PowerShell 不识别 → 直接剥离
+ * 3. 引号嵌套：改用 -Command {block} 语法，避免引号解析问题
  */
 async function executePowerShellCommand(command: string, cwd: string): Promise<ToolResult> {
   return new Promise((resolve) => {
     const MAX_OUTPUT = 500 * 1024;
-    exec(`powershell -Command "${command.replace(/"/g, '\\"')}"`, {
+
+    // 清理命令中的 shell/bash 特有语法（PowerShell 不识别）
+    let cleanCmd = command
+      .replace(/\s*2>\s*&1\s*$/g, '')        // 剥离 2>&1
+      .replace(/\s*>\s*&\d\s*$/g, '')         // 剥离 >&2 等
+      .replace(/\s*\|\s*tee\s+[^\s]*/gi, '') // 剥离 | tee
+      .replace(/\s*;\s*exit\s*\$?\w+/gi, ''); // 剥离 ; exit $?
+
+    // 修复 Windows 路径末尾的反斜杠（PowerShell -Command 中会转义闭合引号）
+    // 将 D:\ 末尾反斜杠改为正斜杠，PowerShell 兼容
+    cleanCmd = cleanCmd.replace(/([A-Za-z]):\\(?=\s*(['"]|\s*[-&|]|$))/g, '$1:/');
+
+    // 使用 {block} 语法避免引号嵌套问题
+    // 注意：双大括号 {{ }} 在模板字符串中是单大括号 {}
+    const psCmd = `powershell -NoProfile -Command {${cleanCmd}}`;
+
+    exec(psCmd, {
       cwd,
       timeout: 60000,
       maxBuffer: MAX_OUTPUT
@@ -319,9 +307,21 @@ export async function executePythonCommand(project: any, args: any): Promise<Too
     return { error: '缺少参数: command/cmd/code' };
   }
 
+  const sys = getSystemInfo();
+
+  // 根据系统类型选择 cwd
+  let cwd: string;
+  if (sys.isWindows) {
+    cwd = project.workspace;
+  } else if (sys.isWSL) {
+    cwd = toWSLPath(project.workspace);
+  } else {
+    cwd = getProjectWorkspacePath(project.workspace);
+  }
+
   return new Promise((resolve) => {
     exec(`python -c "${command.replace(/"/g, '\\"')}"`, {
-      cwd: project.workspace,
+      cwd,
       timeout: 30000
     }, (err, stdout, stderr) => {
       if (err) {
@@ -497,7 +497,7 @@ export async function executeAgentDelegation(
       return { error: `Agent ${targetAgent.name} 调用失败: HTTP ${res.status}` };
     }
 
-    const data = await res.json();
+    const data: any = await res.json();
     const agentResponse = data.choices?.[0]?.message?.content || '';
 
     console.log(`[Delegation] Response length: ${agentResponse.length} chars`);

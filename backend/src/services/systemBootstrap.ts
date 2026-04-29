@@ -32,9 +32,9 @@ export function getCommandSet(): CommandSet {
  * 生成系统命令配置文件
  */
 export function bootstrapSystemCommands(): CommandSet {
-  // 使用增强版 SystemCommands 服务
-  const commands = getSystemCommands();
+  // 调一次 getSystemInfo()，getSystemCommands() 内部不会再重复调用
   const sysInfo = getSystemInfo();
+  const commands = getSystemCommands();
 
   // 写入到项目的数据目录
   const dataDir = join(process.cwd(), 'data');

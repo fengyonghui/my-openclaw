@@ -1,5 +1,5 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
+import { readFile, writeFile, mkdir, stat } from 'node:fs/promises';
+import * as path from 'node:path';
 import { BUILTIN_FILE_IO_SKILL, BUILTIN_INLINE_PYTHON_SKILL, BUILTIN_SHELL_CMD_SKILL } from './BuiltinSkills.js';
 
 const DB_PATH = path.resolve(process.cwd(), 'data/db.json');
@@ -20,7 +20,7 @@ export class DbService {
 
   static async load() {
     try {
-      const content = await fs.readFile(DB_PATH, 'utf-8');
+      const content = await readFile(DB_PATH, 'utf-8');
       this.data = JSON.parse(content);
       return this.data;
     } catch (err) {
@@ -32,8 +32,8 @@ export class DbService {
         availableSkills: [], // 新增全局技能池
         memories: []
       };
-      await fs.mkdir(path.dirname(DB_PATH), { recursive: true });
-      await fs.writeFile(DB_PATH, JSON.stringify(initial, null, 2), 'utf-8');
+      await mkdir(path.dirname(DB_PATH), { recursive: true });
+      await writeFile(DB_PATH, JSON.stringify(initial, null, 2), 'utf-8');
       this.data = initial;
       return initial;
     }
@@ -41,7 +41,7 @@ export class DbService {
 
   static async save() {
     if (!this.data) return;
-    await fs.writeFile(DB_PATH, JSON.stringify(this.data, null, 2), 'utf-8');
+    await writeFile(DB_PATH, JSON.stringify(this.data, null, 2), 'utf-8');
   }
 
   // --- 项目记忆管理 ---
@@ -68,7 +68,7 @@ export class DbService {
 
   static async addGlobalModel(config: ModelConfig) {
     const db = await this.load();
-    const newModel = { ...config, id: config.id || Date.now().toString(), temperature: config.temperature ?? 0.7, maxTokens: config.maxTokens ?? 4096 };
+    const newModel = { ...config, id: config.id || config.modelId || Date.now().toString(), temperature: config.temperature ?? 0.7, maxTokens: config.maxTokens ?? 4096 };
     db.availableModels.push(newModel);
     await this.save();
     return db.availableModels;
@@ -122,7 +122,7 @@ export class DbService {
     const safeParentDir = parentDir || process.cwd();
     const workspace = path.join(safeParentDir, name || id);
     try {
-      await fs.mkdir(workspace, { recursive: true });
+      await mkdir(workspace, { recursive: true });
     } catch (err: any) {
       throw new Error(`无法创建物理目录: ${err.message}`);
     }
@@ -152,7 +152,7 @@ export class DbService {
     const db = await this.load();
     if (!workspace) throw new Error('workspace 不能为空');
 
-    const st = await fs.stat(workspace).catch(() => null as any);
+    const st = await stat(workspace).catch(() => null as any);
     if (!st || !st.isDirectory()) {
       throw new Error('workspace 目录不存在或不是文件夹');
     }
@@ -210,6 +210,19 @@ export class DbService {
     db.chats = db.chats.filter((c: any) => String(c.id) !== String(id));
     await this.save();
     return db.chats;
+  }
+
+  static async deleteMessagesFrom(chatId: string, fromMessageId: string) {
+    const db = await this.load();
+    const chat = db.chats.find((c: any) => String(c.id) === String(chatId));
+    if (!chat) throw new Error('Chat not found');
+    if (!chat.messages) return chat;
+    const idx = chat.messages.findIndex((m: any) => String(m.id) === String(fromMessageId));
+    if (idx === -1) return chat;
+    chat.messages = chat.messages.slice(0, idx);
+    chat.updatedAt = new Date().toISOString();
+    await this.save();
+    return chat;
   }
 
   static async addMessageToChat(chatId: string, message: { role: string, content: string }) {

@@ -17,14 +17,17 @@ import { join } from 'path';
 // 类型定义
 // ============================================
 
-export type Platform = 'win32' | 'linux' | 'darwin';
-export type ShellType = 'pwsh' | 'powershell' | 'bash' | 'zsh' | 'fish' | 'sh';
+export type Platform = 'win32' | 'linux' | 'darwin' | 'wsl';
+export type ShellType = 'pwsh' | 'powershell' | 'cmd' | 'bash' | 'zsh' | 'fish' | 'sh';
 
 export interface SystemInfo {
   platform: Platform;
+  /** 原生平台（WSL 下仍为 'linux'） */
+  nativePlatform: 'win32' | 'linux' | 'darwin';
   platformName: string;
   isWindows: boolean;
   isLinux: boolean;
+  isWSL: boolean;
   isMac: boolean;
   shell: ShellType;
   shellPath: string;
@@ -33,6 +36,7 @@ export interface SystemInfo {
   homeDir: string;
   tempDir: string;
   loginShell: string;
+  wslDistro: string;  // WSL 发行版名称，无则为 ''
 }
 
 export interface CommandMapping {
@@ -169,11 +173,45 @@ function detectUnixShell(): { shell: ShellType; path: string; loginShell: string
 // 系统信息获取
 // ============================================
 
+/**
+ * 检测是否在 WSL 环境中
+ */
+function detectWSL(): { isWSL: boolean; distro: string } {
+  // 优先检查环境变量（WSL2 会设置）
+  const distro = process.env.WSL_DISTRO_NAME || '';
+  if (distro) return { isWSL: true, distro };
+
+  // 检查 /proc/version（WSL 特征）
+  try {
+    const version = require('fs').readFileSync('/proc/version', 'utf-8').toLowerCase();
+    if (version.includes('microsoft') || version.includes('wsl')) {
+      return { isWSL: true, distro: process.env.WSL_DISTRO_NAME || 'WSL' };
+    }
+  } catch {}
+
+  return { isWSL: false, distro: '' };
+}
+
+// 模块级缓存，避免重复检测和重复日志
+let _cachedSysInfo: SystemInfo | null = null;
+
 export function getSystemInfo(): SystemInfo {
-  const p = platform() as Platform;
+  if (_cachedSysInfo) return _cachedSysInfo;
+
+  const p = platform() as 'win32' | 'linux' | 'darwin';
+  const wslCheck = detectWSL();
+
+  // 调试信息（可按需开启）
+  // console.log(`[getSystemInfo] p=${p}, WSL_DISTRO_NAME=${process.env.WSL_DISTRO_NAME || 'N/A'}, wslCheck=${JSON.stringify(wslCheck)}`);
+
+  // 平台判定：WSL 优先
   const isWin = p === 'win32';
-  const isLin = p === 'linux';
   const isMac = p === 'darwin';
+  const isLin = p === 'linux';
+  const isWSL = !isWin && !isMac && wslCheck.isWSL;
+  const detectedPlatform = !isWin && !isMac && wslCheck.isWSL
+    ? 'wsl'
+    : (isWin ? 'win32' : isMac ? 'darwin' : 'linux');
 
   let shell: ShellType;
   let shellPath: string;
@@ -185,26 +223,33 @@ export function getSystemInfo(): SystemInfo {
     shellPath = detected.path;
     loginShell = detected.path;
   } else {
+    // Linux / WSL / macOS
     const detected = detectUnixShell();
     shell = detected.shell;
     shellPath = detected.path;
     loginShell = detected.loginShell;
   }
 
-  return {
-    platform: p,
-    platformName: isWin ? 'Windows' : isMac ? 'macOS' : 'Linux',
+  const platformName = isWin ? 'Windows' : isMac ? 'macOS' : isWSL ? `WSL (${wslCheck.distro || 'Linux'})` : 'Linux';
+
+  _cachedSysInfo = {
+    platform: detectedPlatform as Platform,
+    nativePlatform: p,
+    platformName,
     isWindows: isWin,
-    isLinux: isLin,
-    isMac: isMac,
+    isLinux: isLin && !isWSL,
+    isWSL,
+    isMac,
     shell,
     shellPath,
     pathSeparator: isWin ? '\\' : '/',
     lineEnding: isWin ? '\r\n' : '\n',
     homeDir: homedir(),
     tempDir: tmpdir(),
-    loginShell
+    loginShell,
+    wslDistro: wslCheck.distro,
   };
+  return _cachedSysInfo;
 }
 
 // ============================================

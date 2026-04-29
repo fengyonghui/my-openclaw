@@ -38,6 +38,8 @@ export function buildSystemMessage(context: ChatContext): Message {
   const workspace = project.workspace;
 
   // 平台标识（用于告知模型）
+  // 调试信息（可按需开启）
+  // console.log(`[buildSystemMessage] platformName=${sysInfo.platformName}, shell=${sysInfo.shell}, listDir=${cmds.listDir}`);
   const platformSection = `
 ## PLATFORM
 - platform: **${sysInfo.platformName}** (${sysInfo.platform})
@@ -60,6 +62,12 @@ Use these commands for shell_exec tool. DO NOT guess commands.
 **Text search:**
 - search in file: ${cmds.searchInFile}
 - find files by name: ${cmds.findFiles}
+
+**IMPORTANT - Creating/Writing Files:**
+- For multi-line content (HTML, JSON, code, etc.): **USE write_file tool** (NOT shell_exec with cat/echo)
+- shell_exec is for running commands, NOT for writing file content
+- write_file tool: provides path + complete file content as parameters
+${sysInfo.isWindows ? `- createFile command (empty file only): ${cmds.createFile}` : ''}
 
 **Process:**
 - list processes: ${cmds.listProcesses}
@@ -111,12 +119,16 @@ Use these commands for shell_exec tool. DO NOT guess commands.
     `${teamPrompt}` +
     `${memoryPrompt}` +
     `${platformSection}` +
-    `\n\n## TOOL CALLING RULES\n` +
-    `- Use tools to perform actions. Do not just describe what you will do.\n` +
-    `- If a tool call fails, READ the error message carefully and FIX the arguments\n` +
-    `- For write_file: ALWAYS include BOTH path AND content parameters\n` +
-    `- For edit_file: include path, oldText (exact text to find), and newText\n` +
-    `\n\n## CRITICAL: FILE CONTENT RULES\n` +
+    `## TOOL CALLING RULES
+- **CRITICAL**: When the user asks you to modify, edit, change, update, implement, create, write, or do ANY task: **CALL THE APPROPRIATE TOOL IMMEDIATELY, do not respond with only text descriptions**
+- Specifically for "帮我修改" / "修改" / "edit" / "implement": use read_file first to understand the file, then use edit_file or write_file
+- Specifically for "帮我写" / "create" / "implement": use write_file immediately with the complete file content
+- If a tool call fails, READ the error message carefully and FIX the arguments
+- For write_file: ALWAYS include BOTH path AND content parameters
+- For edit_file: include path, oldText (exact text to find), and newText
+- When the user asks to "execute", "implement", "do it", "以上全部" (all of the above), or any delegation request: **CALL THE APPROPRIATE TOOL IMMEDIATELY**
+${availableDelegates.length > 0 ? `- To delegate a task to a team member: **USE delegate_to_agent tool immediately** with agent_name and task parameters` : ''}
+` +
     `- NEVER write user messages or error descriptions as file content\n` +
     `- When asked to implement a feature, write ACTUAL CODE, not descriptions\n` +
     `- write_file content must be COMPLETE file content, not a placeholder\n` +
@@ -267,7 +279,7 @@ export function buildHistoryMessages(
      if (validToolCallIds.has(m.tool_call_id || '')) {
        filteredMessages.push(m);
      } else {
-       console.log(`[DEBUG] Dropping orphan tool message: tool_call_id=${m.tool_call_id}`);
+       // 孤儿消息，正常过滤，不打印日志
      }
    } else {
      filteredMessages.push(m);

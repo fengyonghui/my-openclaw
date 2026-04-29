@@ -1,7 +1,6 @@
-import fs from 'node:fs/promises';
-import fsSync from 'node:fs';
-import path from 'node:path';
-import os from 'node:os';
+import { promises as fs, existsSync } from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
 
 const MAX_READ_LINES = 2000;
 const MAX_READ_BYTES = 50 * 1024;
@@ -26,7 +25,7 @@ function normalizePath(inputPath: string): string {
   
   // 如果是 Windows 路径且在 WSL 环境中，转换为 WSL 路径
   const isWindows = os.platform() === 'win32';
-  const isWSL = !isWindows && fsSync.existsSync('/mnt/c');
+  const isWSL = !isWindows && existsSync('/mnt/c');
   
   if (!isWindows && isWSL) {
     p = convertWindowsToWSLPath(p);

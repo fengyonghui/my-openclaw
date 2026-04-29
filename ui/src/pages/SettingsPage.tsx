@@ -1,6 +1,7 @@
-import { Settings, Shield, Cpu, Save, Trash2, Layout, Bot, Globe, Users, Star, Plus, X, Sparkles, FolderOpen, ChevronRight, Search, ChevronDown } from 'lucide-react';
+import { Settings, Shield, Cpu, Save, Trash2, Layout, Bot, Globe, Users, Star, Plus, X, Sparkles, FolderOpen, ChevronRight, Search, ChevronDown, Wrench } from 'lucide-react';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { Card, Button } from '../components/ui';
+import { SkillsPage } from './SkillsPage';
 
 export function SettingsPage({ projectId, onSaved }: { projectId: string, onSaved?: () => void }) {
   const [project, setProject] = useState<any>(null);
@@ -151,6 +152,7 @@ export function SettingsPage({ projectId, onSaved }: { projectId: string, onSave
   const sections = [
     { id: 'basic', label: '基础配置', icon: Layout },
     { id: 'model', label: '模型设置', icon: Cpu },
+    { id: 'skills', label: '项目技能', icon: Wrench },
     { id: 'team', label: '团队成员', icon: Users },
     { id: 'danger', label: '危险操作', icon: Shield },
   ];
@@ -490,6 +492,11 @@ export function SettingsPage({ projectId, onSaved }: { projectId: string, onSave
               )}
             </div>
           </Card>
+        </div>
+
+        {/* 项目技能 */}
+        <div className={`space-y-6 transition-all ${activeSection !== 'skills' ? 'hidden' : ''}`}>
+          <SkillsPage projectId={projectId} />
         </div>
 
         {/* 危险操作 */}

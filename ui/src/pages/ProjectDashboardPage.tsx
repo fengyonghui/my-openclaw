@@ -315,10 +315,13 @@ export function ProjectDashboardPage({ projectId, onOpenChat, onProjectUpdated }
         ) : (
           <div className="space-y-3">
             {recentChats.map((chat, idx) => (
-              <button
+              <div
                 key={chat.id}
+                role="button"
+                tabIndex={0}
                 onClick={() => onOpenChat?.(chat.id)}
-                className="group w-full text-left"
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenChat?.(chat.id); } }}
+                className="group w-full text-left cursor-pointer"
                 style={{ animationDelay: `${idx * 50}ms` }}
               >
                 <div className="relative p-6 rounded-2xl bg-white/80 backdrop-blur-sm border border-slate-200/50 shadow-sm hover:shadow-xl hover:border-indigo-200/50 transition-all duration-300 hover:-translate-y-1 overflow-hidden">
@@ -365,7 +368,7 @@ export function ProjectDashboardPage({ projectId, onOpenChat, onProjectUpdated }
                     </div>
                   </div>
                 </div>
-              </button>
+              </div>
             ))}
           </div>
         )}

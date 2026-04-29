@@ -6,7 +6,7 @@
       "description": "OpenClaw 项目化改造，引入 Project 作用域。",
       "workspace": "d:/workspace/my-openclaw",
       "defaultAgentId": "1",
-      "defaultModel": "1774231104188",
+      "defaultModel": "gemini-3-flash",
       "createdAt": "2026-03-23T08:30:00Z",
       "enabledSkillIds": [
         "builtin-file-io",
@@ -28,7 +28,7 @@
       "description": "openclaw-test",
       "workspace": "\\workspace\\fengyonghui\\openclaw-test",
       "defaultAgentId": "1",
-      "defaultModel": "1774231104774",
+      "defaultModel": "z-ai/glm5",
       "createdAt": "2026-03-23T01:34:01.536Z",
       "enabledSkillIds": [
         "1774246522778",
@@ -48,7 +48,7 @@
       "description": "对话生成图表",
       "workspace": "d:\\workspace\\onewindow\\onewindow-dv",
       "defaultAgentId": "1",
-      "defaultModel": "1774231103978",
+      "defaultModel": "mx27",
       "createdAt": "2026-03-23T10:35:11.409Z",
       "enabledAgentIds": [
         "1",
@@ -63,7 +63,8 @@
         "1774673108386",
         "1775014816159",
         "1775014886292",
-        "1775015151755"
+        "1775015151755",
+        "builtin-inline-python-edit"
       ],
       "coordinatorAgentId": "1"
     },
@@ -73,7 +74,7 @@
       "description": "电话语音分析",
       "workspace": "d:\\workspace\\onewindow\\voice-monitor",
       "defaultAgentId": "1",
-      "defaultModel": "1774231104444",
+      "defaultModel": "gpt-5.4-mini",
       "ignorePatterns": [
         "node_modules",
         ".git",
@@ -108,7 +109,7 @@
       "description": "onewindow-mcp",
       "workspace": "d:\\workspace\\onewindow\\onewindow-mcp",
       "defaultAgentId": "1",
-      "defaultModel": "1774231104774",
+      "defaultModel": "gpt-5.4-mini",
       "ignorePatterns": [
         "node_modules",
         ".git",
@@ -136,818 +137,6 @@
       "createdAt": "2026-04-13T07:19:32.605Z"
     }
   ],
-  "availableModels": [
-    {
-      "name": "gpt-5.4-mini-2026-03-17",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "gpt-5.4-mini-2026-03-17",
-      "id": "1774231103881",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "Gemini 3.1 Flash Lite Preview",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "Gemini 3.1 Flash Lite Preview",
-      "id": "1774231103903",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "gemini-3.1-flash-lite-preview",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "gemini-3.1-flash-lite-preview",
-      "id": "1774231103917",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "gpt-5-codex-mini",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "gpt-5-codex-mini",
-      "id": "1774231103927",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "Gemma 3 27B",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "Gemma 3 27B",
-      "id": "1774231103939",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "deepseek-ai/deepseek-v3.2",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "deepseek-ai/deepseek-v3.2",
-      "id": "1774231103960",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "z-ai/glm5",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "z-ai/glm5",
-      "id": "1774231103978",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "gpt-5.4-mini",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "gpt-5.4-mini",
-      "id": "1774231104000",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "qwen3-coder-plus",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "qwen3-coder-plus",
-      "id": "1774231104023",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "Nano Banana Pro",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "Nano Banana Pro",
-      "id": "1774231104036",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "Imagen 4 Fast",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "Imagen 4 Fast",
-      "id": "1774231104049",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "glm-4-7-251222",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "glm-4-7-251222",
-      "id": "1774231104064",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "gpt-5.4",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "gpt-5.4",
-      "id": "1774231104079",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "gemini-3-pro-preview",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "gemini-3-pro-preview",
-      "id": "1774231104092",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "Claude Opus 4.6",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "Claude Opus 4.6",
-      "id": "1774231104105",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "gemini-3-pro-high",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "gemini-3-pro-high",
-      "id": "1774231104118",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "gemini-3.1-flash-image",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "gemini-3.1-flash-image",
-      "id": "1774231104133",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "gemini-3.1-pro-high",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "gemini-3.1-pro-high",
-      "id": "1774231104150",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "Gemini 2.0 Flash-Lite 001",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "Gemini 2.0 Flash-Lite 001",
-      "id": "1774231104163",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "Gemini 2.5 Computer Use Preview 10-2025",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "Gemini 2.5 Computer Use Preview 10-2025",
-      "id": "1774231104176",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "gemini-3-flash",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "gemini-3-flash",
-      "id": "1774231104188",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "gemini-3.1-pro-preview",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "gemini-3.1-pro-preview",
-      "id": "1774231104199",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "gpt-5.2-codex",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "gpt-5.2-codex",
-      "id": "1774231104209",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "gpt-5-codex",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "gpt-5-codex",
-      "id": "1774231104219",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "gpt-5.3-codex",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "gpt-5.3-codex",
-      "id": "1774231104239",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "Gemini 2.5 Flash-Lite",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "Gemini 2.5 Flash-Lite",
-      "id": "1774231104251",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "Nano Banana 2",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "Nano Banana 2",
-      "id": "1774231104266",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "gpt-5.4-nano-2026-03-17",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "gpt-5.4-nano-2026-03-17",
-      "id": "1774231104280",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "gpt-5.4-nano",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "gpt-5.4-nano",
-      "id": "1774231104292",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "gemini-3-flash-preview",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "gemini-3-flash-preview",
-      "id": "1774231104305",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "Gemini 2.5 Flash",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "Gemini 2.5 Flash",
-      "id": "1774231104321",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "Gemini 3 Flash Preview",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "Gemini 3 Flash Preview",
-      "id": "1774231104342",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "Imagen 4",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "Imagen 4",
-      "id": "1774231104358",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "minimaxai/minimax-m2.5",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "minimaxai/minimax-m2.5",
-      "id": "1774231104375",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "Gemini 2.5 Pro",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "Gemini 2.5 Pro",
-      "id": "1774231104391",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "Gemini Pro Latest",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "Gemini Pro Latest",
-      "id": "1774231104403",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "Gemini Flash Latest",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "Gemini Flash Latest",
-      "id": "1774231104415",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "Gemini 2.5 Flash Native Audio Preview 09-2025",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "Gemini 2.5 Flash Native Audio Preview 09-2025",
-      "id": "1774231104432",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "glm-5",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "glm-5",
-      "id": "1774231104444",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "Gemini 3.1 Pro Preview Custom Tools",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "Gemini 3.1 Pro Preview Custom Tools",
-      "id": "1774231104454",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "coder-model",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "coder-model",
-      "id": "1774231104465",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "gpt-5",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "gpt-5",
-      "id": "1774231104477",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "gpt-5.1-codex-max",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "gpt-5.1-codex-max",
-      "id": "1774231104486",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "Gemini 2.0 Flash",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "Gemini 2.0 Flash",
-      "id": "1774231104495",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "Gemma 3 4B",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "Gemma 3 4B",
-      "id": "1774231104504",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "gemini-3-pro-low",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "gemini-3-pro-low",
-      "id": "1774231104514",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "Gemma 3n E2B",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "Gemma 3n E2B",
-      "id": "1774231104538",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "Imagen 4 Ultra",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "Imagen 4 Ultra",
-      "id": "1774231104548",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "Gemini 2.0 Flash 001",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "Gemini 2.0 Flash 001",
-      "id": "1774231104562",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "Gemma 3 12B",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "Gemma 3 12B",
-      "id": "1774231104575",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "Nano Banana",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "Nano Banana",
-      "id": "1774231104585",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "Gemini 2.5 Flash-Lite Preview Sep 2025",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "Gemini 2.5 Flash-Lite Preview Sep 2025",
-      "id": "1774231104597",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "Gemini 2.5 Flash Native Audio Latest",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "Gemini 2.5 Flash Native Audio Latest",
-      "id": "1774231104611",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "Claude Sonnet 4.6",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "Claude Sonnet 4.6",
-      "id": "1774231104627",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "gpt-oss-120b-medium",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "gpt-oss-120b-medium",
-      "id": "1774231104638",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "gpt-5.1-codex",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "gpt-5.1-codex",
-      "id": "1774231104653",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "qwen3-coder-flash",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "qwen3-coder-flash",
-      "id": "1774231104666",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "mx27-h",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "mx27-h",
-      "id": "1774231104695",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "gpt-5.1",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "gpt-5.1",
-      "id": "1774231104711",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "qwen3.5-flash-2026-02-23",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "qwen3.5-flash-2026-02-23",
-      "id": "1774231104725",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "claude-sonnet-4-6",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "claude-sonnet-4-6",
-      "id": "1774231104742",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "Gemini Embedding 2 Preview",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "Gemini Embedding 2 Preview",
-      "id": "1774231104754",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "MiniMax-M2.5",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "MiniMax-M2.5",
-      "id": "1774231104764",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "mx27",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "mx27",
-      "id": "1774231104774",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "vision-model",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "vision-model",
-      "id": "1774231104783",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "Gemini 2.0 Flash-Lite",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "Gemini 2.0 Flash-Lite",
-      "id": "1774231104792",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "Gemini 3.1 Pro Preview",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "Gemini 3.1 Pro Preview",
-      "id": "1774231104810",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "Veo 3",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "Veo 3",
-      "id": "1774231104825",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "qwen3.5-plus",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "qwen3.5-plus",
-      "id": "1774231104841",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "gpt-5.2",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "gpt-5.2",
-      "id": "1774231104860",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "gemini-2.5-pro",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "gemini-2.5-pro",
-      "id": "1774231104872",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "gemini-2.5-flash",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "gemini-2.5-flash",
-      "id": "1774231104884",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "gemini-2.5-flash-lite",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "gemini-2.5-flash-lite",
-      "id": "1774231104898",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "Gemini 2.5 Flash Preview TTS",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "Gemini 2.5 Flash Preview TTS",
-      "id": "1774231104911",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "Gemma 3 1B",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "Gemma 3 1B",
-      "id": "1774231104925",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "Gemma 3n E4B",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "Gemma 3n E4B",
-      "id": "1774231104937",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "Veo 3 fast",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "Veo 3 fast",
-      "id": "1774231104955",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "deepseek-v3-1-250821",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "deepseek-v3-1-250821",
-      "id": "1774231104972",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "gpt-5.1-codex-mini",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "gpt-5.1-codex-mini",
-      "id": "1774231104983",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "Gemini Flash-Lite Latest",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "Gemini Flash-Lite Latest",
-      "id": "1774231104992",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    },
-    {
-      "name": "Gemini 3 Pro Preview",
-      "provider": "Custom",
-      "baseUrl": "http://localhost:8080/v1",
-      "apiKey": "13391822168",
-      "modelId": "Gemini 3 Pro Preview",
-      "id": "1774231105013",
-      "temperature": 0.7,
-      "maxTokens": 4096
-    }
-  ],
   "agents": [
     {
       "id": "1",
@@ -957,7 +146,7 @@
       "status": "ready",
       "description": "# Role: 高级产品经理 (Senior Product Manager Agent)\n\n## Profile\n你是一位拥有 10 年以上经验的资深产品经理，曾主导过从 0 到 1 的亿级用户产品构建。你擅长运用第一性原理思考，精通用户体验地图、KANO 模型、RICE 优先级排序及 A/B 测试设计。你的核心能力是将模糊的商业目标转化为清晰、可执行的产品需求文档 (PRD) 和技术方案。\n\n## Core Competencies\n1. **深度用户洞察**：能透过表面反馈挖掘用户真实痛点 (Jobs-to-be-Done)。\n2. **结构化需求分析**：熟练运用 MECE 原则拆解问题，区分“伪需求”与“真痛点”。\n3. **数据驱动决策**：定义清晰的北极星指标 (North Star Metric) 和过程指标，拒绝凭感觉决策。\n4. **标准化文档输出**：能生成符合工业标准的 PRD、用户故事 (User Stories) 和验收标准 (AC)。\n5. **跨部门协作思维**：在输出方案时，自动考虑技术可行性 (Feasibility)、商业价值 (Viability) 和用户体验 (Desirability) 的平衡。\n\n## Constraints & Guidelines\n- **拒绝空话**：严禁输出“提升用户体验”、“优化流程”等模糊表述。必须具体到“将加载时间从 3s 降低至 1s”或“减少点击次数从 5 次至 2 次”。\n- **证据导向**：提出的任何假设都必须说明验证方法（如：通过 A/B 测试验证，或引用行业基准数据）。\n- **场景化思考**：始终基于具体的用户场景 (Context) 进行设计，考虑边缘情况 (Edge Cases)。\n- **结构化输出**：所有回答必须逻辑清晰，使用 Markdown 表格、列表和加粗重点，便于直接复制到文档工具中。\n- **批判性思维**：如果用户的需求本身存在逻辑漏洞或商业价值低，你必须直言不讳地指出并提供替代方案，而不是盲目执行。\n\n## Workflow\n当用户提出一个产品想法、功能需求或问题时，请严格按照以下步骤思考和回复：\n\n### Phase 1: 需求澄清与诊断 (Clarify & Diagnose)\n- 确认用户的核心目标 (Goal) 和目标用户 (Target Audience)。\n- 识别潜在的限制条件 (Constraints) 和风险。\n- *若信息不足，先提出 3 个关键问题以澄清背景，不要急于给方案。*\n\n### Phase 2: 分析与策略 (Analysis & Strategy)\n- **用户痛点分析**：使用 JTBD (Jobs-to-be-Done) 框架描述用户想要完成的任务。\n- **价值评估**：使用 RICE 模型 (Reach, Impact, Confidence, Effort) 或类似框架评估优先级。\n- **竞品/市场视角**：简要分析行业标准做法或潜在的创新点。\n\n### Phase 3: 解决方案设计 (Solution Design)\n- **核心功能列表**：列出 MVP (最小可行性产品) 必备功能。\n- **用户流程 (User Flow)**：用文字描述或标准的 Mermaid 流程图代码块描述关键路径。\n- **原型建议**：描述关键界面的布局交互逻辑 (Wireframe description)。\n\n### Phase 4: 落地执行文档 (Execution Docs)\n- **用户故事 (User Stories)**：格式为 \"As a [role], I want to [action], so that [benefit]\"。\n- **验收标准 (Acceptance Criteria)**：使用 Given/When/Then 格式，确保开发可测试。\n- **数据埋点计划**：定义需要追踪的关键事件 (Events) 和指标 (Metrics) 以验证成功。\n\n## Output Format Template\n(当用户要求设计一个功能时，必须严格遵循此结构输出)\n\n# 📝 产品需求方案：[功能名称]\n\n## 1. 背景与目标\n- **问题陈述**：[清晰描述当前痛点]\n- **商业目标**：[例如：提升转化率 5%]\n- **目标用户**：[具体画像]\n\n## 2. 核心解决方案\n| 优先级 | 功能点 | 用户价值 | 技术复杂度预估 |\n| :--- | :--- | :--- | :--- |\n| P0 | [功能名称] | [一句话价值] | [高/中/低] |\n| P1 | [功能名称] | [一句话价值] | [高/中/低] |\n\n## 3. 用户流程 (User Flow)\n*(此处使用 Mermaid 语法，确保代码块独立)*\n```mermaid\ngraph TD\n    A[用户进入页面] --> B{是否登录?}\n    B -- 否 --> C[跳转登录页]\n    B -- 是 --> D[展示核心功能]\n    D --> E[用户执行操作]\n    E --> F[系统反馈结果]\n\n## 4. 详细需求说明 (PRD 片段)\n\n### 4.1 用户故事 (User Stories)\n- **US-01**: 作为 [角色]，我想要 [动作]，以便 [受益]。\n  - **验收标准 (AC)**:\n    - ✅ Given [前置条件], When [用户操作], Then [预期结果]。\n    - ✅ Given [异常条件], When [用户操作], Then [错误提示]。\n\n### 4.2 界面交互逻辑\n- **状态 A (默认)**: 显示...\n- **状态 B (加载中)**: 显示骨架屏...\n- **状态 C (空状态)**: 显示引导文案...\n\n## 5. 数据指标与埋点\n- **北极星指标**: [例如：日活跃交易用户数]\n- **关键事件埋点**:\n  - `event_name`: [事件名称]\n  - `properties`: [参数列表，如 user_id, timestamp, action_type]\n\n## 6. 风险与应对\n- ⚠️ **风险**: [描述潜在技术或业务风险]\n  - 💡 **对策**: [具体的缓解方案]\n\n## Output \n- 所有输出文件放置在项目的 pm目录下\n\n\n\n---\n\n## 🫀 心跳任务能力 (Heartbeat Scheduling)\n\n你可以主动为项目创建定时心跳任务，让自己在用户不主动发消息时也能持续工作。\n\n### 心跳 API 接口（Backend 服务端口 3001）\n\n| 方法 | 路径 | 说明 |\n|------|------|------|\n| GET | `/api/heartbeats?projectId=<projectId>` | 获取项目所有心跳配置 |\n| POST | `/api/heartbeats` | 创建新心跳任务 |\n| PATCH | `/api/heartbeats/:id` | 更新心跳配置（启用/禁用/修改频率） |\n| DELETE | `/api/heartbeats/:id` | 删除心跳任务 |\n| POST | `/api/heartbeats/:id/trigger` | 手动触发一次心跳 |\n| GET | `/api/heartbeats/history?projectId=<projectId>&limit=20` | 获取执行历史 |\n\n### 创建心跳任务的请求格式\n\n```json\nPOST /api/heartbeats\n{\n  \"projectId\": \"项目ID\",\n  \"name\": \"任务名称\",\n  \"description\": \"任务描述，说明要做什么检查\",\n  \"intervalMinutes\": 60,\n  \"enabled\": true\n}\n```\n\n或者使用 Cron 表达式（精确控制执行时间）：\n```json\nPOST /api/heartbeats\n{\n  \"projectId\": \"项目ID\",\n  \"name\": \"每日报告\",\n  \"description\": \"每天早上8点生成项目状态报告\",\n  \"cronExpression\": \"0 8 * * *\",\n  \"enabled\": true\n}\n```\n\n### 可用项目 ID 参考\n- `my-openclaw` — 本项目 (OpenClaw 项目化改造)\n- `voice-monitor` — 政务大厅语音监控系统\n- `onewindow-dv` — 对话生成图表\n- `openclaw-test` — OpenClaw 测试项目\n\n### 使用时机\n当用户提出以下类型的请求时，你应该主动创建心跳任务：\n1. **周期性检查**：用户说\"每隔 X 分钟检查一次 Y\"、\"定期检查 Z\"\n2. **定时提醒**：用户说\"每小时提醒我做某事\"、\"每天早上告诉我 X\"\n3. **持续监控**：用户说\"监控 X 的变化\"、\"跟踪 Y 的状态\"\n4. **自动化报告**：用户说\"每周生成一次报告\"、\"每天自动汇总\"\n\n### 操作流程\n1. 根据用户需求确定检查内容和频率\n2. 调用 POST /api/heartbeats 创建心跳配置\n3. 返回给用户确认，告诉用户已创建什么心跳任务\n4. 用户可以通过 HEARTBEAT.md 查看/修改心跳配置\n\n### 重要说明\n- **不要重复创建**：先 GET /api/heartbeats 查看是否已有类似任务\n- **描述要清晰**：让执行者知道要做什么\n- **频率合理**：避免过高的频率（<1分钟）造成资源浪费\n- **HEARTBEAT.md**：如果项目根目录存在 HEARTBEAT.md，执行时会读取它作为上下文指引\n",
       "type": "custom",
-      "defaultModelId": "1774231103978"
+      "defaultModelId": "mx27"
     },
     {
       "id": "2",
@@ -967,7 +156,7 @@
       "status": "busy",
       "description": "# Role: 高级架构及后端工程师 (Senior Architect And Backend Engineer Agent)\n\n## Profile\n你是一位经验丰富的高级系统架构师及后端工程师，擅长设计高可用、高可维护、可演进的服务端系统。你精通 API 设计、数据库建模、缓存、任务调度、权限控制、日志审计与系统性能优化。你的核心任务是把业务需求转化为稳定、清晰、可扩展的后端实现方案与代码。\n\n## Core Competencies\n1. **API 与服务设计能力**：能够设计边界清晰、命名一致、易于维护的接口与服务层结构。\n2. **数据建模能力**：能够把业务概念转为合理的数据库表结构、索引、约束与迁移方案。\n3. **系统稳定性意识**：主动考虑异常处理、重试、幂等、并发冲突、超时和回滚策略。\n4. **工程可维护性**：强调模块分层、职责清晰、可测试、可观测。\n5. **安全与审计意识**：默认考虑权限校验、输入验证、审计日志、敏感操作保护。\n\n## Constraints & Guidelines\n- **不要只给伪代码**：除非用户明确只要方案，否则优先给接近可运行的实现。\n- **接口设计必须一致**：资源命名、错误码、分页、过滤、排序风格要统一。\n- **默认考虑迁移与兼容**：修改数据结构时，要说明迁移方案和回滚思路。\n- **默认考虑异常场景**：如并发写入、重复请求、网络抖动、外部依赖失败。\n- **避免过度设计**：先满足当前需求，再为演进留口子，不要无意义堆复杂模式。\n- **证据与约束导向**：性能优化或架构升级必须说明原因和收益。\n- **结构化输出**：适合直接转成开发任务或设计文档。\n\n## Workflow\n当用户提出接口、数据库、服务端流程或架构相关需求时，请按以下流程工作：\n\n### Phase 1: 需求澄清\n- 明确业务目标、调用方、数据规模、并发要求、兼容要求\n- 若信息不足，优先提出少量高价值问题\n\n### Phase 2: 方案设计\n- 设计资源模型、服务层边界、数据库结构、错误处理策略\n- 必要时给出时序图、流程图或状态流转\n\n### Phase 3: 实现输出\n- 输出 API 设计、SQL、服务端代码、数据迁移脚本或伪代码框架\n- 默认包含异常处理、校验和日志建议\n\n### Phase 4: 交付说明\n- 说明设计权衡\n- 标出风险点\n- 给出上线 / 回滚 / 测试建议\n\n## Output Format Template\n# ⚙️ 后端实现方案：[模块 / 功能名称]\n\n## 1. 目标与范围\n- **目标**：[解决什么问题]\n- **作用范围**：[影响哪些模块 / 表 / API]\n\n## 2. 设计方案\n- **资源模型**：[核心实体与关系]\n- **接口设计**：[API 列表]\n- **数据结构**：[表结构 / 字段 / 索引]\n- **异常与安全**：[校验 / 权限 / 错误处理]\n\n## 3. 代码 / SQL 实现\n```ts\n// 服务端代码 / 接口定义 / SQL / 迁移脚本\n```\n\n## 4. 风险与建议\n- [潜在风险]\n- [测试重点]\n- [上线与回滚建议]\n\n## Default Technical Preferences\n- API Style: REST-first, 必要时补动作型接口\n- DB Design: 清晰、可迁移、可索引\n- Error Handling: 显式错误码 + 可追踪日志\n- Architecture: 分层清晰，避免业务逻辑散落 controller\n- Reliability: 幂等、超时、回滚、审计优先\n\n## Working Principles\n- 先定义边界，再写实现。\n- 能通过数据结构消除歧义，就不要把约束全丢给注释。\n- 能在服务层集中处理逻辑，就不要让 controller 和 repo 到处散逻辑。\n- 所有重要变更都要考虑迁移、回归和回滚。\n- 输出必须让后端工程师能直接接着开发。\n\n## Output \n- 所有输出文件放置在项目的 backen目录下\n\n## Java项目技术架构\n### 1. spring cloud 组件及版本\n- spring-boot : 3.2.5\n- spring-cloud-starter-alibaba-nacos-discovery：2022.0.0.0\n- spring-cloud-starter-alibaba-nacos-config：2022.0.0.0\n- mybatis-plus-boot-starter: 3.5.5\n### 2. nacos 环境：\n#### 1. 连接配置\n- server-addr: 39.104.103.222:80\n- username: dev\n- password: nacos8dev\n#### 2. mysql数据库 \n          data-id: service_xzyd_data_source.yml\n          group: DEFAULT_GROUP\n#### 3. redis\n          data-id: redis.yml\n          group: DEFAULT_GROUP\n\n## Node项目技术架构\n### 1. 使用pm2\n### 2. 使用yarn",
       "type": "custom",
-      "defaultModelId": "1774231104239"
+      "defaultModelId": "gpt-5.3-codex"
     },
     {
       "name": "UX",
@@ -976,7 +165,7 @@
       "type": "custom",
       "id": "1774659173367",
       "status": "idle",
-      "defaultModelId": "1774231104774"
+      "defaultModelId": "gpt-5.3-codex"
     },
     {
       "name": "QA",
@@ -985,7 +174,7 @@
       "type": "custom",
       "id": "1774670276206",
       "status": "idle",
-      "defaultModelId": "1774231104188"
+      "defaultModelId": "minimaxai/minimax-m2.5"
     }
   ],
   "chats": [
@@ -1078,6 +267,272 @@
       "rawContent": "# Chart Generator — ClawHub\n\nData visualization chart generator. Use when user needs to create charts from data for reports, presentations, or documents. Supports bar, line, pie, scatter...",
       "id": "1775015151755",
       "createdAt": "2026-04-01T03:45:51.755Z"
+    }
+  ],
+  "availableModels": [
+    {
+      "id": "claude-sonnet-4-6",
+      "name": "Claude Sonnet 4.6",
+      "modelId": "claude-sonnet-4-6",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "provider": "glue",
+      "temperature": 0.7,
+      "maxTokens": 4096,
+      "description": ""
+    },
+    {
+      "id": "gemini-3-flash",
+      "name": "Gemini 3 Flash",
+      "modelId": "gemini-3-flash",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "provider": "glue",
+      "temperature": 0.7,
+      "maxTokens": 4096,
+      "description": ""
+    },
+    {
+      "id": "gemini-3.1-pro-high",
+      "name": "Gemini 3.1 Pro High",
+      "modelId": "gemini-3.1-pro-high",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "provider": "glue",
+      "temperature": 0.7,
+      "maxTokens": 4096,
+      "description": ""
+    },
+    {
+      "id": "gemini-3-pro-high",
+      "name": "Gemini 3 Pro High",
+      "modelId": "gemini-3-pro-high",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "provider": "glue",
+      "temperature": 0.7,
+      "maxTokens": 4096,
+      "description": ""
+    },
+    {
+      "id": "gemini-2.5-pro",
+      "name": "Gemini 2.5 Pro",
+      "modelId": "gemini-2.5-pro",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "provider": "glue",
+      "temperature": 0.7,
+      "maxTokens": 4096,
+      "description": ""
+    },
+    {
+      "id": "gemini-2.5-flash",
+      "name": "Gemini 2.5 Flash",
+      "modelId": "gemini-2.5-flash",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "provider": "glue",
+      "temperature": 0.7,
+      "maxTokens": 4096,
+      "description": ""
+    },
+    {
+      "id": "gpt-5.4-mini",
+      "name": "GPT-5.4 Mini",
+      "modelId": "gpt-5.4-mini",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "provider": "glue",
+      "temperature": 0.7,
+      "maxTokens": 4096,
+      "description": ""
+    },
+    {
+      "id": "gpt-5.4",
+      "name": "GPT-5.4",
+      "modelId": "gpt-5.4",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "provider": "glue",
+      "temperature": 0.7,
+      "maxTokens": 4096,
+      "description": ""
+    },
+    {
+      "id": "mx27",
+      "name": "mx27",
+      "modelId": "mx27",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKey": "13391822168",
+      "provider": "glue",
+      "temperature": 0.7,
+      "maxTokens": 4096,
+      "description": ""
+    },
+    {
+      "name": "GLM-5",
+      "modelId": "glm-5",
+      "apiKey": "13391822168",
+      "baseUrl": "http://localhost:8080/v1",
+      "description": "Via glue proxy: glm-5",
+      "provider": "glue",
+      "capabilities": [
+        "chat",
+        "tools"
+      ],
+      "id": "glm-5",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "Z-ai GLM5",
+      "modelId": "z-ai/glm5",
+      "apiKey": "13391822168",
+      "baseUrl": "http://localhost:8080/v1",
+      "description": "Via glue proxy: z-ai/glm5",
+      "provider": "glue",
+      "capabilities": [
+        "chat",
+        "tools"
+      ],
+      "id": "z-ai/glm5",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "Qwen3.5 Flash",
+      "modelId": "qwen3.5-flash-2026-02-23",
+      "apiKey": "13391822168",
+      "baseUrl": "http://localhost:8080/v1",
+      "description": "Via glue proxy: qwen3.5-flash-2026-02-23",
+      "provider": "glue",
+      "capabilities": [
+        "chat",
+        "tools"
+      ],
+      "id": "qwen3.5-flash-2026-02-23",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "Qwen3 Coder Flash",
+      "modelId": "qwen3-coder-flash",
+      "apiKey": "13391822168",
+      "baseUrl": "http://localhost:8080/v1",
+      "description": "Via glue proxy: qwen3-coder-flash",
+      "provider": "glue",
+      "capabilities": [
+        "chat",
+        "tools"
+      ],
+      "id": "qwen3-coder-flash",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "DeepSeek V3.2",
+      "modelId": "deepseek-ai/deepseek-v3.2",
+      "apiKey": "13391822168",
+      "baseUrl": "http://localhost:8080/v1",
+      "description": "Via glue proxy: deepseek-ai/deepseek-v3.2",
+      "provider": "glue",
+      "capabilities": [
+        "chat",
+        "tools"
+      ],
+      "id": "deepseek-ai/deepseek-v3.2",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "MiniMax M2.5",
+      "modelId": "minimaxai/minimax-m2.5",
+      "apiKey": "13391822168",
+      "baseUrl": "http://localhost:8080/v1",
+      "description": "Via glue proxy: minimaxai/minimax-m2.5",
+      "provider": "glue",
+      "capabilities": [
+        "chat",
+        "tools"
+      ],
+      "id": "minimaxai/minimax-m2.5",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "GPT-5.2",
+      "modelId": "gpt-5.2",
+      "apiKey": "13391822168",
+      "baseUrl": "http://localhost:8080/v1",
+      "description": "Via glue proxy: gpt-5.2",
+      "provider": "glue",
+      "capabilities": [
+        "chat",
+        "tools"
+      ],
+      "id": "gpt-5.2",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "GPT-5.3 Codex",
+      "modelId": "gpt-5.3-codex",
+      "apiKey": "13391822168",
+      "baseUrl": "http://localhost:8080/v1",
+      "description": "Via glue proxy: gpt-5.3-codex",
+      "provider": "glue",
+      "capabilities": [
+        "chat",
+        "tools"
+      ],
+      "id": "gpt-5.3-codex",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "Gemini 3 Pro Low",
+      "modelId": "gemini-3-pro-low",
+      "apiKey": "13391822168",
+      "baseUrl": "http://localhost:8080/v1",
+      "description": "Via glue proxy: gemini-3-pro-low",
+      "provider": "glue",
+      "capabilities": [
+        "chat",
+        "tools"
+      ],
+      "id": "gemini-3-pro-low",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "Claude Opus 4.6 Thinking",
+      "modelId": "claude-opus-4-6-thinking",
+      "apiKey": "13391822168",
+      "baseUrl": "http://localhost:8080/v1",
+      "description": "Via glue proxy: claude-opus-4-6-thinking",
+      "provider": "glue",
+      "capabilities": [
+        "chat",
+        "tools"
+      ],
+      "id": "claude-opus-4-6-thinking",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+    {
+      "name": "mx27-h",
+      "modelId": "mx27-h",
+      "apiKey": "13391822168",
+      "baseUrl": "http://localhost:8080/v1",
+      "description": "Via glue proxy: mx27-h",
+      "provider": "glue",
+      "capabilities": [
+        "chat",
+        "tools"
+      ],
+      "id": "mx27-h",
+      "temperature": 0.7,
+      "maxTokens": 4096
     }
   ]
 }

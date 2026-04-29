@@ -143,24 +143,10 @@ function sanitizeMessages(messages: any[]): any[] {
       sanitized.content = sanitizeMessageContent(sanitized.content);
     }
 
-    // 对于 tool result（DB 中存储为字符串的），尝试解析还原
-    if (sanitized.role === 'tool' && typeof sanitized.content === 'string') {
-      const trimmed = sanitized.content.trim();
-      if ((trimmed.startsWith('{') && trimmed.endsWith('}')) ||
-          (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
-        try {
-          const parsed = JSON.parse(trimmed);
-          // 验证解析后不是错误对象
-          if (!isCorruptedJsonContent(JSON.stringify(parsed))) {
-            sanitized.content = parsed;
-          }
-        } catch {
-          // 解析失败，保持字符串但确保是合法 JSON
-          if (!isValidJson(trimmed)) {
-            sanitized.content = '[无法解析的工具结果]';
-          }
-        }
-      }
+    // ⚠️ 强制确保 tool result 的 content 是字符串（API 规范要求）
+    // transformMessage 可能会把 JSON 字符串 parse 成 object，这里纠正回来
+    if (sanitized.role === 'tool' && sanitized.content !== null && typeof sanitized.content !== 'string') {
+      sanitized.content = JSON.stringify(sanitized.content);
     }
 
     return sanitized;
@@ -331,6 +317,49 @@ export async function ChatRoutes(fastify: FastifyInstance) {
   });
 
   // ============================================
+  // DELETE /:id/messages - 删除指定消息及其之后的所有消息
+  // ============================================
+  fastify.delete('/:id/messages', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const { projectId } = request.query as { projectId?: string };
+
+    if (!projectId) {
+      return reply.code(400).send({ error: '缺少 projectId 参数' });
+    }
+
+    const { fromMessageId } = request.body as { fromMessageId?: string };
+    if (!fromMessageId) {
+      return reply.code(400).send({ error: '缺少 fromMessageId 参数' });
+    }
+
+    const projects = await DbService.getProjects();
+    const project = projects.find((p: any) => p.id === projectId);
+    if (!project) {
+      return reply.code(404).send({ error: '项目不存在' });
+    }
+
+    const wsPath = getProjectWorkspacePath(project.workspace);
+    console.log(`[DELETE messages] chatId=${id} projectId=${projectId} wsPath=${wsPath} fromMessageId=${fromMessageId}`);
+    const chat = await ProjectChatService.getChatFromProject(wsPath, id);
+    if (!chat) {
+      console.error(`[DELETE messages] Chat not found: ${id}`);
+      return reply.code(404).send({ error: '会话不存在' });
+    }
+
+    const idx = chat.messages.findIndex((m: any) => String(m.id) === String(fromMessageId));
+    if (idx === -1) {
+      console.error(`[DELETE messages] Message not found: fromMessageId=${fromMessageId}, available IDs: ${chat.messages.slice(-3).map((m: any) => m.id).join(', ')}`);
+      return reply.code(404).send({ error: '消息不存在' });
+    }
+
+    const removed = chat.messages.length - idx;
+    chat.messages = chat.messages.slice(0, idx);
+    await ProjectChatService.saveChatToProject(wsPath, chat);
+    console.log(`[DELETE messages] ✅ Deleted ${removed} messages, ${chat.messages.length} remain`);
+    return { success: true };
+  });
+
+  // ============================================
   // POST /:id/send - 发送消息（核心 SSE 流）
   // ============================================
   fastify.post('/:id/send', async (request, reply) => {
@@ -459,16 +488,21 @@ export async function ChatRoutes(fastify: FastifyInstance) {
     console.log(`[Context] Limited to ${apiMessages.length} recent messages`);
   }
 
-      // 上下文管理 - 使用较小的 contextWindow 确保超长消息被裁剪
-      // mx27 上下文窗口约 100K，这里用 32K 触发压缩（mx27 报告了 162K tokens）
+      // 上下文管理 - 统一使用 128K context window
+      // Gemini 3 Flash 支持 1M context，统一和 /resend 保持一致
       const prunedMessages = pruneContext(apiMessages as Message[], {
-        contextWindow: 32000,
-        keepLastAssistants: 3
+        contextWindow: 128000,
+        keepLastAssistants: 5
       });
 
       const contextStats = getContextStats(prunedMessages as Message[]);
       console.log(`[Context] Before prune: ${apiMessages.length} msgs, ~${Math.round((apiMessages.reduce((s: number, m: any) => s + (m.content?.length || 0), 0)) / 4)} tokens`);
       console.log(`[Context] After prune: ${contextStats.messageCount} msgs, ~${contextStats.estimatedTokens} tokens, usage=${contextStats.usagePercent}%`);
+      // 计算系统消息大小
+      const sysMsgLen = (systemMessage?.content?.length || 0);
+      console.log(`[Context] System message size: ~${Math.round(sysMsgLen/4)} tokens, messages: ${sysMsgLen} chars`);
+      const remaining = 128000 - Math.round(sysMsgLen/4) - contextStats.estimatedTokens;
+      console.log(`[Context] Remaining context: ~${remaining} tokens (128K - system ~${Math.round(sysMsgLen/4)} - history ~${contextStats.estimatedTokens})`);
 
       if (contextStats.needsCompaction) {
         console.log(`[Context] Starting compaction (${contextStats.estimatedTokens} tokens -> target ${4000})...`);
@@ -655,6 +689,13 @@ export async function ChatRoutes(fastify: FastifyInstance) {
                   tool_calls: normalizedToolCalls
                 });
 
+                // 保存 assistant 消息（带 tool_calls）到数据库，避免 tool result 成为孤儿
+                await ProjectChatService.addMessageToChat(getProjectWorkspacePath(targetProject.workspace), chatId, {
+                  role: 'assistant',
+                  content: message.content || '',
+                  tool_calls: normalizedToolCalls
+                });
+
                 for (const toolCall of normalizedToolCalls) {
                   let toolResult: any;
                   try {
@@ -746,7 +787,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
           success = true;
           pickedModelCfg = modelsToTry[0];
         } else {
-          throw new Error(`所有模型均不可用。最后错误: ${lastError}`);
+          throw new Error(`所有模型均不可用 (已尝试: ${modelsToTry.map((m: any) => m.name).join(', ')}): ${lastError}`);
         }
       }
 
@@ -908,7 +949,10 @@ export async function ChatRoutes(fastify: FastifyInstance) {
       let lastError = '';
       let activeModelId = chat?.modelId || targetProject.defaultModel || '';
 
+      let modelIndex = 0;
       for (const model of modelsToTry) {
+        modelIndex++;
+        console.log(`[Resend] 尝试模型 ${modelIndex}/${modelsToTry.length}: ${model.name} (${model.modelId}) @ ${model.baseUrl}`);
         try {
           const modelCfg: any = {
             baseUrl: model.baseUrl,
@@ -924,16 +968,42 @@ export async function ChatRoutes(fastify: FastifyInstance) {
           const projectPrivateAgents = targetProject?.projectAgents || [];
           const allProjectAgents = [...allGlobalAgents.filter((a: any) => enabledAgentIds.includes(a.id)), ...projectPrivateAgents];
 
+          const coordinatorAgentId = targetProject?.coordinatorAgentId || chat?.modelId || '1';
+          const coordinatorAgent = allProjectAgents.find((a: any) => String(a.id) === String(coordinatorAgentId));
+
           const enabledSkillIds = targetProject?.enabledSkillIds || [];
-          const globalSkills = await DbService.getGlobalSkills();
-          const allEnabledSkills = globalSkills.filter((s: any) => enabledSkillIds.includes(s.id));
+          const allGlobalSkills = await DbService.getGlobalSkills();
+          const globalProjectSkills = allGlobalSkills.filter(s => enabledSkillIds.includes(s.id));
+          const projectPrivateSkills = targetProject?.projectSkills || [];
+          const allEnabledSkills = [...globalProjectSkills, ...projectPrivateSkills];
 
           // 构建消息历史（复用相同逻辑）
-          const systemMessage = buildSystemMessage(targetProject, allProjectAgents, allEnabledSkills);
-          const historyMessages = buildHistoryMessages(chat?.messages || [], []);
-          const finalMessages = [systemMessage, ...historyMessages];
+          const systemMessage = buildSystemMessage({
+            project: targetProject,
+            coordinatorAgent,
+            allProjectAgents,
+            allEnabledSkills,
+          });
+          let historyMessages = buildHistoryMessages(chat?.messages || []);
 
-          const tools = buildToolList(allProjectAgents, allEnabledSkills);
+          // 限制历史消息数量，避免影响模型工具调用能力
+          const maxHistoryMessages = 30;
+          if (historyMessages.length > maxHistoryMessages) {
+            historyMessages = historyMessages.slice(-maxHistoryMessages);
+            console.log(`[Context] Limited to ${historyMessages.length} recent messages`);
+          }
+
+          // 上下文管理
+          const prunedMessages = pruneContext(historyMessages as Message[], {
+            contextWindow: 128000,  // Gemini 3 Flash 支持 1M context，用大一些的窗口
+            keepLastAssistants: 3
+          });
+          const contextStats = getContextStats(prunedMessages as Message[]);
+          console.log(`[Context] History: ${historyMessages.length} msgs -> pruned: ${prunedMessages.length} msgs, ~${contextStats.estimatedTokens} tokens, usage=${contextStats.usagePercent}%`);
+
+          const finalMessages = [systemMessage, ...prunedMessages];
+
+          const tools = buildToolList(targetProject, allProjectAgents, coordinatorAgentId, allEnabledSkills);
 
           // 发送初始消息
           reply.raw.write(`data: ${JSON.stringify({ type: 'assistant', chunk: '' })}\n\n`);
@@ -953,13 +1023,26 @@ export async function ChatRoutes(fastify: FastifyInstance) {
             if (tools.length > 0) {
               reqBody.tools = tools;
               reqBody.tool_choice = 'auto';
+              console.log(`[Resend Request] tools count: ${tools.length}, names: ${tools.map((t: any) => t.function?.name).join(', ')}`);
+              console.log(`[Resend Request] tool_choice: auto, messages count: ${finalMessages.length}`);
+            } else {
+              console.log(`[Resend Request] ⚠️ NO TOOLS AVAILABLE! tools.length=0`);
             }
 
             // 🧹 清理所有消息中的损坏 JSON 内容
             const sanitizedMessages = sanitizeMessages(reqBody.messages);
             reqBody.messages = sanitizedMessages;
 
-            const res = await fetch(modelCfg.baseUrl, {
+            // 🔍 打印前3条消息的 role 和 content 类型（用于排查 tool result 格式）
+            for (let i = 0; i < Math.min(3, sanitizedMessages.length); i++) {
+              const m = sanitizedMessages[i];
+              const contentType = typeof m.content;
+              const tcPresent = m.tool_calls ? `, tc=${m.tool_calls.length}` : m.tool_call_id ? `, tcid=${m.tool_call_id}` : '';
+              console.log(`[Req Msg ${i}] role=${m.role}, contentType=${contentType}${tcPresent}, contentLen=${String(m.content||'').length}`);
+            }
+
+            const apiUrl = `${modelCfg.baseUrl.replace(/\/+$/, '')}/chat/completions`;
+            const res = await fetch(apiUrl, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -975,8 +1058,57 @@ export async function ChatRoutes(fastify: FastifyInstance) {
             }
 
             const data: any = await res.json();
-            const choice = data.choices?.[0];
-            const message = choice?.message || {};
+
+            // 🔍 详细日志：打印 API 原始响应的关键字段
+            const rawChoice = data.choices?.[0];
+            const rawMsg = rawChoice?.message || {};
+            const hasDirectToolCalls = Array.isArray(rawMsg.tool_calls);
+            const rawContent = (rawMsg.content || '').slice(0, 200);
+            console.log(`[Resend Raw] finish=${rawChoice?.finish_reason}, hasDirectTC=${hasDirectToolCalls}, tcCount=${rawMsg.tool_calls?.length || 0}, contentLen=${(rawMsg.content || '').length}, contentPreview=${rawContent}`);
+            // 打印 usage 信息
+            if (data.usage) {
+              console.log(`[Resend Raw] usage: prompt_tokens=${data.usage.prompt_tokens}, completion_tokens=${data.usage.completion_tokens}, total=${data.usage.total_tokens}`);
+            } else {
+              console.log(`[Resend Raw] usage: NOT PRESENT in response`);
+            }
+            if (data.model) {
+              console.log(`[Resend Raw] model=${data.model}`);
+            }
+            console.log(`[Resend Raw] keys=${Object.keys(data).join(',')}, choiceKeys=${rawChoice ? Object.keys(rawChoice).join(',') : 'none'}`);
+
+            // 打印实际发送的请求体摘要
+            const reqJson: any = JSON.parse(JSON.stringify(reqBody));
+            const sysLen = (reqJson.messages?.[0]?.content || '').length;
+            console.log(`[Resend ReqBody] systemPrompt=${sysLen}chars, totalMsgs=${reqJson.messages?.length}, tools=${reqJson.tools?.length}, model=${reqJson.model}, maxTokens=${reqJson.max_tokens}`);
+            // 打印最后3条消息（关注 tool result 的大小）
+            for (let i = Math.max(0, reqJson.messages.length - 3); i < reqJson.messages.length; i++) {
+              const m = reqJson.messages[i];
+              const contentStr = String(m.content || '');
+              console.log(`[Resend ReqBody] msg[${i}] role=${m.role}, hasTC=${!!m.tool_calls}, tcid=${m.tool_call_id || 'none'}, contentType=${typeof m.content}, contentLen=${contentStr.length}`);
+            }
+            // 打印 system prompt 末尾
+            const sysContent = reqJson.messages?.[0]?.content || '';
+            console.log(`[Resend ReqBody] systemPrompt tail: ...${sysContent.slice(-300)}`);
+            // 打印 tools 摘要
+            if (reqJson.tools && reqJson.tools.length > 0) {
+              console.log(`[Resend ReqBody] tool[0]: ${JSON.stringify(reqJson.tools[0]).slice(0, 300)}`);
+            }
+            // 打印 user message
+            const userMsg = reqJson.messages?.find((m: any) => m.role === 'user');
+            console.log(`[Resend ReqBody] userMsg content: ${userMsg?.content?.slice(0, 100)}`);
+            // CHECK: largest tool result (might be root cause of empty response)
+            const toolMsgs = reqJson.messages?.filter((m: any) => m.role === 'tool') || [];
+            if (toolMsgs.length > 0) {
+              const largest = toolMsgs.reduce((a: any, b: any) => (String(a.content||'').length > String(b.content||'').length ? a : b));
+              console.log(`[Resend ReqBody] Largest tool result: ${String(largest.content||'').length} chars, tcid=${largest.tool_call_id}`);
+            }
+            // CHECK: total estimated tokens
+            const totalChars = reqJson.messages?.reduce((s: number, m: any) => s + String(m.content||'').length, 0) || 0;
+            const estimatedTotalTokens = Math.round(totalChars / 4);
+            console.log(`[Resend ReqBody] Total chars: ${totalChars}, est tokens: ~${estimatedTotalTokens} (max ~1M)`);
+
+            const choice = rawChoice;
+            const message = rawMsg;
             const toolCalls = extractToolCalls(choice);
 
             // 发送助手消息到前端
@@ -996,6 +1128,13 @@ export async function ChatRoutes(fastify: FastifyInstance) {
               })}\n\n`);
 
               finalMessages.push({
+                role: 'assistant',
+                content: message.content || '',
+                tool_calls: toolCalls
+              });
+
+              // 保存 assistant 消息（带 tool_calls）到数据库，避免 tool result 成为孤儿
+              await ProjectChatService.addMessageToChat(workspacePath, chatId, {
                 role: 'assistant',
                 content: message.content || '',
                 tool_calls: toolCalls
@@ -1048,6 +1187,13 @@ export async function ChatRoutes(fastify: FastifyInstance) {
                   tool_call_id: toolCall.id,
                   content: safeToolContent(displayResult)
                 });
+
+                // 保存工具结果到数据库
+                await ProjectChatService.addMessageToChat(workspacePath, chatId, {
+                  role: 'tool',
+                  tool_call_id: toolCall.id,
+                  content: safeToolContent(displayResult)
+                });
               }
               continue;
             }
@@ -1055,18 +1201,21 @@ export async function ChatRoutes(fastify: FastifyInstance) {
             // 无工具调用，退出循环
             success = true;
             pickedModelCfg = modelCfg;
+            console.log(`[Resend] ✅ 模型 ${model.name} 成功`);
             break;
           }
 
           if (success) break;
         } catch (err: any) {
+          console.warn(`[Resend] ❌ 模型 ${model.name} 失败: ${err.message}`);
           lastError = err.message;
           if (err.name === 'AbortError') throw err;
         }
       }
 
       if (!success) {
-        throw new Error(`所有模型均不可用: ${lastError}`);
+        const triedModels = modelsToTry.map((m: any) => m.name).join(', ');
+        throw new Error(`所有模型均不可用 (已尝试: ${triedModels}): ${lastError}`);
       }
 
       // 发送完成
