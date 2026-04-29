@@ -2,7 +2,6 @@ import type { ReactNode } from 'react';
 import {
   Activity,
   Brain,
-  Cpu,
   FolderKanban,
   FolderOpen,
   MessageSquare,
@@ -30,7 +29,6 @@ const navItems: NavItem[] = [
   { key: 'files', label: '文件', icon: <FolderOpen className="h-5 w-5" />, gradient: 'from-amber-500 to-orange-500' },
   { key: 'memory', label: '记忆', icon: <Brain className="h-5 w-5" />, gradient: 'from-rose-500 to-pink-500' },
   { key: 'activity', label: '活动', icon: <Activity className="h-5 w-5" />, gradient: 'from-emerald-500 to-teal-500' },
-  { key: 'models', label: '模型', icon: <Cpu className="h-5 w-5" />, gradient: 'from-violet-500 to-fuchsia-500' },
   { key: 'settings', label: '设置', icon: <Settings className="h-5 w-5" />, gradient: 'from-slate-500 to-slate-600' },
 ];
 
