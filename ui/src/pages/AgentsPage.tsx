@@ -1,4 +1,4 @@
-import { Bot, Plus, Trash2, Edit3, Save, X, ShieldCheck, UserCheck, Lock, Unlock, Search, Globe, CheckCircle2, Sparkles, Users, Settings, ChevronRight } from 'lucide-react';
+import { Bot, Plus, Trash2, Edit3, Save, X, ShieldCheck, UserCheck, Lock, Unlock, Search, Globe, CheckCircle2, Sparkles, Users, Settings, ChevronRight, Star } from 'lucide-react';
 import { useState, useEffect, useMemo } from 'react';
 import { Card, Button, Badge } from '../components/ui';
 
@@ -15,6 +15,8 @@ export function AgentsPage({ projectId }: { projectId: string }) {
   const [savingPrivate, setSavingPrivate] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [updatingAgentModel, setUpdatingAgentModel] = useState<string | null>(null);
+  const [coordinatorAgentId, setCoordinatorAgentId] = useState<string | null>(null);
+  const [showCoordinatorModal, setShowCoordinatorModal] = useState(false);
 
   const fetchData = async () => {
     try {
@@ -24,11 +26,13 @@ export function AgentsPage({ projectId }: { projectId: string }) {
         fetch(`http://localhost:3001/api/v1/projects/${projectId}/agents/private`),
         fetch(`http://localhost:3001/api/v1/models`)
       ]);
+      const pData = await projectRes.json();
       setAllGlobalAgents(await globalRes.json());
-      setProjectData(await projectRes.json());
+      setProjectData(pData);
+      setCoordinatorAgentId(pData.coordinatorAgentId || null);
       setProjectPrivateAgents(await privateRes.json());
       setModels(await modelsRes.json());
-    } catch (err) { console.error(err); } 
+    } catch (err) { console.error(err); }
     finally { setLoading(false); }
   };
 
@@ -105,7 +109,6 @@ export function AgentsPage({ projectId }: { projectId: string }) {
     }
   };
 
-  // 更新 Agent 的默认模型
   const handleAgentModelChange = async (agentId: string, modelId: string) => {
     setUpdatingAgentModel(agentId);
     try {
@@ -127,6 +130,23 @@ export function AgentsPage({ projectId }: { projectId: string }) {
       console.error('更新模型失败:', err);
     }
     setUpdatingAgentModel(null);
+  };
+
+  // 设置主协调 Agent
+  const handleSetCoordinator = async (agentId: string | null) => {
+    try {
+      const res = await fetch(`http://localhost:3001/api/v1/projects/${projectId}/coordinator`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ coordinatorAgentId: agentId })
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setProjectData(updated);
+        setCoordinatorAgentId(updated.coordinatorAgentId || null);
+        setShowCoordinatorModal(false);
+      }
+    } catch (err) { console.error(err); }
   };
 
   if (loading) return (
@@ -229,7 +249,57 @@ export function AgentsPage({ projectId }: { projectId: string }) {
 
       {/* Main Content */}
       <div className="relative px-8 max-w-7xl mx-auto">
-        
+
+        {/* 主协调 Agent */}
+        <section className={`mb-8 transition-all duration-700 delay-100 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
+          <div className="flex items-center gap-3 mb-4">
+            <div className="p-2 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 shadow-lg shadow-violet-500/25">
+              <Sparkles className="w-4 h-4 text-white" />
+            </div>
+            <h2 className="text-lg font-bold text-slate-900 tracking-tight">主协调 Agent</h2>
+          </div>
+
+          {(() => {
+            const allAgents = [...allGlobalAgents, ...projectPrivateAgents];
+            const coordinatorAgent = allAgents.find(a => String(a.id) === String(coordinatorAgentId));
+            if (coordinatorAgent) {
+              return (
+                <div className="flex items-center justify-between p-6 bg-gradient-to-r from-violet-50 to-purple-50 rounded-2xl border border-violet-200">
+                  <div className="flex items-center gap-4">
+                    <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center text-white font-black text-xl shadow-lg shadow-violet-200">
+                      {coordinatorAgent.name.charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                      <p className="font-bold text-slate-900 text-lg">{coordinatorAgent.name}</p>
+                      <p className="text-sm text-slate-500">{coordinatorAgent.role || coordinatorAgent.description || '主协调者'}</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setShowCoordinatorModal(true)}
+                    className="px-4 py-2 rounded-xl border border-violet-300 text-violet-600 hover:bg-violet-600 hover:text-white text-sm font-bold transition-all"
+                  >
+                    更换
+                  </button>
+                </div>
+              );
+            }
+            return (
+              <div
+                className="flex items-center justify-center p-8 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200 cursor-pointer hover:border-violet-300 hover:bg-violet-50/50 transition-all"
+                onClick={() => setShowCoordinatorModal(true)}
+              >
+                <div className="text-center">
+                  <div className="w-12 h-12 mx-auto mb-3 rounded-xl bg-slate-200 flex items-center justify-center">
+                    <Star className="h-6 w-6 text-slate-400" />
+                  </div>
+                  <p className="font-medium text-slate-500">点击设置主协调 Agent</p>
+                  <p className="text-xs text-slate-400 mt-1">协调 Agent 负责接收用户请求并分配任务</p>
+                </div>
+              </div>
+            );
+          })()}
+        </section>
+
         {/* 已启用的 Agent */}
         {enabledAgents.length > 0 && (
           <section className={`mb-12 transition-all duration-700 delay-100 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
@@ -583,18 +653,65 @@ export function AgentsPage({ projectId }: { projectId: string }) {
         }
         
         @keyframes glow {
-          0%, 100% { opacity: 0.5; }
-          50% { opacity: 1; }
-        }
-        
-        .animate-float {
-          animation: float 6s ease-in-out infinite;
-        }
-        
         .animate-glow {
           animation: glow 2s ease-in-out infinite;
         }
       `}</style>
+
+      {/* 设置主协调 Agent 弹窗 */}
+      {showCoordinatorModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowCoordinatorModal(false)}>
+          <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full overflow-hidden animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+            <div className="bg-gradient-to-r from-violet-600 to-purple-600 px-8 py-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3 text-white">
+                  <Star className="h-5 w-5" />
+                  <h3 className="text-lg font-bold">设置主协调 Agent</h3>
+                </div>
+                <button className="p-2 hover:bg-white/20 rounded-xl transition-colors" onClick={() => setShowCoordinatorModal(false)}>
+                  <X className="h-5 w-5 text-white" />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-8 space-y-3">
+              <button
+                className={`w-full flex items-center gap-4 p-4 rounded-2xl border-2 transition-all ${
+                  !coordinatorAgentId ? 'border-violet-500 bg-violet-50' : 'border-slate-200 hover:border-slate-300'
+                }`}
+                onClick={() => handleSetCoordinator(null)}
+              >
+                <div className="w-12 h-12 bg-slate-200 rounded-xl flex items-center justify-center text-slate-500 font-black text-lg">?</div>
+                <div className="text-left">
+                  <p className="font-bold text-slate-900">不使用主协调</p>
+                  <p className="text-xs text-slate-500">使用默认 Agent</p>
+                </div>
+              </button>
+
+              {[...allGlobalAgents, ...projectPrivateAgents].map(agent => (
+                <button
+                  key={agent.id}
+                  className={`w-full flex items-center gap-4 p-4 rounded-2xl border-2 transition-all ${
+                    String(agent.id) === String(coordinatorAgentId) ? 'border-violet-500 bg-violet-50' : 'border-slate-200 hover:border-slate-300'
+                  }`}
+                  onClick={() => handleSetCoordinator(agent.id)}
+                >
+                  <div className="w-12 h-12 bg-gradient-to-br from-violet-500 to-purple-600 rounded-xl flex items-center justify-center text-white font-black text-lg shadow-lg">
+                    {agent.name.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="text-left flex-1">
+                    <p className="font-bold text-slate-900">{agent.name}</p>
+                    <p className="text-xs text-slate-500">{agent.role || agent.description || '团队成员'}</p>
+                  </div>
+                  {String(agent.id) === String(coordinatorAgentId) && (
+                    <span className="px-2 py-1 bg-violet-100 text-violet-700 text-[10px] font-bold rounded-lg">当前</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
