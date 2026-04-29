@@ -45,10 +45,10 @@
     {
       "id": "onewindow-dv",
       "name": "onewindow-dv",
-      "description": "对话生成图表",
+      "description": "对话生成图表\n根据用户聊天，识别用户意图；",
       "workspace": "d:\\workspace\\onewindow\\onewindow-dv",
       "defaultAgentId": "1",
-      "defaultModel": "mx27",
+      "defaultModel": "gpt-5.4-mini",
       "createdAt": "2026-03-23T10:35:11.409Z",
       "enabledAgentIds": [
         "1",
