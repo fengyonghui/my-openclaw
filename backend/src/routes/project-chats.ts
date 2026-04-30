@@ -5,6 +5,9 @@
 import { FastifyInstance } from 'fastify';
 import { ProjectDataService } from '../services/ProjectDataService.js';
 import { DbService } from '../services/DbService.js';
+import { ProjectChatService } from '../services/ProjectChatService.js';
+import { appendPointToProjectMemory, MemoryPoint } from '../services/MemoryAutoSaveService.js';
+import { getProjectWorkspacePath } from '../services/PathService.js';
 
 export async function ProjectChatRoutes(fastify: FastifyInstance) {
   
@@ -212,6 +215,116 @@ export async function ProjectChatRoutes(fastify: FastifyInstance) {
 
     return context;
   });
-}
 
+  // ============================================
+  // 会话记忆管理（方案 D: 会话层 + 项目层）
+  // ============================================
+
+  // GET /chats/:id/memory - 获取会话层记忆
+  fastify.get('/chats/:id/memory', async (request, reply) => {
+    const { id: chatId } = request.params as any;
+    const { projectId } = request.query as any;
+
+    if (!projectId) {
+      return reply.code(400).send({ error: '缺少 projectId 参数' });
+    }
+
+    try {
+      const projects = await DbService.getProjects();
+      const project = projects.find(p => p.id === projectId);
+      if (!project) {
+        return reply.code(404).send({ error: '项目不存在' });
+      }
+
+      const workspacePath = getProjectWorkspacePath(project.workspace);
+      const chat = await ProjectChatService.getChatFromProject(workspacePath, chatId);
+      if (!chat) {
+        return reply.code(404).send({ error: '会话不存在' });
+      }
+
+      return { sessionMemory: chat.sessionMemory || [], total: (chat.sessionMemory || []).length };
+    } catch (err: any) {
+      console.error(`[SessionMemory] GET failed: ${err.message}`);
+      return reply.code(500).send({ error: err.message });
+    }
+  });
+
+  // DELETE /chats/:id/memory/:memoryId - 删除单条会话记忆
+  fastify.delete('/chats/:id/memory/:memoryId', async (request, reply) => {
+    const { id: chatId, memoryId } = request.params as any;
+    const { projectId } = request.query as any;
+
+    if (!projectId) {
+      return reply.code(400).send({ error: '缺少 projectId 参数' });
+    }
+
+    try {
+      const projects = await DbService.getProjects();
+      const project = projects.find(p => p.id === projectId);
+      if (!project) {
+        return reply.code(404).send({ error: '项目不存在' });
+      }
+
+      const workspacePath = getProjectWorkspacePath(project.workspace);
+      const chat = await ProjectChatService.getChatFromProject(workspacePath, chatId);
+      if (!chat) {
+        return reply.code(404).send({ error: '会话不存在' });
+      }
+
+      const existing = chat.sessionMemory || [];
+      const filtered = existing.filter((p: MemoryPoint) => p.id !== memoryId);
+      chat.sessionMemory = filtered;
+      await ProjectChatService.saveChatToProject(workspacePath, chat);
+
+      console.log(`[SessionMemory] Deleted ${memoryId}, ${filtered.length} remain`);
+      return { success: true, total: filtered.length };
+    } catch (err: any) {
+      console.error(`[SessionMemory] DELETE failed: ${err.message}`);
+      return reply.code(500).send({ error: err.message });
+    }
+  });
+
+  // POST /chats/:id/memory/promote - 升级单条记忆到项目层
+  fastify.post('/chats/:id/memory/promote', async (request, reply) => {
+    const { id: chatId } = request.params as any;
+    const { projectId, memoryId } = request.body as any;
+
+    if (!projectId || !memoryId) {
+      return reply.code(400).send({ error: '缺少 projectId 或 memoryId' });
+    }
+
+    try {
+      const projects = await DbService.getProjects();
+      const project = projects.find(p => p.id === projectId);
+      if (!project) {
+        return reply.code(404).send({ error: '项目不存在' });
+      }
+
+      const workspacePath = getProjectWorkspacePath(project.workspace);
+      const chat = await ProjectChatService.getChatFromProject(workspacePath, chatId);
+      if (!chat) {
+        return reply.code(404).send({ error: '会话不存在' });
+      }
+
+      const existing = chat.sessionMemory || [];
+      const point = existing.find((p: MemoryPoint) => p.id === memoryId);
+      if (!point) {
+        return reply.code(404).send({ error: '记忆点不存在' });
+      }
+
+      // 追加到 MEMORY.md
+      appendPointToProjectMemory(workspacePath, point);
+
+      // 标记为已升级
+      point.promoted = true;
+      await ProjectChatService.saveChatToProject(workspacePath, chat);
+
+      console.log(`[SessionMemory] Promoted ${memoryId} to project level`);
+      return { success: true, promoted: point };
+    } catch (err: any) {
+      console.error(`[SessionMemory] Promote failed: ${err.message}`);
+      return reply.code(500).send({ error: err.message });
+    }
+  });
+}
 export default ProjectChatRoutes;

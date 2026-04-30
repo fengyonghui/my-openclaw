@@ -48,8 +48,8 @@
     "key": "memory_auto_save",
     "name": "自动记忆保存",
     "description": "自动将对话要点保存到 MEMORY.md",
-    "enabled": false,
-    "rollout": 0,
+    "enabled": true,
+    "rollout": 100,
     "createdAt": 1777369934857,
     "updatedAt": 1777369934857
   }

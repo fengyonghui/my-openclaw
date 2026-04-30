@@ -14,6 +14,7 @@ import { pruneContext, compactContext, getContextStats, Message } from '../servi
 import { buildToolList } from '../services/ToolDefinitions.js';
 import { parseApiError, setModelRateLimited, calculateBackoff } from '../services/RateLimitHandler.js';
 import { projectRuntimeManager } from '../services/ProjectRuntimeManager.js';
+import { autoSaveMemory } from '../services/MemoryAutoSaveService.js';
 
 /**
  * 安全地将工具结果序列化为 JSON 字符串。
@@ -205,20 +206,37 @@ export async function ChatRoutes(fastify: FastifyInstance) {
   // ============================================
   fastify.get('/:id', async (request) => {
     const { id } = request.params as { id: string };
-    const { projectId } = request.query as { projectId?: string };
-    
+    const { projectId, limit, offset } = request.query as { projectId?: string; limit?: string; offset?: string };
+
+    const limitNum = limit ? parseInt(limit, 10) : 0; // 0 = no pagination (full)
+    const offsetNum = offset ? parseInt(offset, 10) : 0;
+
+    const searchAndReturn = async (workspace: string) => {
+      const chat = await ProjectChatService.getChatFromProject(workspace, id);
+      if (!chat) return null;
+      if (!limitNum) return chat; // no pagination — return full
+
+      const allMsgs = chat.messages || [];
+      const total = allMsgs.length;
+      const sliced = allMsgs.slice(offsetNum, offsetNum + limitNum);
+      return {
+        ...chat,
+        messages: sliced,
+        totalMessages: total,
+        hasMore: offsetNum > 0,  // still have older messages before this page
+        returnedOffset: offsetNum,
+      };
+    };
+
     if (projectId) {
       const projects = await DbService.getProjects();
       const project = projects.find((p: any) => p.id === projectId);
-      if (project) {
-        return await ProjectChatService.getChatFromProject(getProjectWorkspacePath(project.workspace), id);
-      }
+      if (project) return await searchAndReturn(getProjectWorkspacePath(project.workspace));
     }
-    
-    // 搜索所有项目
+
     const projects = await DbService.getProjects();
     for (const project of projects) {
-      const chat = await ProjectChatService.getChatFromProject(getProjectWorkspacePath(project.workspace), id);
+      const chat = await searchAndReturn(getProjectWorkspacePath(project.workspace));
       if (chat) return chat;
     }
     return null;
@@ -243,6 +261,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
           if (updates.name !== undefined) chat.name = updates.name;
           if (updates.agentId !== undefined) chat.agentId = updates.agentId;
           if (updates.modelId !== undefined) chat.modelId = updates.modelId;
+          if (Array.isArray(updates.messages)) chat.messages = updates.messages;
           await ProjectChatService.saveChatToProject(getProjectWorkspacePath(project.workspace), chat);
           return chat;
         }
@@ -259,6 +278,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
         if (updates.name !== undefined) chat.name = updates.name;
         if (updates.agentId !== undefined) chat.agentId = updates.agentId;
         if (updates.modelId !== undefined) chat.modelId = updates.modelId;
+        if (Array.isArray(updates.messages)) chat.messages = updates.messages;
         await ProjectChatService.saveChatToProject(getProjectWorkspacePath(project.workspace), chat);
         return chat;
       }
@@ -822,6 +842,11 @@ export async function ChatRoutes(fastify: FastifyInstance) {
           role: 'assistant',
           content: finalContent
         });
+
+        // 自动记忆保存（后台，不阻塞响应）
+        const msgsAfterAdd = [...(chatWithHistory?.messages || []), { id: Date.now().toString(), role: 'assistant', content: finalContent }];
+        console.log(`[MemoryAutoSave] ⏩ Triggered for chat ${chatId}, ${msgsAfterAdd.length} messages, project=${targetProject.name}`);
+        autoSaveMemory(targetProject, chatId, msgsAfterAdd).catch((err: any) => console.warn('[MemoryAutoSave]', err.message));
       }
 
       reply.raw.write(`data: [DONE]\n\n`);
@@ -1230,6 +1255,11 @@ export async function ChatRoutes(fastify: FastifyInstance) {
           role: 'assistant',
           content: fullAssistantContent
         });
+
+        // 自动记忆保存（后台，不阻塞响应）
+        const msgsAfterAdd = [...(chat?.messages || []), { id: Date.now().toString(), role: 'assistant', content: fullAssistantContent }];
+        console.log(`[MemoryAutoSave] ⏩ Triggered (resend) for chat ${chatId}, ${msgsAfterAdd.length} messages, project=${targetProject.name}`);
+        autoSaveMemory(targetProject, chatId, msgsAfterAdd).catch((err: any) => console.warn('[MemoryAutoSave]', err.message));
       }
 
     } catch (err: any) {

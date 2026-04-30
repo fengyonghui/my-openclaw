@@ -163,18 +163,6 @@ export function ContextPanel({ projectId, refreshKey }: { projectId?: string, re
         </div>
       </div>
 
-      {/* Quick Actions */}
-      <div className="p-4 rounded-2xl bg-slate-50/50 border border-slate-100/50">
-        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3">快捷操作</p>
-        <div className="grid grid-cols-2 gap-2">
-          <button className="p-3 rounded-xl bg-white border border-slate-200/50 text-xs font-semibold text-slate-600 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-600 transition-all">
-            刷新上下文
-          </button>
-          <button className="p-3 rounded-xl bg-white border border-slate-200/50 text-xs font-semibold text-slate-600 hover:bg-violet-50 hover:border-violet-200 hover:text-violet-600 transition-all">
-            清空历史
-          </button>
-        </div>
-      </div>
     </div>
   );
 }

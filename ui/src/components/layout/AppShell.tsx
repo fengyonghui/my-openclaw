@@ -5,7 +5,6 @@ import {
   FolderKanban,
   FolderOpen,
   MessageSquare,
-  Search,
   Settings,
   Sparkles,
   ChevronLeft,
@@ -84,14 +83,6 @@ export function AppShell({
           <div className="hidden text-sm text-slate-400 lg:block font-medium">
             {currentProjectDescription || '项目工作区'}
           </div>
-        </div>
-
-        <div className="hidden flex-1 max-w-md mx-8 items-center gap-2 rounded-2xl border border-slate-200/50 bg-white/80 px-4 py-2.5 md:flex group focus-within:bg-white focus-within:border-indigo-200/50 focus-within:shadow-md transition-all">
-          <Search className="h-4 w-4 text-slate-400" />
-          <input
-            className="flex-1 bg-transparent text-sm outline-none placeholder:text-slate-400 font-medium"
-            placeholder="搜索 Chat、Agent、文件..."
-          />
         </div>
 
         <div className="flex items-center gap-4">

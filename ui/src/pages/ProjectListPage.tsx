@@ -221,6 +221,7 @@ export function ProjectListPage({ onSelectProject }: { onSelectProject: (id: str
               <div className="relative flex items-center bg-white/90 backdrop-blur-sm rounded-xl border border-slate-200/50 shadow-sm">
                 <Search className="w-4 h-4 text-slate-400 ml-4" />
                 <input
+                  id="project-search-input"
                   placeholder="搜索项目..."
                   className="flex-1 px-4 py-3 bg-transparent text-sm font-medium text-slate-700 outline-none placeholder:text-slate-400"
                   value={projectSearchQuery}

@@ -29,6 +29,7 @@ interface RuntimeStatus {
   lockedFiles: number;
   lockStats: number;
   recentEvents: Array<{
+    id?: string;
     type: string;
     timestamp: number;
     chatId?: string;
@@ -75,7 +76,7 @@ export function RuntimeStatusPanel({ projectId, projectName }: RuntimeStatusPane
   const [status, setStatus] = useState<RuntimeStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
 
   const fetchStatus = useCallback(async () => {

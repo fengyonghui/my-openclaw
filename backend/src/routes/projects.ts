@@ -232,6 +232,18 @@ export async function ProjectRoutes(fastify: FastifyInstance) {
     return await DbService.addProjectMemory(id, memory);
   });
 
+  // 获取项目 MEMORY.md 内容
+  fastify.get('/:id/memory-file', async (request) => {
+    const { id } = request.params as { id: string };
+    const projects = await DbService.getProjects();
+    const project = projects.find(p => p.id === id);
+    if (!project) return { error: '项目不存在' };
+    const workspacePath = getProjectWorkspacePath(project.workspace);
+    const dataService = new ProjectDataService(workspacePath);
+    const content = dataService.loadMemory();
+    return { content: content || '' };
+  });
+
   // 获取项目的已启用 Skill
   fastify.get('/:id/skills', async (request) => {
     const { id } = request.params as { id: string };
