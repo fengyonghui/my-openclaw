@@ -1,4 +1,4 @@
-import { Bot, FolderOpen, MessageSquare, Plus, Cpu, Sparkles, Search, Trash2, X, Calendar, Clock, ChevronRight, Zap, Users, Settings, Star, GitBranch, ArrowRight, Activity, Layers } from 'lucide-react';
+import { Bot, FolderOpen, MessageSquare, Plus, Cpu, Sparkles, Search, Trash2, X, Calendar, Clock, ChevronRight, Zap, Settings, Star, GitBranch, ArrowRight, Activity, Layers } from 'lucide-react';
 import { useState, useEffect, useMemo } from 'react';
 import { Card, Button } from '../components/ui';
 import { useProject } from '../contexts/ProjectContext';
@@ -146,18 +146,6 @@ export function ProjectDashboardPage({ projectId, onOpenChat, onProjectUpdated }
                   </p>
                 </div>
               </div>
-              
-              <button
-                onClick={handleCreateChat}
-                className="group relative inline-flex items-center gap-3 px-8 py-4 rounded-2xl bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 bg-[length:200%_100%] text-white font-bold text-sm shadow-xl shadow-indigo-500/30 hover:shadow-2xl hover:shadow-indigo-500/40 transition-all duration-500 hover:-translate-y-1 active:translate-y-0 animate-gradient"
-              >
-                <span className="absolute inset-0 rounded-2xl bg-gradient-to-r from-indigo-700 via-purple-700 to-indigo-700 opacity-0 group-hover:opacity-100 transition-opacity bg-[length:200%_100%]" />
-                <div className="relative flex items-center gap-3">
-                  <Plus className="w-5 h-5" />
-                  新建对话
-                  <ArrowRight className="w-4 h-4 opacity-0 -ml-2 group-hover:opacity-100 group-hover:ml-0 transition-all" />
-                </div>
-              </button>
             </div>
           </div>
 
@@ -241,13 +229,22 @@ export function ProjectDashboardPage({ projectId, onOpenChat, onProjectUpdated }
                     </p>
                   </div>
                 </div>
-                <button
-                  onClick={() => onOpenChat?.(recentChats[0]?.id)}
-                  className="px-6 py-3 rounded-xl bg-white/20 backdrop-blur-sm text-white font-bold text-sm hover:bg-white/30 transition-all flex items-center gap-2"
-                >
-                  继续对话
-                  <ArrowRight className="w-4 h-4" />
-                </button>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => onOpenChat?.(recentChats[0]?.id)}
+                    className="px-6 py-3 rounded-xl bg-white text-indigo-600 font-bold text-sm hover:bg-white/90 transition-all flex items-center gap-2 shadow-sm"
+                  >
+                    继续对话
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={handleCreateChat}
+                    className="px-6 py-3 rounded-xl bg-white/20 backdrop-blur-sm text-white font-bold text-sm hover:bg-white/30 transition-all flex items-center gap-2"
+                  >
+                    <Plus className="w-4 h-4" />
+                    新建对话
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -268,6 +265,7 @@ export function ProjectDashboardPage({ projectId, onOpenChat, onProjectUpdated }
           <div className="relative flex items-center bg-white/90 backdrop-blur-sm rounded-2xl border border-slate-200/50 shadow-lg">
             <Search className="w-5 h-5 text-slate-400 ml-5" />
             <input
+              id="chat-search-input"
               placeholder="搜索对话..."
               className="flex-1 px-5 py-4 bg-transparent text-base font-medium text-slate-700 outline-none placeholder:text-slate-400"
               value={chatSearchQuery}
@@ -373,61 +371,6 @@ export function ProjectDashboardPage({ projectId, onOpenChat, onProjectUpdated }
           </div>
         )}
 
-        {/* Agent Team Section */}
-        {projectAgents.length > 0 && (
-          <div className="mt-16">
-            <div className="flex items-center gap-3 mb-6">
-              <div className="p-2.5 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 shadow-lg shadow-emerald-500/25">
-                <Users className="w-5 h-5 text-white" />
-              </div>
-              <h2 className="text-xl font-bold text-slate-900 tracking-tight">团队成员</h2>
-              <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-700 text-sm font-bold">{projectAgents.length}</span>
-            </div>
-            
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {projectAgents.map((agent, idx) => {
-                const isCoordinator = String(agent.id) === String(project?.coordinatorAgentId);
-                const gradient = isCoordinator 
-                  ? 'from-violet-500 to-purple-600' 
-                  : idx % 3 === 0 
-                    ? 'from-cyan-500 to-blue-600'
-                    : idx % 3 === 1
-                      ? 'from-emerald-500 to-teal-600'
-                      : 'from-amber-500 to-orange-600';
-                
-                return (
-                  <div 
-                    key={agent.id}
-                    className="group relative"
-                    style={{ animationDelay: `${idx * 100}ms` }}
-                  >
-                    <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-indigo-500/5 to-purple-500/5 opacity-0 group-hover:opacity-100 transition-opacity blur-xl" />
-                    <div className={`relative p-6 rounded-3xl bg-white/80 backdrop-blur-sm border transition-all duration-300 hover:-translate-y-1 overflow-hidden ${
-                      isCoordinator ? 'border-violet-200/50 shadow-lg shadow-violet-500/10' : 'border-slate-200/50 shadow-sm'
-                    }`}>
-                      <div className="flex items-start justify-between mb-4">
-                        <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${gradient} flex items-center justify-center text-white font-black text-xl shadow-lg`}>
-                          {agent.name.charAt(0).toUpperCase()}
-                        </div>
-                        {isCoordinator && (
-                          <span className="px-3 py-1.5 rounded-full bg-gradient-to-r from-violet-100 to-purple-100 text-violet-700 text-xs font-bold flex items-center gap-1.5">
-                            <Star className="w-3.5 h-3.5" />
-                            主协调
-                          </span>
-                        )}
-                      </div>
-                      <h3 className="text-lg font-bold text-slate-900 mb-1">{agent.name}</h3>
-                      <p className="text-sm font-semibold text-slate-500 mb-3">{agent.role || '团队成员'}</p>
-                      <p className="text-sm text-slate-400 leading-relaxed line-clamp-2">
-                        {agent.description || '暂无描述'}
-                      </p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Global Styles */}

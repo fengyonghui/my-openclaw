@@ -200,6 +200,20 @@ export function ChatDetailPage({ projectId, chatId, onMinimize }: { projectId: s
     URL.revokeObjectURL(url);
   };
 
+  const handleClearHistory = async () => {
+    if (!window.confirm('确定要清空所有对话历史吗？此操作不可恢复。')) return;
+    setMessages([]);
+    try {
+      await fetch(`http://localhost:3001/api/v1/chats/${chatId}?projectId=${projectId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: [] }),
+      });
+    } catch (err) {
+      console.error('[ClearHistory] 失败', err);
+    }
+  };
+
   useEffect(() => {
     async function init() {
       try {
@@ -555,6 +569,14 @@ export function ChatDetailPage({ projectId, chatId, onMinimize }: { projectId: s
         <div className="flex items-center gap-2 px-4">
           <button onClick={downloadChat} className="p-2.5 rounded-xl hover:bg-slate-100 transition-colors" title="导出对话">
             <Download className="h-5 w-5 text-slate-400" />
+          </button>
+          <button
+            onClick={handleClearHistory}
+            disabled={isTyping}
+            className="p-2.5 rounded-xl hover:bg-red-50 transition-colors disabled:opacity-40"
+            title="清空历史"
+          >
+            <Trash2 className="h-5 w-5 text-slate-400 hover:text-red-500" />
           </button>
           <button onClick={() => onMinimize?.()} className="p-2.5 rounded-xl hover:bg-slate-100 transition-colors">
             <Minus className="h-5 w-5 text-slate-400" />

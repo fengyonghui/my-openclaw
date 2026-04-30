@@ -63,7 +63,7 @@ export class ProjectChatService {
 
     chat.messages.push({
       ...message,
-      id: Date.now().toString(),
+      id: message.id || Date.now().toString(),  // prefer frontend-provided id
       timestamp: new Date().toISOString()
     });
     
