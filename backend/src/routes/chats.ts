@@ -508,21 +508,30 @@ export async function ChatRoutes(fastify: FastifyInstance) {
       // 获取聊天历史
       const chatWithHistory = await ProjectChatService.getChatFromProject(workspacePath, chatId);
       const historyMessages = chatWithHistory?.messages || [];
-      let apiMessages = buildHistoryMessages(historyMessages, 20, 2);
-  
-  // 限制历史消息数量，避免影响模型工具调用能力
-  const maxHistoryMessages = 30;
-  if (apiMessages.length > maxHistoryMessages) {
-    apiMessages = apiMessages.slice(-maxHistoryMessages);
-    console.log(`[Context] Limited to ${apiMessages.length} recent messages`);
-  }
+      // 构建历史消息（token 感知滑动窗口，preserveHeadCount=0 与 /resend 保持一致）
+      // ⚠️ maxTokens=60000：必须足够大，否则滑动窗口返回消息太少，tool call 链被切断
+      let apiMessages = buildHistoryMessages(historyMessages, 60_000, 0);
 
       // 上下文管理 - 统一使用 128K context window
-      // Gemini 3 Flash 支持 1M context，统一和 /resend 保持一致
       const prunedMessages = pruneContext(apiMessages as Message[], {
-        contextWindow: 128000,
+        contextWindow: 128_000,
         keepLastAssistants: 5
       });
+
+      // ⚠️ 防止滑动窗口切断 tool call 链：确保第一条 history 消息不是「没有前序 tool result 的 assistant(tool_calls)」
+      const prunedMessagesFixed = [...prunedMessages];
+      if (prunedMessagesFixed.length > 0 && prunedMessagesFixed[0]?.role === 'assistant' && prunedMessagesFixed[0]?.tool_calls?.length > 0) {
+        const lastUserIdx = prunedMessagesFixed.findIndex(m => m.role === 'user');
+        if (lastUserIdx > 0) {
+          prunedMessagesFixed.splice(0, lastUserIdx);
+          console.log(`[Context] ⚠️ Sliding window cut through tool_call chain — truncated ${lastUserIdx} orphaned messages, keeping ${prunedMessagesFixed.length}`);
+        } else {
+          prunedMessagesFixed.shift();
+          console.log(`[Context] ⚠️ Dropped leading orphan assistant(tool_calls), keeping ${prunedMessagesFixed.length}`);
+        }
+      }
+
+      const finalMessages = [systemMessage, ...prunedMessagesFixed];
 
       const contextStats = getContextStats(prunedMessages as Message[]);
       console.log(`[Context] Before prune: ${apiMessages.length} msgs, ~${Math.round((apiMessages.reduce((s: number, m: any) => s + (m.content?.length || 0), 0)) / 4)} tokens`);
@@ -546,8 +555,6 @@ export async function ChatRoutes(fastify: FastifyInstance) {
       const primaryModel = allModels.find(m => m.id === activeModelId) || allModels[0];
       const fallbackModels = allModels.filter(m => m.id !== primaryModel.id).slice(0, 2);
       const modelsToTry = [primaryModel, ...fallbackModels];
-
-      const finalMessages = [systemMessage, ...apiMessages];
 
       let success = false;
       let lastError = '';
