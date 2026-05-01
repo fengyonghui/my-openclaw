@@ -14,6 +14,7 @@ import { ProjectChatService } from './ProjectChatService.js';
 import { getProjectWorkspacePath } from './PathService.js';
 import * as fs from 'fs';
 import * as os from 'os';
+import * as path from 'path';
 
 export interface MemoryPoint {
   id: string;
@@ -198,13 +199,20 @@ function saveProjectMemory(
       }
     } else {
       if (/^[A-Z]:/i.test(memoryPath)) {
-        const match = memoryPath.match(/^([A-Z]):[/\\](.+)$/i);
+        const match = memoryPath.match(/^([A-Z]):[\\\/](.+)$/i);
         if (match) memoryPath = `/mnt/${match[1].toLowerCase()}/${match[2].replace(/\\/g, '/')}`;
       }
     }
 
+    // ⚠️ 必须指向文件而非目录
+    memoryPath = path.join(memoryPath, 'MEMORY.md');
+
     let existing = '';
     if (fs.existsSync(memoryPath)) {
+      if (fs.statSync(memoryPath).isDirectory()) {
+        console.warn(`[MemoryAutoSave] MEMORY.md is a directory, skipping: ${memoryPath}`);
+        return;
+      }
       existing = fs.readFileSync(memoryPath, 'utf-8');
     }
 
@@ -252,8 +260,15 @@ export function appendPointToProjectMemory(
       }
     }
 
+    // ⚠️ 必须指向文件而非目录
+    memoryPath = path.join(memoryPath, 'MEMORY.md');
+
     let existing = '';
     if (fs.existsSync(memoryPath)) {
+      if (fs.statSync(memoryPath).isDirectory()) {
+        console.warn(`[MemoryAutoSave] MEMORY.md is a directory, skipping: ${memoryPath}`);
+        return;
+      }
       existing = fs.readFileSync(memoryPath, 'utf-8');
     }
 
