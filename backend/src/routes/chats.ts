@@ -139,15 +139,24 @@ function sanitizeMessages(messages: any[]): any[] {
   return messages.map(msg => {
     const sanitized = { ...msg };
 
-    // 清理 content 字段
-    if ('content' in sanitized) {
-      sanitized.content = sanitizeMessageContent(sanitized.content);
+    // ⚠️ tool result 的 content 不走 sanitizeMessageContent：
+    // transformMessage 已将 JSON 字符串 parse 成 object；sanitizeMessageContent 会误判为"损坏"
+    if (sanitized.role === 'tool') {
+      if (typeof sanitized.content === 'string') {
+        // 已是字符串 → 验证是合法 JSON
+        try { JSON.parse(sanitized.content); } catch {
+          sanitized.content = '[工具结果格式错误]';
+        }
+      } else {
+        // object → 序列化回字符串（API 要求 content 必须是字符串）
+        sanitized.content = JSON.stringify(sanitized.content);
+      }
+      return sanitized;
     }
 
-    // ⚠️ 强制确保 tool result 的 content 是字符串（API 规范要求）
-    // transformMessage 可能会把 JSON 字符串 parse 成 object，这里纠正回来
-    if (sanitized.role === 'tool' && sanitized.content !== null && typeof sanitized.content !== 'string') {
-      sanitized.content = JSON.stringify(sanitized.content);
+    // 非 tool 消息：正常清理损坏的 content
+    if ('content' in sanitized) {
+      sanitized.content = sanitizeMessageContent(sanitized.content);
     }
 
     return sanitized;
@@ -1009,24 +1018,35 @@ export async function ChatRoutes(fastify: FastifyInstance) {
             allProjectAgents,
             allEnabledSkills,
           });
-          let historyMessages = buildHistoryMessages(chat?.messages || []);
+          // buildHistoryMessages 已做 token 感知滑动窗口，返回的消息保持完整 tool call 序列
+          // preserveHeadCount=0：不过早保留旧消息，让滑动窗口优先保留最近的工具调用链
+          // maxTokens=60000：与 /send 保持一致
+          let historyMessages = buildHistoryMessages(chat?.messages || [], 60_000, 0);
 
-          // 限制历史消息数量，避免影响模型工具调用能力
-          const maxHistoryMessages = 30;
-          if (historyMessages.length > maxHistoryMessages) {
-            historyMessages = historyMessages.slice(-maxHistoryMessages);
-            console.log(`[Context] Limited to ${historyMessages.length} recent messages`);
-          }
-
-          // 上下文管理
+          // 上下文管理（pruneContext 作为第二层保护）
           const prunedMessages = pruneContext(historyMessages as Message[], {
-            contextWindow: 128000,  // Gemini 3 Flash 支持 1M context，用大一些的窗口
+            contextWindow: 128_000,
             keepLastAssistants: 3
           });
           const contextStats = getContextStats(prunedMessages as Message[]);
-          console.log(`[Context] History: ${historyMessages.length} msgs -> pruned: ${prunedMessages.length} msgs, ~${contextStats.estimatedTokens} tokens, usage=${contextStats.usagePercent}%`);
+          console.log(`[Context] buildHistoryMessages: ${(chat?.messages || []).length} msgs → ${historyMessages.length} msgs (${contextStats.usagePercent}% tokens), pruned: ${prunedMessages.length} msgs`);
 
-          const finalMessages = [systemMessage, ...prunedMessages];
+          // ⚠️ 防止滑动窗口切断 tool call 链：确保第一条 history 消息不是「没有前序 tool result 的 assistant(tool_calls)」
+          // 如果被切断：从最后一条 user 消息处截断，放弃被孤立的 tool call
+          const prunedMessagesFixed = [...prunedMessages];
+          if (prunedMessagesFixed.length > 0 && prunedMessagesFixed[0]?.role === 'assistant' && prunedMessagesFixed[0]?.tool_calls?.length > 0) {
+            const lastUserIdx = prunedMessagesFixed.findIndex(m => m.role === 'user');
+            if (lastUserIdx > 0) {
+              prunedMessagesFixed.splice(0, lastUserIdx);
+              console.log(`[Context] ⚠️ Sliding window cut through tool_call chain — truncated ${lastUserIdx} orphaned messages, keeping ${prunedMessagesFixed.length}`);
+            } else {
+              // 没有 user 消息可追溯，直接丢弃第一个 tool_call assistant
+              prunedMessagesFixed.shift();
+              console.log(`[Context] ⚠️ Dropped leading orphan assistant(tool_calls), keeping ${prunedMessagesFixed.length}`);
+            }
+          }
+
+          const finalMessages = [systemMessage, ...prunedMessagesFixed];
 
           const tools = buildToolList(targetProject, allProjectAgents, coordinatorAgentId, allEnabledSkills);
 
