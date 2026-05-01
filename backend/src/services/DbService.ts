@@ -334,18 +334,35 @@ export class DbService {
     return project.enabledAgentIds;
   }
 
-  // 获取项目可用的所有 Agent（全局启用 + 私有）
+  // 获取项目可用的所有 Agent（全局启用 + 私有 + Coordinator 默认）
   static async getProjectAgents(projectId: string) {
     const project = await this.getProject(projectId);
     if (!project) return [];
-    
+
     const allGlobalAgents = await this.getAgents();
     const enabledAgentIds = project?.enabledAgentIds || [];
+
+    // 全局启用的 Agent
     const enabledGlobalAgents = allGlobalAgents.filter((a: any) => enabledAgentIds.includes(a.id));
-    
+
+    // 私有 Agent
     const privateAgents = project?.projectAgents || [];
-    
-    return [...enabledGlobalAgents, ...privateAgents];
+
+    // Coordinator / Default Agent（即使不在 enabledAgentIds 中也纳入，确保至少有一个可用）
+    const coordinatorOrDefaultIds = [
+      project.coordinatorAgentId,
+      project.defaultAgentId,
+    ].filter(Boolean);
+
+    const fallbackAgents = allGlobalAgents.filter(
+      (a: any) => coordinatorOrDefaultIds.includes(a.id)
+    );
+
+    // 合并去重（避免与 enabledGlobalAgents 重复）
+    const seen = new Set(enabledGlobalAgents.map((a: any) => a.id));
+    const uniqueFallback = fallbackAgents.filter((a: any) => !seen.has(a.id));
+
+    return [...enabledGlobalAgents, ...uniqueFallback, ...privateAgents];
   }
 
   // --- Skill 管理 ---

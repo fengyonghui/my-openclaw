@@ -173,8 +173,39 @@ export async function executeShellCommand(project: any, args: any): Promise<Tool
   console.log(`[Shell] Detected: platform=${sys.platform}, isWSL=${sys.isWSL}, isWindows=${sys.isWindows}, isLinux=${sys.isLinux}, wslDistro=${sys.wslDistro}`);
   console.log(`[Shell] Workspace (raw): ${project.workspace}`);
 
+  // ── 预处理：剥离命令开头的 cd xxx && ──────────────────────
+  // 后端已通过 cwd 参数设置了正确的工作目录，模型生成的 cd 是多余的。
+  // 如果 cd 指向的目录不存在会导致整个命令失败。剥离它让核心命令正常执行。
+  let effectiveCommand = command.trim();
+  console.log(`[Shell] effectiveCommand: "${effectiveCommand.slice(0, 200)}"`);
+  console.log(`[Shell] effectiveCommand bytes: ${JSON.stringify(effectiveCommand).slice(0, 200)}`);
+  // 匹配: cd [drive:]\\path [&& 后面的内容]
+  // Windows: cd D:\\xxx && ..., cd "D:\\xxx" && ..., cd /d D:\\xxx && ...
+  // Linux/WSL: cd /path && ...
+  // 使用 [^] 替代 . 来匹配任意字符（含换行），避免需要 es2018 的 s 标志
+  const cdAndPattern = /^cd\s+(['"]?)([^'"\n]+)\1\s*&&?\s*([\s\S]*)$/;
+  const cdMatch = effectiveCommand.match(cdAndPattern);
+  console.log(`[Shell] cdMatch: ${cdMatch ? 'MATCHED' : 'NO MATCH'}`);
+  if (cdMatch) {
+    console.log(`[Shell] cdMatch[0]: "${cdMatch[0].slice(0, 100)}"`);
+    console.log(`[Shell] cdMatch[1]: "${cdMatch[1]}"`);
+    console.log(`[Shell] cdMatch[2]: "${cdMatch[2]}"`);
+    console.log(`[Shell] cdMatch[3]: "${cdMatch[3]?.slice(0, 100)}"`);
+    console.log(`[Shell] cdMatch[3] trimmed: "${cdMatch[3]?.trim().slice(0, 100)}"`);
+  }
+  if (cdMatch && cdMatch[3].trim()) {
+    const stripped = cdMatch[3].trim();
+    console.log(`[Shell] Stripped redundant cd prefix: "${cdMatch[0].slice(0, 80)}${cdMatch[0].length > 80 ? '...' : ''}"`);
+    console.log(`[Shell] Effective command: "${stripped.slice(0, 80)}${stripped.length > 80 ? '...' : ''}"`);
+    effectiveCommand = stripped;
+  } else if (cdMatch && !cdMatch[3].trim()) {
+    // cd xxx 是唯一命令（没有后续内容），直接返回成功（cwd 已经设置）
+    console.log(`[Shell] Command is only "cd ..." — skipping (cwd already set to "${project.workspace}")`);
+    return { success: true, stdout: '', stderr: '', _note: 'cd skipped: cwd already set to ' + project.workspace };
+  }
+
   // 安全检查：禁止不带路径的目录操作命令
-  const trimmedCmd = command.trim();
+  const trimmedCmd = effectiveCommand.trim();
   const dangerousCmds = ['mkdir', 'md', 'rmdir', 'rm', 'del', 'rm -rf', 'del /f /s /q'];
   for (const dangerous of dangerousCmds) {
     if (trimmedCmd === dangerous || trimmedCmd.startsWith(dangerous + ' ')) {
@@ -199,21 +230,21 @@ export async function executeShellCommand(project: any, args: any): Promise<Tool
     const isPowerShellCmd = /^(Test-|Remove-|Write-|Get-|New-|Set-)/i.test(trimmedCmd) ||
                              trimmedCmd.startsWith('if ');
     if (isPowerShellCmd) {
-      return executePowerShellCommand(command, cwd);
+      return executePowerShellCommand(effectiveCommand, cwd);
     }
-    return executeWindowsCommand(command, cwd);
+    return executeWindowsCommand(effectiveCommand, cwd);
   }
 
   if (sys.isWSL) {
     // ── WSL 环境执行 ──
     // 所有路径统一转为 /mnt/d/... 格式，通过 wsl.exe 执行
     const wslWorkspace = toWSLPath(project.workspace);
-    return executeLinuxCommand(`wsl.exe ${command}`, wslWorkspace);
+    return executeLinuxCommand(`wsl.exe ${effectiveCommand}`, wslWorkspace);
   }
 
   // ── 原生 Linux/macOS 执行 ──
   const localWorkspace = getProjectWorkspacePath(project.workspace);
-  return executeLinuxCommand(command, localWorkspace);
+  return executeLinuxCommand(effectiveCommand, localWorkspace);
 }
 
 /**

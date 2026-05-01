@@ -34,6 +34,7 @@ export {
   buildSystemMessage,
   transformMessage,
   buildHistoryMessages,
+  normalizeToolCallId,
   cleanMentions,
   type Message,
   type ChatContext

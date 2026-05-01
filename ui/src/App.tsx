@@ -8,6 +8,7 @@ import { ActivityPage } from './pages/ActivityPage';
 import { MemoryPage } from './pages/MemoryPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { ContextPanel } from './components/layout/ContextPanel';
+import { ProjectProvider } from './contexts/ProjectContext';
 
 export type AppView = 'dashboard' | 'chat' | 'files' | 'memory' | 'activity' | 'settings';
 
@@ -72,17 +73,19 @@ export default function App() {
   if (!projectId) return <div className="min-h-screen bg-slate-50 overflow-hidden">{pageContent}</div>;
 
   return (
-    <>
-      {/* Chat overlay: rendered inside React tree */}
-      {view === 'chat' && activeChatId && (
-        <ChatDetailPage
-          chatId={activeChatId}
-          projectId={projectId}
-          onMinimize={() => setView('dashboard')}
-        />
-      )}
-      {/* Dashboard / page content */}
-      {pageContent}
-    </>
+    <ProjectProvider projectId={projectId}>
+      <>
+        {/* Chat overlay: rendered inside React tree */}
+        {view === 'chat' && activeChatId && (
+          <ChatDetailPage
+            chatId={activeChatId}
+            projectId={projectId}
+            onMinimize={() => setView('dashboard')}
+          />
+        )}
+        {/* Dashboard / page content */}
+        {pageContent}
+      </>
+    </ProjectProvider>
   );
 }
