@@ -508,17 +508,28 @@ export async function ChatRoutes(fastify: FastifyInstance) {
       // 获取聊天历史
       const chatWithHistory = await ProjectChatService.getChatFromProject(workspacePath, chatId);
       const historyMessages = chatWithHistory?.messages || [];
-      // 构建历史消息（token 感知滑动窗口，preserveHeadCount=0 与 /resend 保持一致）
-      // ⚠️ maxTokens=60000：必须足够大，否则滑动窗口返回消息太少，tool call 链被切断
-      let apiMessages = buildHistoryMessages(historyMessages, 60_000, 0);
+      // ═══════════════════════════════════════════════════════════════════════
+      // 上下文管理：动态预算 + 两层保护
+      // 原则：system prompt 优先，历史消息次之；总 token 不能超过 contextWindow
+      // ═══════════════════════════════════════════════════════════════════════
 
-      // 上下文管理 - 统一使用 128K context window
-      const prunedMessages = pruneContext(apiMessages as Message[], {
-        contextWindow: 128_000,
+      // Step 1: 估算 system prompt token 大小（chars / 4 是粗略估计）
+      const sysMsgLen = (systemMessage?.content?.length || 0);
+      const sysPromptTokens = Math.round(sysMsgLen / 4);
+      const CONTEXT_WINDOW = 128_000;
+      // 保留 4K buffer 给 max_tokens 和其他开销
+      const historyBudget = Math.max(CONTEXT_WINDOW - sysPromptTokens - 4_000, 8_000);
+
+      // Step 2: 滑动窗口 — 动态 budget，保留前 2 条消息（意图锚点）
+      let apiMessages = buildHistoryMessages(historyMessages, historyBudget, 2);
+
+      // Step 3: 初步工具结果修剪（软裁剪，不丢消息）
+      let prunedMessages = pruneContext(apiMessages as Message[], {
+        contextWindow: historyBudget, // 相对于 history 的预算
         keepLastAssistants: 5
       });
 
-      // ⚠️ 防止滑动窗口切断 tool call 链：确保第一条 history 消息不是「没有前序 tool result 的 assistant(tool_calls)」
+      // Step 4: 防止滑动窗口切断 tool_call 链
       const prunedMessagesFixed = [...prunedMessages];
       if (prunedMessagesFixed.length > 0 && prunedMessagesFixed[0]?.role === 'assistant' && prunedMessagesFixed[0]?.tool_calls?.length > 0) {
         const lastUserIdx = prunedMessagesFixed.findIndex(m => m.role === 'user');
@@ -531,23 +542,27 @@ export async function ChatRoutes(fastify: FastifyInstance) {
         }
       }
 
-      const finalMessages = [systemMessage, ...prunedMessagesFixed];
+      let finalMessages = [systemMessage, ...prunedMessagesFixed];
 
-      const contextStats = getContextStats(prunedMessages as Message[]);
-      console.log(`[Context] Before prune: ${apiMessages.length} msgs, ~${Math.round((apiMessages.reduce((s: number, m: any) => s + (m.content?.length || 0), 0)) / 4)} tokens`);
-      console.log(`[Context] After prune: ${contextStats.messageCount} msgs, ~${contextStats.estimatedTokens} tokens, usage=${contextStats.usagePercent}%`);
-      // 计算系统消息大小
-      const sysMsgLen = (systemMessage?.content?.length || 0);
-      console.log(`[Context] System message size: ~${Math.round(sysMsgLen/4)} tokens, messages: ${sysMsgLen} chars`);
-      const remaining = 128000 - Math.round(sysMsgLen/4) - contextStats.estimatedTokens;
-      console.log(`[Context] Remaining context: ~${remaining} tokens (128K - system ~${Math.round(sysMsgLen/4)} - history ~${contextStats.estimatedTokens})`);
+      // Step 5: 两层验证 — 对 [system + history] 做总 token 统计
+      const combinedTokens = sysPromptTokens + Math.round((prunedMessagesFixed.reduce((s: number, m: any) => s + (m.content?.length || 0), 0)) / 4);
+      const contextStats = getContextStats(prunedMessagesFixed as Message[]);
 
-      if (contextStats.needsCompaction) {
-        console.log(`[Context] Starting compaction (${contextStats.estimatedTokens} tokens -> target ${4000})...`);
-        const { compacted, summary } = await compactContext(prunedMessages as Message[]);
+      console.log(`[Context] System prompt: ${sysMsgLen} chars (~${sysPromptTokens} tokens)`);
+      console.log(`[Context] History budget: ${historyBudget} tokens (dynamic, based on system size)`);
+      console.log(`[Context] History: ${prunedMessagesFixed.length} msgs (~${contextStats.estimatedTokens} tokens, ${contextStats.usagePercent}% of history budget)`);
+      console.log(`[Context] Combined total: ~${combinedTokens} tokens (~${Math.round((combinedTokens / CONTEXT_WINDOW) * 100)}% of ${CONTEXT_WINDOW} context window)`);
+
+      // Step 6: 如果 [system + history] 超过 80% context window，触发 compaction
+      const combinedUsagePercent = Math.round((combinedTokens / CONTEXT_WINDOW) * 100);
+      if (combinedUsagePercent > 80) {
+        console.log(`[Context] ⚠️ Combined context exceeds 80% of ${CONTEXT_WINDOW} — triggering compaction...`);
+        const { compacted, summary } = await compactContext(prunedMessagesFixed as Message[]);
         const compactStats = getContextStats(compacted as Message[]);
-        console.log(`[Context] Compaction done: ${compactStats.messageCount} messages, ~${compactStats.estimatedTokens} tokens`);
-        apiMessages = compacted as any[];
+        const finalCombined = [systemMessage, ...compacted];
+        const finalTokens = sysPromptTokens + compactStats.estimatedTokens;
+        console.log(`[Context] Compaction done: ${compactStats.messageCount} msgs (~${compactStats.estimatedTokens} tokens). Final combined: ~${finalTokens} tokens (~${Math.round((finalTokens / CONTEXT_WINDOW) * 100)}%)`);
+        finalMessages = finalCombined;
       }
 
       // 构建模型队列
@@ -1025,21 +1040,28 @@ export async function ChatRoutes(fastify: FastifyInstance) {
             allProjectAgents,
             allEnabledSkills,
           });
-          // buildHistoryMessages 已做 token 感知滑动窗口，返回的消息保持完整 tool call 序列
-          // preserveHeadCount=0：不过早保留旧消息，让滑动窗口优先保留最近的工具调用链
-          // maxTokens=60000：与 /send 保持一致
-          let historyMessages = buildHistoryMessages(chat?.messages || [], 60_000, 0);
+          // ═══════════════════════════════════════════════════════════════════════
+          // 上下文管理：动态预算 + 两层保护（与 /send 保持一致）
+          // 原则：system prompt 优先，历史消息次之；总 token 不能超过 contextWindow
+          // ═══════════════════════════════════════════════════════════════════════
 
-          // 上下文管理（pruneContext 作为第二层保护）
+          // Step 1: 估算 system prompt token 大小
+          const sysMsgLen = (systemMessage?.content?.length || 0);
+          const sysPromptTokens = Math.round(sysMsgLen / 4);
+          const CONTEXT_WINDOW = 128_000;
+          const historyBudget = Math.max(CONTEXT_WINDOW - sysPromptTokens - 4_000, 8_000);
+
+          // Step 2: 滑动窗口 — 动态 budget，保留前 2 条意图锚点
+          let historyMessages = buildHistoryMessages(chat?.messages || [], historyBudget, 2);
+
+          // Step 3: 初步工具结果修剪
           const prunedMessages = pruneContext(historyMessages as Message[], {
-            contextWindow: 128_000,
+            contextWindow: historyBudget,
             keepLastAssistants: 3
           });
           const contextStats = getContextStats(prunedMessages as Message[]);
-          console.log(`[Context] buildHistoryMessages: ${(chat?.messages || []).length} msgs → ${historyMessages.length} msgs (${contextStats.usagePercent}% tokens), pruned: ${prunedMessages.length} msgs`);
 
-          // ⚠️ 防止滑动窗口切断 tool call 链：确保第一条 history 消息不是「没有前序 tool result 的 assistant(tool_calls)」
-          // 如果被切断：从最后一条 user 消息处截断，放弃被孤立的 tool call
+          // Step 4: 防止滑动窗口切断 tool_call 链
           const prunedMessagesFixed = [...prunedMessages];
           if (prunedMessagesFixed.length > 0 && prunedMessagesFixed[0]?.role === 'assistant' && prunedMessagesFixed[0]?.tool_calls?.length > 0) {
             const lastUserIdx = prunedMessagesFixed.findIndex(m => m.role === 'user');
@@ -1047,13 +1069,31 @@ export async function ChatRoutes(fastify: FastifyInstance) {
               prunedMessagesFixed.splice(0, lastUserIdx);
               console.log(`[Context] ⚠️ Sliding window cut through tool_call chain — truncated ${lastUserIdx} orphaned messages, keeping ${prunedMessagesFixed.length}`);
             } else {
-              // 没有 user 消息可追溯，直接丢弃第一个 tool_call assistant
               prunedMessagesFixed.shift();
               console.log(`[Context] ⚠️ Dropped leading orphan assistant(tool_calls), keeping ${prunedMessagesFixed.length}`);
             }
           }
 
-          const finalMessages = [systemMessage, ...prunedMessagesFixed];
+          let finalMessages = [systemMessage, ...prunedMessagesFixed];
+
+          // Step 5: 两层验证
+          const combinedTokens = sysPromptTokens + Math.round((prunedMessagesFixed.reduce((s: number, m: any) => s + (m.content?.length || 0), 0)) / 4);
+          console.log(`[Context] System prompt: ${sysMsgLen} chars (~${sysPromptTokens} tokens)`);
+          console.log(`[Context] History budget: ${historyBudget} tokens (dynamic)`);
+          console.log(`[Context] History: ${prunedMessagesFixed.length} msgs (~${contextStats.estimatedTokens} tokens, ${contextStats.usagePercent}% of history budget)`);
+          console.log(`[Context] Combined total: ~${combinedTokens} tokens (~${Math.round((combinedTokens / CONTEXT_WINDOW) * 100)}% of ${CONTEXT_WINDOW} context window)`);
+
+          // Step 6: 超过 80% 则 compaction
+          const combinedUsagePercent = Math.round((combinedTokens / CONTEXT_WINDOW) * 100);
+          if (combinedUsagePercent > 80) {
+            console.log(`[Context] ⚠️ Combined context exceeds 80% of ${CONTEXT_WINDOW} — triggering compaction...`);
+            const { compacted } = await compactContext(prunedMessagesFixed as Message[]);
+            const compactStats = getContextStats(compacted as Message[]);
+            const finalCombined = [systemMessage, ...compacted];
+            const finalTokens = sysPromptTokens + compactStats.estimatedTokens;
+            console.log(`[Context] Compaction done: ${compactStats.messageCount} msgs (~${compactStats.estimatedTokens} tokens). Final combined: ~${finalTokens} tokens (~${Math.round((finalTokens / CONTEXT_WINDOW) * 100)}%)`);
+            finalMessages = finalCombined;
+          }
 
           const tools = buildToolList(targetProject, allProjectAgents, coordinatorAgentId, allEnabledSkills);
 
