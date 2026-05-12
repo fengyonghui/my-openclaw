@@ -2,7 +2,7 @@ import { Zap, Puzzle, Download, Trash2, CheckCircle2, Search, Info, ExternalLink
 import { useState, useEffect, useMemo } from 'react';
 import { Card, Button, Badge } from '../components/ui';
 
-export function SkillsPage({ projectId }: { projectId: string }) {
+export function SkillsPage({ projectId, onSaved }: { projectId: string; onSaved?: () => void }) {
   const [allGlobalSkills, setAllGlobalSkills] = useState<any[]>([]);
   const [projectData, setProjectData] = useState<any>(null);
   const [projectPrivateSkills, setProjectPrivateSkills] = useState<any[]>([]);
@@ -75,6 +75,7 @@ export function SkillsPage({ projectId }: { projectId: string }) {
     if (res.ok) {
       const newEnabledIds = await res.json();
       setProjectData({ ...projectData, enabledSkillIds: newEnabledIds });
+      onSaved?.();
     }
   };
 
@@ -223,7 +224,7 @@ export function SkillsPage({ projectId }: { projectId: string }) {
               <p className="text-base text-slate-500 font-medium max-w-xl leading-relaxed">
                 {isProjectMode 
                   ? `当前项目已启用 ${enabledSkills.length} 个技能，构建强大的 AI 工作流`
-                  : '扩展 Agent 能力边界：支持 GitHub 文件链接、ZIP 包导入或手动创建'}
+                  : '扩展成员能力边界：支持 GitHub 文件链接、ZIP 包导入或手动创建'}
               </p>
             </div>
             

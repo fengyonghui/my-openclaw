@@ -258,7 +258,7 @@ export function SettingsPage({ projectId, onSaved }: { projectId: string, onSave
                     readOnly
                   />
                 </div>
-                <p className="text-xs text-slate-400 mt-2">Agent 的工作目录，用于文件操作和代码管理</p>
+                <p className="text-xs text-slate-400 mt-2">成员的工作目录，用于文件操作和代码管理</p>
               </div>
             </div>
           </Card>
@@ -339,7 +339,7 @@ export function SettingsPage({ projectId, onSaved }: { projectId: string, onSave
                   )}
                 </div>
                 
-                <p className="text-xs text-slate-400 mt-2">用于 Agent 推理的默认语言模型</p>
+                <p className="text-xs text-slate-400 mt-2">用于成员推理的默认语言模型</p>
               </div>
             </div>
           </Card>
@@ -347,12 +347,12 @@ export function SettingsPage({ projectId, onSaved }: { projectId: string, onSave
 
         {/* 团队成员 - Agent 管理 */}
         <div className={`transition-all ${activeSection !== 'team' ? 'hidden' : ''}`}>
-          <AgentsPage projectId={projectId} />
+          <AgentsPage projectId={projectId} onSaved={onSaved} />
         </div>
 
         {/* 项目技能 */}
         <div className={`space-y-6 transition-all ${activeSection !== 'skills' ? 'hidden' : ''}`}>
-          <SkillsPage projectId={projectId} />
+          <SkillsPage projectId={projectId} onSaved={onSaved} />
         </div>
 
         {/* 危险操作 */}

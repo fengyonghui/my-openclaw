@@ -2,7 +2,7 @@ import { Bot, Plus, Trash2, Edit3, Save, X, ShieldCheck, UserCheck, Lock, Unlock
 import { useState, useEffect, useMemo } from 'react';
 import { Card, Button, Badge } from '../components/ui';
 
-export function AgentsPage({ projectId }: { projectId: string }) {
+export function AgentsPage({ projectId, onSaved }: { projectId: string; onSaved?: () => void }) {
   const [allGlobalAgents, setAllGlobalAgents] = useState<any[]>([]);
   const [projectData, setProjectData] = useState<any>(null);
   const [projectPrivateAgents, setProjectPrivateAgents] = useState<any[]>([]);
@@ -64,12 +64,13 @@ export function AgentsPage({ projectId }: { projectId: string }) {
     if (res.ok) {
       const newEnabledIds = await res.json();
       setProjectData({ ...projectData, enabledAgentIds: newEnabledIds });
+      onSaved?.();
     }
   };
 
   const handleAddPrivateAgent = async () => {
     if (!privateAgentForm.name.trim()) {
-      alert('请填写 Agent 名称');
+      alert('请填写成员名称');
       return;
     }
     setSavingPrivate(true);
@@ -89,7 +90,7 @@ export function AgentsPage({ projectId }: { projectId: string }) {
   };
 
   const handleDeletePrivateAgent = async (agentId: string) => {
-    if (!confirm('确定要删除此项目私有 Agent 吗？')) return;
+    if (!confirm('确定要删除此项目私有成员吗？')) return;
     const res = await fetch(`http://localhost:3001/api/v1/projects/${projectId}/agents/private/${agentId}`, {
       method: 'DELETE'
     });
@@ -118,7 +119,6 @@ export function AgentsPage({ projectId }: { projectId: string }) {
         body: JSON.stringify({ defaultModelId: modelId })
       });
       if (res.ok) {
-        // 更新本地状态
         setAllGlobalAgents(prev => prev.map(a => 
           a.id === agentId ? { ...a, defaultModelId: modelId } : a
         ));
@@ -132,7 +132,7 @@ export function AgentsPage({ projectId }: { projectId: string }) {
     setUpdatingAgentModel(null);
   };
 
-  // 设置主协调 Agent
+  // 设置主协调成员
   const handleSetCoordinator = async (agentId: string | null) => {
     try {
       const res = await fetch(`http://localhost:3001/api/v1/projects/${projectId}/coordinator`, {
@@ -166,7 +166,7 @@ export function AgentsPage({ projectId }: { projectId: string }) {
               <Bot className="w-8 h-8 text-cyan-500 animate-bounce" />
             </div>
           </div>
-          <p className="text-sm font-medium text-slate-500 tracking-wide">加载 Agent 列表中...</p>
+          <p className="text-sm font-medium text-slate-500 tracking-wide">加载成员列表中...</p>
         </div>
       </div>
     </div>
@@ -194,11 +194,11 @@ export function AgentsPage({ projectId }: { projectId: string }) {
               </div>
               <h1 className="text-5xl font-black tracking-tight text-slate-900">
                 <span className="bg-gradient-to-r from-slate-900 via-cyan-900 to-slate-900 bg-clip-text">
-                  Agent 管理
+                  成员管理
                 </span>
               </h1>
               <p className="text-base text-slate-500 font-medium max-w-xl leading-relaxed">
-                智能体编排与协作：配置专属 AI Agent，定义角色能力与工作边界
+                团队协作与成员管理：配置项目成员，定义角色职责与工作边界
               </p>
             </div>
             
@@ -209,7 +209,7 @@ export function AgentsPage({ projectId }: { projectId: string }) {
               >
                 <span className="absolute inset-0 rounded-2xl bg-gradient-to-r from-rose-600 to-pink-600 opacity-0 group-hover:opacity-100 transition-opacity" />
                 <Lock className="w-4 h-4 relative" />
-                <span className="relative">添加私有 Agent</span>
+                <span className="relative">添加私有成员</span>
               </button>
               
               <div className="relative group">
@@ -217,7 +217,7 @@ export function AgentsPage({ projectId }: { projectId: string }) {
                 <div className="relative flex items-center bg-white rounded-2xl border border-slate-200/80 shadow-sm">
                   <Search className="w-4 h-4 text-slate-400 ml-4" />
                   <input 
-                    placeholder="搜索 Agent..." 
+                    placeholder="搜索成员..." 
                     className="w-64 px-4 py-3 bg-transparent text-sm font-medium text-slate-700 outline-none placeholder:text-slate-400"
                     value={searchQuery} 
                     onChange={e => setSearchQuery(e.target.value)} 
@@ -235,12 +235,12 @@ export function AgentsPage({ projectId }: { projectId: string }) {
             </div>
             <div className="inline-flex items-center gap-3 px-5 py-2.5 rounded-2xl bg-white border border-slate-200/60 shadow-sm">
               <div className="w-2 h-2 rounded-full bg-cyan-500" />
-              <span className="text-sm font-semibold text-slate-700">{allGlobalAgents.length} 个全局 Agent</span>
+              <span className="text-sm font-semibold text-slate-700">{allGlobalAgents.length} 个全局成员</span>
             </div>
             {projectPrivateAgents.length > 0 && (
               <div className="inline-flex items-center gap-3 px-5 py-2.5 rounded-2xl bg-rose-50 border border-rose-200/60">
                 <div className="w-2 h-2 rounded-full bg-rose-500" />
-                <span className="text-sm font-semibold text-rose-700">{projectPrivateAgents.length} 个私有 Agent</span>
+                <span className="text-sm font-semibold text-rose-700">{projectPrivateAgents.length} 个私有成员</span>
               </div>
             )}
           </div>
@@ -250,13 +250,13 @@ export function AgentsPage({ projectId }: { projectId: string }) {
       {/* Main Content */}
       <div className="relative px-8 max-w-7xl mx-auto">
 
-        {/* 主协调 Agent */}
+        {/* 主协调成员 */}
         <section className={`mb-8 transition-all duration-700 delay-100 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 shadow-lg shadow-violet-500/25">
               <Sparkles className="w-4 h-4 text-white" />
             </div>
-            <h2 className="text-lg font-bold text-slate-900 tracking-tight">主协调 Agent</h2>
+            <h2 className="text-lg font-bold text-slate-900 tracking-tight">主协调成员</h2>
           </div>
 
           {(() => {
@@ -292,22 +292,22 @@ export function AgentsPage({ projectId }: { projectId: string }) {
                   <div className="w-12 h-12 mx-auto mb-3 rounded-xl bg-slate-200 flex items-center justify-center">
                     <Star className="h-6 w-6 text-slate-400" />
                   </div>
-                  <p className="font-medium text-slate-500">点击设置主协调 Agent</p>
-                  <p className="text-xs text-slate-400 mt-1">协调 Agent 负责接收用户请求并分配任务</p>
+                  <p className="font-medium text-slate-500">点击设置主协调成员</p>
+                  <p className="text-xs text-slate-400 mt-1">协调成员负责接收用户请求并分配任务</p>
                 </div>
               </div>
             );
           })()}
         </section>
 
-        {/* 已启用的 Agent */}
+        {/* 已启用的成员 */}
         {enabledAgents.length > 0 && (
           <section className={`mb-12 transition-all duration-700 delay-100 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
             <div className="flex items-center gap-3 mb-6">
               <div className="p-2 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 shadow-lg shadow-emerald-500/25">
                 <CheckCircle2 className="w-4 h-4 text-white" />
               </div>
-              <h2 className="text-lg font-bold text-slate-900 tracking-tight">已启用的 Agent</h2>
+              <h2 className="text-lg font-bold text-slate-900 tracking-tight">已启用的成员</h2>
               <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold">{enabledAgents.length}</span>
             </div>
             
@@ -374,20 +374,20 @@ export function AgentsPage({ projectId }: { projectId: string }) {
           </section>
         )}
 
-        {/* 全局 Agent 网格 */}
+        {/* 全局成员库 */}
         <section className={`transition-all duration-700 delay-200 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
           <div className="flex items-center gap-3 mb-6">
             <div className="p-2 rounded-xl bg-gradient-to-br from-cyan-500 to-teal-500 shadow-lg shadow-cyan-500/25">
               <Globe className="w-4 h-4 text-white" />
             </div>
-            <h2 className="text-lg font-bold text-slate-900 tracking-tight">全局 Agent 库</h2>
+            <h2 className="text-lg font-bold text-slate-900 tracking-tight">全局成员库</h2>
             <span className="px-2.5 py-1 rounded-full bg-cyan-100 text-cyan-700 text-xs font-bold">{filteredGlobalAgents.length}</span>
           </div>
           
           {filteredGlobalAgents.length === 0 ? (
             <div className="text-center py-16 rounded-3xl bg-slate-50/50 border border-slate-200/50">
               <Sparkles className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-              <p className="text-slate-500 font-medium">没有找到匹配的 Agent</p>
+              <p className="text-slate-500 font-medium">没有找到匹配的成员</p>
             </div>
           ) : (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -472,11 +472,11 @@ export function AgentsPage({ projectId }: { projectId: string }) {
         </section>
       </div>
 
-      {/* 添加私有 Agent 弹窗 */}
+      {/* 添加私有成员 弹窗 */}
       {showAddPrivate && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-8">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowAddPrivate(false)} />
-          <div className="relative z-10 w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden">
+          <div className="relative z-10 w-full max-w-2xl max-h-[90vh] flex flex-col bg-white rounded-3xl shadow-2xl overflow-hidden">
             {/* 弹窗头部 */}
             <div className="relative px-8 pt-8 pb-6 bg-gradient-to-br from-rose-50 to-pink-50 border-b border-rose-100">
               <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-rose-200/30 to-pink-200/20 rounded-full blur-2xl transform translate-x-1/2 -translate-y-1/2" />
@@ -486,7 +486,7 @@ export function AgentsPage({ projectId }: { projectId: string }) {
                     <Lock className="w-6 h-6 text-white" />
                   </div>
                   <div>
-                    <h2 className="text-xl font-bold text-slate-900">添加项目私有 Agent</h2>
+                    <h2 className="text-xl font-bold text-slate-900">添加项目私有成员</h2>
                     <p className="text-sm text-slate-500 mt-0.5">仅当前项目可用，不会影响其他项目</p>
                   </div>
                 </div>
@@ -498,72 +498,66 @@ export function AgentsPage({ projectId }: { projectId: string }) {
                 </button>
               </div>
             </div>
-            
-            {/* 弹窗内容 */}
-            <div className="px-8 pb-8 space-y-6">
-              <div className="grid gap-6 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Agent 名称 <span className="text-rose-500">*</span></label>
-                  <input 
-                    type="text" 
-                    className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 focus:border-rose-400 focus:ring-4 focus:ring-rose-50 outline-none transition-all font-medium"
-                    placeholder="例如：我的专属助手"
-                    value={privateAgentForm.name} 
-                    onChange={e => setPrivateAgentForm({...privateAgentForm, name: e.target.value})} 
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">角色定位</label>
-                  <input 
-                    type="text" 
-                    className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 focus:border-rose-400 focus:ring-4 focus:ring-rose-50 outline-none transition-all font-medium"
-                    placeholder="例如：资深前端工程师"
-                    value={privateAgentForm.role} 
-                    onChange={e => setPrivateAgentForm({...privateAgentForm, role: e.target.value})} 
-                  />
-                </div>
-              </div>
-              
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Agent 职责描述</label>
-                <textarea 
-                  className="w-full h-32 p-5 rounded-xl bg-slate-50 border border-slate-200 focus:border-rose-400 focus:ring-4 focus:ring-rose-50 outline-none transition-all font-medium text-sm resize-none"
-                  placeholder="描述该 Agent 擅长的领域、规则或工作流程..."
-                  value={privateAgentForm.description} 
-                  onChange={e => setPrivateAgentForm({...privateAgentForm, description: e.target.value})} 
+
+            {/* 表单 */}
+            <div className="flex-1 overflow-y-auto px-8 py-6 space-y-5">
+              <div>
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2">
+                  成员名称 <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-sm font-medium text-slate-700 outline-none focus:border-rose-400 focus:bg-white transition"
+                  placeholder="例如：Coder"
+                  value={privateAgentForm.name}
+                  onChange={e => setPrivateAgentForm({ ...privateAgentForm, name: e.target.value })}
                 />
               </div>
-              
-              <div className="flex justify-end gap-3 pt-2">
-                <button 
-                  onClick={() => setShowAddPrivate(false)}
-                  className="px-5 py-2.5 rounded-xl font-bold text-sm text-slate-600 hover:bg-slate-100 transition-colors"
-                >
-                  取消
-                </button>
-                <button
-                  onClick={handleAddPrivateAgent}
-                  disabled={savingPrivate}
-                  className="group relative px-6 py-2.5 rounded-xl font-bold text-sm text-white shadow-lg shadow-rose-500/25 disabled:opacity-50 disabled:cursor-not-allowed transition-all hover:shadow-xl hover:shadow-rose-500/30"
-                >
-                  <span className="absolute inset-0 rounded-xl bg-gradient-to-r from-rose-600 to-pink-600 opacity-0 group-hover:opacity-100 transition-opacity" />
-                  <span className="relative flex items-center gap-2">
-                    <Save className="w-4 h-4" />
-                    {savingPrivate ? '保存中...' : '保存私有 Agent'}
-                  </span>
-                </button>
+              <div>
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2">职责角色</label>
+                <input
+                  className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-sm font-medium text-slate-700 outline-none focus:border-rose-400 focus:bg-white transition"
+                  placeholder="例如：代码编写者"
+                  value={privateAgentForm.role}
+                  onChange={e => setPrivateAgentForm({ ...privateAgentForm, role: e.target.value })}
+                />
               </div>
+              <div>
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2">职责描述</label>
+                <textarea
+                  className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-sm font-medium text-slate-700 outline-none focus:border-rose-400 focus:bg-white transition resize-none"
+                  rows={3}
+                  placeholder="描述该成员的主要职责..."
+                  value={privateAgentForm.description}
+                  onChange={e => setPrivateAgentForm({ ...privateAgentForm, description: e.target.value })}
+                />
+              </div>
+            </div>
+
+            {/* 底部按钮 */}
+            <div className="px-8 pb-8 flex items-center justify-end gap-3">
+              <button 
+                onClick={() => setShowAddPrivate(false)}
+                className="px-6 py-2.5 rounded-xl text-sm font-medium text-slate-500 hover:bg-slate-100 transition"
+              >
+                取消
+              </button>
+              <button 
+                onClick={handleAddPrivateAgent}
+                disabled={savingPrivate}
+                className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 text-white text-sm font-bold shadow-lg shadow-rose-500/25 hover:shadow-xl hover:shadow-rose-500/30 transition disabled:opacity-50"
+              >
+                {savingPrivate ? '添加中...' : '添加成员'}
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* 编辑私有 Agent 弹窗 */}
-      {editingAgent && editingAgent.isPrivate && (
+      {/* 编辑私有成员 弹窗 */}
+      {editingAgent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-8">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setEditingAgent(null)} />
-          <div className="relative z-10 w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden">
-            {/* 弹窗头部 */}
+          <div className="relative z-10 w-full max-w-2xl max-h-[90vh] flex flex-col bg-white rounded-3xl shadow-2xl overflow-hidden">
             <div className="relative px-8 pt-8 pb-6 bg-gradient-to-br from-cyan-50 to-teal-50 border-b border-cyan-100">
               <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-cyan-200/30 to-teal-200/20 rounded-full blur-2xl transform translate-x-1/2 -translate-y-1/2" />
               <div className="relative flex items-center justify-between">
@@ -572,8 +566,8 @@ export function AgentsPage({ projectId }: { projectId: string }) {
                     <Edit3 className="w-6 h-6 text-white" />
                   </div>
                   <div>
-                    <h2 className="text-xl font-bold text-slate-900">编辑私有 Agent</h2>
-                    <p className="text-sm text-slate-500 mt-0.5">修改 Agent 配置信息</p>
+                    <h2 className="text-xl font-bold text-slate-900">编辑项目私有成员</h2>
+                    <p className="text-sm text-slate-500 mt-0.5">{editingAgent.name}</p>
                   </div>
                 </div>
                 <button 
@@ -584,127 +578,114 @@ export function AgentsPage({ projectId }: { projectId: string }) {
                 </button>
               </div>
             </div>
-            
-            {/* 弹窗内容 */}
-            <div className="px-8 pb-8 space-y-6">
-              <div className="grid gap-6 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Agent 名称</label>
-                  <input 
-                    type="text" 
-                    className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 focus:border-cyan-400 focus:ring-4 focus:ring-cyan-50 outline-none transition-all font-medium"
-                    value={editingAgent.name} 
-                    onChange={e => setEditingAgent({...editingAgent, name: e.target.value})} 
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">角色定位</label>
-                  <input 
-                    type="text" 
-                    className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 focus:border-cyan-400 focus:ring-4 focus:ring-cyan-50 outline-none transition-all font-medium"
-                    value={editingAgent.role} 
-                    onChange={e => setEditingAgent({...editingAgent, role: e.target.value})} 
-                  />
-                </div>
-              </div>
-              
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Agent 职责描述</label>
-                <textarea 
-                  className="w-full h-32 p-5 rounded-xl bg-slate-50 border border-slate-200 focus:border-cyan-400 focus:ring-4 focus:ring-cyan-50 outline-none transition-all font-medium text-sm resize-none"
-                  value={editingAgent.description} 
-                  onChange={e => setEditingAgent({...editingAgent, description: e.target.value})} 
+            <div className="flex-1 overflow-y-auto px-8 py-6 space-y-5">
+              <div>
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2">成员名称 <span className="text-rose-500">*</span></label>
+                <input
+                  className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-sm font-medium text-slate-700 outline-none focus:border-cyan-400 focus:bg-white transition"
+                  value={editingAgent.name}
+                  onChange={e => setEditingAgent({ ...editingAgent, name: e.target.value })}
                 />
               </div>
-              
-              <div className="flex justify-end gap-3 pt-2">
-                <button 
-                  onClick={() => setEditingAgent(null)}
-                  className="px-5 py-2.5 rounded-xl font-bold text-sm text-slate-600 hover:bg-slate-100 transition-colors"
-                >
-                  取消
-                </button>
-                <button
-                  onClick={handleEditPrivateAgent}
-                  className="group relative px-6 py-2.5 rounded-xl font-bold text-sm text-white shadow-lg shadow-cyan-500/25 transition-all hover:shadow-xl hover:shadow-cyan-500/30"
-                >
-                  <span className="absolute inset-0 rounded-xl bg-gradient-to-r from-cyan-600 to-teal-600 opacity-0 group-hover:opacity-100 transition-opacity" />
-                  <span className="relative flex items-center gap-2">
-                    <Save className="w-4 h-4" />
-                    保存修改
-                  </span>
-                </button>
+              <div>
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2">职责角色</label>
+                <input
+                  className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-sm font-medium text-slate-700 outline-none focus:border-cyan-400 focus:bg-white transition"
+                  value={editingAgent.role || ''}
+                  onChange={e => setEditingAgent({ ...editingAgent, role: e.target.value })}
+                />
               </div>
+              <div>
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2">职责描述</label>
+                <textarea
+                  className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-sm font-medium text-slate-700 outline-none focus:border-cyan-400 focus:bg-white transition resize-none"
+                  rows={3}
+                  value={editingAgent.description || ''}
+                  onChange={e => setEditingAgent({ ...editingAgent, description: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="px-8 pb-8 flex items-center justify-end gap-3">
+              <button 
+                onClick={() => setEditingAgent(null)}
+                className="px-6 py-2.5 rounded-xl text-sm font-medium text-slate-500 hover:bg-slate-100 transition"
+              >
+                取消
+              </button>
+              <button 
+                onClick={handleEditPrivateAgent}
+                className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-teal-500 text-white text-sm font-bold shadow-lg shadow-cyan-500/25 hover:shadow-xl hover:shadow-cyan-500/30 transition"
+              >
+                保存修改
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* 全局动画样式 */}
-      <style>{`
-        @keyframes scanline {
-          0%, 100% { opacity: 0.3; transform: translateX(-100%); }
-          50% { opacity: 0.6; transform: translateX(100%); }
-        }
-        
-        @keyframes float {
-          0%, 100% { transform: translateY(0); }
-          50% { transform: translateY(-10px); }
-        }
-        
-        @keyframes glow {
-        .animate-glow {
-          animation: glow 2s ease-in-out infinite;
-        }
-      `}</style>
-
-      {/* 设置主协调 Agent 弹窗 */}
+      {/* 设置主协调成员 弹窗 */}
       {showCoordinatorModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowCoordinatorModal(false)}>
-          <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full overflow-hidden animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-            <div className="bg-gradient-to-r from-violet-600 to-purple-600 px-8 py-6">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3 text-white">
-                  <Star className="h-5 w-5" />
-                  <h3 className="text-lg font-bold">设置主协调 Agent</h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-8">
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowCoordinatorModal(false)} />
+          <div className="relative z-10 w-full max-w-2xl max-h-[90vh] flex flex-col bg-white rounded-3xl shadow-2xl overflow-hidden">
+            <div className="relative px-8 pt-8 pb-6 bg-gradient-to-br from-violet-50 to-purple-50 border-b border-violet-100">
+              <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-violet-200/30 to-purple-200/20 rounded-full blur-2xl transform translate-x-1/2 -translate-y-1/2" />
+              <div className="relative flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="p-3 rounded-2xl bg-gradient-to-br from-violet-500 to-purple-500 shadow-lg shadow-violet-500/25">
+                    <Sparkles className="w-6 h-6 text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-slate-900">设置主协调成员</h2>
+                    <p className="text-sm text-slate-500 mt-0.5">选择负责协调任务的成员</p>
+                  </div>
                 </div>
-                <button className="p-2 hover:bg-white/20 rounded-xl transition-colors" onClick={() => setShowCoordinatorModal(false)}>
-                  <X className="h-5 w-5 text-white" />
+                <button 
+                  onClick={() => setShowCoordinatorModal(false)} 
+                  className="p-2 rounded-xl hover:bg-white/50 text-slate-400 hover:text-slate-600 transition"
+                >
+                  <X className="w-5 h-5" />
                 </button>
               </div>
             </div>
-
-            <div className="p-8 space-y-3">
+            <div className="p-6 max-h-96 overflow-y-auto space-y-3">
               <button
-                className={`w-full flex items-center gap-4 p-4 rounded-2xl border-2 transition-all ${
-                  !coordinatorAgentId ? 'border-violet-500 bg-violet-50' : 'border-slate-200 hover:border-slate-300'
-                }`}
                 onClick={() => handleSetCoordinator(null)}
+                className="w-full text-left p-4 rounded-2xl border-2 border-dashed border-slate-200 hover:border-violet-300 hover:bg-violet-50/50 transition-all flex items-center gap-4"
               >
-                <div className="w-12 h-12 bg-slate-200 rounded-xl flex items-center justify-center text-slate-500 font-black text-lg">?</div>
-                <div className="text-left">
-                  <p className="font-bold text-slate-900">不使用主协调</p>
-                  <p className="text-xs text-slate-500">使用默认 Agent</p>
+                <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center">
+                  <X className="w-5 h-5 text-slate-400" />
+                </div>
+                <div>
+                  <p className="font-bold text-slate-600">不使用主协调成员</p>
+                  <p className="text-xs text-slate-400">关闭主协调功能</p>
                 </div>
               </button>
-
-              {[...allGlobalAgents, ...projectPrivateAgents].map(agent => (
+              {[...allGlobalAgents, ...projectPrivateAgents].map((agent: any) => (
                 <button
                   key={agent.id}
-                  className={`w-full flex items-center gap-4 p-4 rounded-2xl border-2 transition-all ${
-                    String(agent.id) === String(coordinatorAgentId) ? 'border-violet-500 bg-violet-50' : 'border-slate-200 hover:border-slate-300'
-                  }`}
                   onClick={() => handleSetCoordinator(agent.id)}
+                  className={`w-full text-left p-4 rounded-2xl border-2 transition-all flex items-center gap-4 ${
+                    String(agent.id) === String(coordinatorAgentId)
+                      ? 'border-violet-400 bg-violet-50'
+                      : 'border-slate-200 hover:border-violet-300 hover:bg-violet-50/50'
+                  }`}
                 >
-                  <div className="w-12 h-12 bg-gradient-to-br from-violet-500 to-purple-600 rounded-xl flex items-center justify-center text-white font-black text-lg shadow-lg">
+                  <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white font-black text-lg ${
+                    String(agent.id) === String(coordinatorAgentId)
+                      ? 'bg-gradient-to-br from-violet-500 to-purple-600'
+                      : 'bg-gradient-to-br from-slate-400 to-slate-500'
+                  }`}>
                     {agent.name.charAt(0).toUpperCase()}
                   </div>
-                  <div className="text-left flex-1">
-                    <p className="font-bold text-slate-900">{agent.name}</p>
-                    <p className="text-xs text-slate-500">{agent.role || agent.description || '团队成员'}</p>
+                  <div>
+                    <p className="font-bold text-slate-800">{agent.name}</p>
+                    <p className="text-xs text-slate-400">{agent.role || agent.description || '团队成员'}</p>
                   </div>
                   {String(agent.id) === String(coordinatorAgentId) && (
-                    <span className="px-2 py-1 bg-violet-100 text-violet-700 text-[10px] font-bold rounded-lg">当前</span>
+                    <div className="ml-auto">
+                      <CheckCircle2 className="w-5 h-5 text-violet-500" />
+                    </div>
                   )}
                 </button>
               ))}

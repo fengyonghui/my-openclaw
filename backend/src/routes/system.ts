@@ -2,7 +2,25 @@ import { FastifyInstance } from 'fastify';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+function getDefaultWorkspace(): string {
+  const isWindows = process.platform === 'win32';
+  if (isWindows) {
+    // Windows: D:\workspace
+    return 'D:\\workspace';
+  }
+  // WSL/Linux/macOS: /mnt/d/workspace or ~/workspace
+  return '/mnt/d/workspace';
+}
+
 export async function SystemRoutes(fastify: FastifyInstance) {
+  // 返回系统信息，包含默认 workspace 路径
+  fastify.get('/info', async () => {
+    return {
+      platform: process.platform,
+      defaultWorkspace: getDefaultWorkspace(),
+    };
+  });
+
   // 列出指定路径下的所有子目录
   fastify.get('/ls', async (request, reply) => {
     const { currentPath } = request.query as { currentPath: string };

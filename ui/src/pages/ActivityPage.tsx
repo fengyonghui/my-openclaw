@@ -45,7 +45,7 @@ export function ActivityPage({ projectId }: { projectId: string }) {
           type: 'heartbeat' as const,
           title: hb.name || '心跳任务',
           description: hb.result?.slice(0, 100) || hb.status || '已执行',
-          user: 'Heartbeat Agent',
+          user: 'Heartbeat 成员',
           time: new Date(hb.executedAt || hb.timestamp || Date.now()),
           icon: Heart,
           colorClass: 'text-rose-600 bg-rose-50'
@@ -81,7 +81,7 @@ export function ActivityPage({ projectId }: { projectId: string }) {
     chat: '对话',
     heartbeat: '心跳',
     project: '项目',
-    agent: 'Agent',
+    agent: '成员',
     system: '系统'
   };
 
@@ -99,7 +99,7 @@ export function ActivityPage({ projectId }: { projectId: string }) {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-black text-slate-900 tracking-tight">Activity Logs</h1>
-          <p className="text-sm text-slate-500 font-medium mt-1">监控项目内的操作记录、任务执行及 Agent 生命周期</p>
+          <p className="text-sm text-slate-500 font-medium mt-1">监控项目内的操作记录、任务执行及成员生命周期</p>
         </div>
         <div className="flex items-center gap-3 bg-white px-5 py-3 rounded-2xl border border-slate-100 shadow-sm">
           <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
