@@ -17,14 +17,31 @@ export function ProjectListPage({ onSelectProject }: { onSelectProject: (id: str
   const [showImportProject, setShowImportProject] = useState(false);
   const [creatingProject, setCreatingProject] = useState(false);
   const [importingProject, setImportingProject] = useState(false);
-  const [newProjectForm, setNewProjectForm] = useState({ name: '', description: '', parentDir: '/mnt/d/workspace' });
+  const [newProjectForm, setNewProjectForm] = useState({ name: '', description: '', parentDir: '' });
   const [importProjectForm, setImportProjectForm] = useState({ name: '', description: '', workspace: '' });
   const [showFolderPicker, setShowFolderPicker] = useState(false);
-  const [pickerPath, setPickerPath] = useState('/mnt/d/workspace');
+  const [pickerPath, setPickerPath] = useState('');
   const [pickerDirs, setPickerDirs] = useState<any[]>([]);
   const [pickerParentPath, setPickerParentPath] = useState('');
   const [pickerLoading, setPickerLoading] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [defaultWorkspace, setDefaultWorkspace] = useState('');
+
+  useEffect(() => {
+    // 优先获取系统默认 workspace 路径
+    fetch('http://localhost:3001/api/v1/system/info')
+      .then(r => r.json())
+      .then(info => {
+        const ws = info.defaultWorkspace || '/mnt/d/workspace';
+        setDefaultWorkspace(ws);
+        setNewProjectForm(prev => ({ ...prev, parentDir: ws }));
+        setPickerPath(ws);
+      })
+      .catch(() => {
+        // fallback 降级
+        setDefaultWorkspace('/mnt/d/workspace');
+      });
+  }, []);
 
   useEffect(() => {
     Promise.all([
@@ -73,7 +90,7 @@ export function ProjectListPage({ onSelectProject }: { onSelectProject: (id: str
         const created = await res.json();
         setProjects(prev => [created, ...prev]);
         setShowCreateProject(false);
-        setNewProjectForm({ name: '', description: '', parentDir: '/mnt/d/workspace' });
+        setNewProjectForm({ name: '', description: '', parentDir: defaultWorkspace || '/mnt/d/workspace' });
       } else {
         const err = await res.json();
         alert(`创建失败: ${err.error || '未知错误'}`);
@@ -128,7 +145,7 @@ export function ProjectListPage({ onSelectProject }: { onSelectProject: (id: str
 
   const openFolderPicker = async () => {
     setShowFolderPicker(true);
-    const startPath = importProjectForm.workspace || pickerPath || '/mnt/d/workspace';
+    const startPath = importProjectForm.workspace || pickerPath || defaultWorkspace || '/mnt/d/workspace';
     await loadDirectories(startPath);
   };
 
@@ -209,7 +226,7 @@ export function ProjectListPage({ onSelectProject }: { onSelectProject: (id: str
               className="group inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-white/80 backdrop-blur-sm border border-slate-200/50 font-medium text-sm text-slate-600 hover:border-amber-300 hover:bg-amber-50/50 transition-all shadow-sm"
             >
               <Bot className="w-5 h-5 text-amber-500" />
-              <span>Agent管理</span>
+              <span>成员管理</span>
             </button>
           </div>
 
@@ -402,7 +419,7 @@ export function ProjectListPage({ onSelectProject }: { onSelectProject: (id: str
                 <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">父目录</label>
                 <input
                   className="w-full px-4 py-3.5 rounded-xl bg-slate-50 border border-slate-200 focus:border-indigo-400 focus:ring-4 focus:ring-indigo-50 outline-none transition-all text-sm font-mono"
-                  placeholder="/mnt/d/workspace"
+                  placeholder={defaultWorkspace || "选择父目录"}
                   value={newProjectForm.parentDir}
                   onChange={e => setNewProjectForm({ ...newProjectForm, parentDir: e.target.value })}
                 />
@@ -457,7 +474,7 @@ export function ProjectListPage({ onSelectProject }: { onSelectProject: (id: str
                 <div className="flex gap-2">
                   <input
                     className="flex-1 px-4 py-3.5 rounded-xl bg-slate-50 border border-slate-200 focus:border-emerald-400 focus:ring-4 focus:ring-emerald-50 outline-none transition-all text-sm font-mono"
-                    placeholder="/mnt/d/workspace/my-openclaw"
+                    placeholder={defaultWorkspace ? `${defaultWorkspace}\\项目名` : "D:\\workspace\\my-openclaw"}
                     value={importProjectForm.workspace}
                     onChange={e => setImportProjectForm({ ...importProjectForm, workspace: e.target.value })}
                   />
@@ -618,12 +635,12 @@ export function ProjectListPage({ onSelectProject }: { onSelectProject: (id: str
     </div>
   );
 
-  // 渲染全局Agent管理视图
+  // 渲染全局成员管理视图
   const renderGlobalAgentsView = () => (
     <div className="max-w-6xl mx-auto py-8 px-6">
       <div className="flex items-center gap-4 mb-8">
         <Button variant="outline" onClick={() => navigateTo('projects')} icon={ArrowLeft}>返回项目列表</Button>
-        <h1 className="text-2xl font-black text-slate-900">全局Agent管理</h1>
+        <h1 className="text-2xl font-black text-slate-900">全局成员管理</h1>
       </div>
       <GlobalAgentsPage />
     </div>

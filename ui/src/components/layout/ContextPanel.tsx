@@ -88,7 +88,7 @@ export function ContextPanel({ projectId, refreshKey }: { projectId?: string, re
         />
         <StatusItem 
           icon={Bot} 
-          label="启用的 Agent" 
+          label="启用的成员" 
           value={`${agentCount} 个`}
           gradient="from-cyan-500 to-teal-500"
         />
@@ -115,7 +115,7 @@ export function ContextPanel({ projectId, refreshKey }: { projectId?: string, re
             </code>
           </div>
           <p className="mt-3 text-[10px] text-slate-500 font-medium leading-relaxed">
-            Agent 输出文件将同步到此目录
+            成员输出文件将同步到此目录
           </p>
         </div>
       </div>

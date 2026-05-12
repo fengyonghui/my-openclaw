@@ -558,7 +558,7 @@ export function ChatDetailPage({ projectId, chatId, onMinimize }: { projectId: s
                 className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200 hover:border-indigo-400 transition-all"
               >
                 <Bot className="h-3 w-3 text-indigo-500" />
-                <span className="text-[10px] font-bold text-indigo-600">{currentAgent?.name || 'Agent'}</span>
+                <span className="text-[10px] font-bold text-indigo-600">{currentAgent?.name || '成员'}</span>
                 <ChevronDown className="h-3 w-3 text-indigo-400" />
               </button>
             </div>
@@ -602,7 +602,7 @@ export function ChatDetailPage({ projectId, chatId, onMinimize }: { projectId: s
       {/* 最小化状态 */}
       {windowState !== 'minimized' && (
         <>
-          {/* Agent 选择器 - 美化版 */}
+          {/* 成员选择器 */}
           {showAgentPicker && (
             <div className="absolute top-24 right-6 z-50 w-80 animate-in fade-in slide-in-from-top-2 duration-200">
               <div className="bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden">
@@ -614,7 +614,7 @@ export function ChatDetailPage({ projectId, chatId, onMinimize }: { projectId: s
                         <Bot className="h-5 w-5 text-white" />
                       </div>
                       <div>
-                        <p className="text-white font-bold">选择 Agent</p>
+                        <p className="text-white font-bold">选择成员</p>
                         <p className="text-white/70 text-xs">切换对话助手</p>
                       </div>
                     </div>
@@ -627,7 +627,7 @@ export function ChatDetailPage({ projectId, chatId, onMinimize }: { projectId: s
                   </div>
                 </div>
                 
-                {/* Agent 列表 */}
+                {/* 成员列表 */}
                 <div className="p-3 max-h-80 overflow-y-auto">
                   {projectAgents.map((agent: any, idx: number) => (
                     <button 
@@ -661,7 +661,7 @@ export function ChatDetailPage({ projectId, chatId, onMinimize }: { projectId: s
                   {projectAgents.length === 0 && (
                     <div className="text-center py-8">
                       <Bot className="h-12 w-12 mx-auto mb-3 text-slate-200" />
-                      <p className="text-sm text-slate-400">暂无可用 Agent</p>
+                      <p className="text-sm text-slate-400">暂无可用成员</p>
                     </div>
                   )}
                 </div>

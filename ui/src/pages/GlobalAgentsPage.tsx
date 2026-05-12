@@ -39,7 +39,7 @@ export function GlobalAgentsPage() {
   }, [agents, searchQuery]);
 
   const handleSubmit = async () => {
-    if (!formData.name.trim()) return alert('请填写 Agent 名称');
+    if (!formData.name.trim()) return alert('请填写成员名称');
     setSaving(true);
     try {
       const isEditing = Boolean(editingAgent);
@@ -75,7 +75,7 @@ export function GlobalAgentsPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('确定要删除这个全局 Agent 吗？')) return;
+    if (!confirm('确定要删除这个全局成员吗？')) return;
     try {
       const res = await fetch(`http://localhost:3001/api/v1/projects/global/agents/${id}`, {
         method: 'DELETE'
@@ -95,7 +95,7 @@ export function GlobalAgentsPage() {
               <Bot className="w-8 h-8 text-cyan-500 animate-bounce" />
             </div>
           </div>
-          <p className="text-sm font-medium text-slate-500 tracking-wide">加载全局 Agent 中...</p>
+          <p className="text-sm font-medium text-slate-500 tracking-wide">加载全局成员中...</p>
         </div>
       </div>
     </div>
@@ -123,11 +123,11 @@ export function GlobalAgentsPage() {
               </div>
               <h1 className="text-5xl font-black tracking-tight text-slate-900">
                 <span className="bg-gradient-to-r from-slate-900 via-cyan-900 to-slate-900 bg-clip-text">
-                  全局 Agent 管理
+                  全局成员管理
                 </span>
               </h1>
               <p className="text-base text-slate-500 font-medium max-w-xl leading-relaxed">
-                管理系统级别的 Agent，所有项目都可以启用使用，打造统一的 AI 协作能力
+                管理系统级别的成员，所有项目都可以启用使用，打造统一的 AI 协作能力
               </p>
             </div>
             
@@ -142,7 +142,7 @@ export function GlobalAgentsPage() {
               >
                 <span className="absolute inset-0 rounded-2xl bg-gradient-to-r from-rose-600 to-pink-600 opacity-0 group-hover:opacity-100 transition-opacity" />
                 <Plus className="w-4 h-4 relative" />
-                <span className="relative">添加全局 Agent</span>
+                <span className="relative">添加全局成员</span>
               </button>
               
               <div className="relative group">
@@ -150,7 +150,7 @@ export function GlobalAgentsPage() {
                 <div className="relative flex items-center bg-white rounded-2xl border border-slate-200/80 shadow-sm">
                   <Search className="w-4 h-4 text-slate-400 ml-4" />
                   <input 
-                    placeholder="搜索 Agent..." 
+                    placeholder="搜索成员..." 
                     className="w-56 px-4 py-3 bg-transparent text-sm font-medium text-slate-700 outline-none placeholder:text-slate-400"
                     value={searchQuery} 
                     onChange={e => setSearchQuery(e.target.value)} 
@@ -169,7 +169,7 @@ export function GlobalAgentsPage() {
           <div className="mt-8 flex flex-wrap gap-4">
             <div className="inline-flex items-center gap-3 px-5 py-2.5 rounded-2xl bg-white border border-slate-200/60 shadow-sm">
               <div className="w-2 h-2 rounded-full bg-cyan-500" />
-              <span className="text-sm font-semibold text-slate-700">{agents.length} 个全局 Agent</span>
+              <span className="text-sm font-semibold text-slate-700">{agents.length} 个全局成员</span>
             </div>
             <div className="inline-flex items-center gap-3 px-5 py-2.5 rounded-2xl bg-rose-50 border border-rose-200/60">
               <div className="w-2 h-2 rounded-full bg-rose-500" />
@@ -182,7 +182,7 @@ export function GlobalAgentsPage() {
       {/* Main Content */}
       <div className={`relative px-8 max-w-7xl mx-auto transition-all duration-700 delay-200 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
         
-        {/* Agent Grid */}
+        {/* 成员库 */}
         {filteredAgents.length === 0 ? (
           <div className="text-center py-24 rounded-3xl bg-gradient-to-br from-slate-50/80 to-white border border-slate-200/50 relative overflow-hidden">
             <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-br from-cyan-100/30 to-teal-100/20 rounded-full blur-3xl transform translate-x-1/2 -translate-y-1/2" />
@@ -194,10 +194,10 @@ export function GlobalAgentsPage() {
                 </div>
               </div>
               <h3 className="text-xl font-bold text-slate-600 mb-2">
-                {searchQuery ? '未找到匹配的 Agent' : '暂无全局 Agent'}
+                {searchQuery ? '未找到匹配的成员' : '暂无全局成员'}
               </h3>
               <p className="text-slate-500 mb-8 max-w-md mx-auto">
-                {searchQuery ? '尝试其他关键词' : '创建一个全局 Agent，让所有项目都可以使用'}
+                {searchQuery ? '尝试其他关键词' : '创建一个全局成员，让所有项目都可以使用'}
               </p>
               {!searchQuery && (
                 <button
@@ -206,10 +206,10 @@ export function GlobalAgentsPage() {
                     setFormData({ name: '', role: '', description: '', type: 'custom' });
                     setShowForm(true);
                   }}
-                  className="inline-flex items-center gap-2 px-8 py-4 rounded-2xl bg-gradient-to-r from-rose-500 to-pink-500 text-white font-bold text-sm shadow-lg shadow-rose-500/25 hover:shadow-xl hover:shadow-rose-500/30 transition-all hover:-translate-y-0.5"
+                  className="inline-flex items-center gap-2 px-8 py-4 rounded-2xl bg-gradient-to-r from-rose-500 to-pink-500 text-white font-bold text-sm shadow-lg shadow-rose-500/25 hover:shadow-xl shadow-rose-500/30 transition-all hover:-translate-y-0.5"
                 >
                   <Plus className="w-5 h-5" />
-                  创建第一个全局 Agent
+                  创建第一个全局成员
                 </button>
               )}
             </div>
@@ -297,11 +297,11 @@ export function GlobalAgentsPage() {
         )}
       </div>
 
-      {/* Add/Edit Agent Modal */}
+      {/* Add/Edit 成员 Modal */}
       {showForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-8">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowForm(false)} />
-          <div className="relative z-10 w-full max-w-xl bg-white rounded-3xl shadow-2xl overflow-hidden">
+          <div className="relative z-10 w-full max-w-xl max-h-[90vh] flex flex-col bg-white rounded-3xl shadow-2xl overflow-hidden">
             {/* Modal Header */}
             <div className="relative px-8 pt-8 pb-6 bg-gradient-to-br from-rose-50 to-pink-50 border-b border-rose-100">
               <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-rose-200/30 to-pink-200/20 rounded-full blur-2xl transform translate-x-1/2 -translate-y-1/2" />
@@ -312,9 +312,9 @@ export function GlobalAgentsPage() {
                   </div>
                   <div>
                     <h2 className="text-xl font-bold text-slate-900">
-                      {editingAgent ? '编辑全局 Agent' : '添加全局 Agent'}
+                      {editingAgent ? '编辑全局成员' : '添加全局成员'}
                     </h2>
-                    <p className="text-sm text-slate-500 mt-0.5">全局 Agent 可被所有项目启用使用</p>
+                    <p className="text-sm text-slate-500 mt-0.5">全局成员可被所有项目启用使用</p>
                   </div>
                 </div>
                 <button onClick={() => setShowForm(false)} className="p-2 rounded-xl hover:bg-white/50 text-slate-400 hover:text-slate-600 transition">
@@ -324,16 +324,16 @@ export function GlobalAgentsPage() {
             </div>
             
             {/* Modal Body */}
-            <div className="px-8 py-6 space-y-5">
+            <div className="flex-1 overflow-y-auto px-8 py-6 space-y-5">
               <div className="grid gap-5 sm:grid-cols-2">
                 <div className="space-y-2">
                   <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-                    Agent 名称 <span className="text-rose-500">*</span>
+                    成员名称 <span className="text-rose-500">*</span>
                   </label>
                   <input 
                     type="text" 
                     className="w-full px-4 py-3.5 rounded-xl bg-slate-50 border border-slate-200 focus:border-rose-400 focus:ring-4 focus:ring-rose-50 outline-none transition-all text-sm font-semibold"
-                    placeholder="例如：PM Agent"
+                    placeholder="例如：PM 成员"
                     value={formData.name} 
                     onChange={e => setFormData({...formData, name: e.target.value})} 
                   />
@@ -354,11 +354,11 @@ export function GlobalAgentsPage() {
               
               <div className="space-y-2">
                 <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-                  Agent 职责描述
+                  成员职责描述
                 </label>
                 <textarea 
                   className="w-full h-32 p-5 rounded-xl bg-slate-50 border border-slate-200 focus:border-rose-400 focus:ring-4 focus:ring-rose-50 outline-none transition-all text-sm font-medium resize-none"
-                  placeholder="描述该 Agent 擅长的领域、规则或工作流程..."
+                  placeholder="描述该成员擅长的领域、规则或工作流程..."
                   value={formData.description} 
                   onChange={e => setFormData({...formData, description: e.target.value})} 
                 />
@@ -376,14 +376,13 @@ export function GlobalAgentsPage() {
               <button
                 onClick={handleSubmit}
                 disabled={saving}
-                className="group relative px-6 py-2.5 rounded-xl font-bold text-sm text-white shadow-lg shadow-rose-500/25 disabled:opacity-50 disabled:cursor-not-allowed transition-all hover:shadow-xl hover:shadow-rose-500/30"
+                className="px-6 py-2.5 rounded-xl font-bold text-sm text-white bg-gradient-to-r from-rose-500 to-pink-500 shadow-lg shadow-rose-500/25 hover:from-rose-600 hover:to-pink-600 hover:shadow-xl hover:shadow-rose-500/30 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
               >
-                <span className="absolute inset-0 rounded-xl bg-gradient-to-r from-rose-600 to-pink-600 opacity-0 group-hover:opacity-100 transition-opacity" />
-                <span className="relative flex items-center gap-2">
+                <span className="flex items-center gap-2">
                   {saving ? (
                     <><Loader2 className="w-4 h-4 animate-spin" />保存中...</>
                   ) : (
-                    <><Save className="w-4 h-4" />{editingAgent ? '保存修改' : '创建 Agent'}</>
+                    <><Save className="w-4 h-4" />{editingAgent ? '保存修改' : '创建成员'}</>
                   )}
                 </span>
               </button>
