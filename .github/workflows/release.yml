@@ -27,15 +27,21 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Force official npm registry at all levels
+      - name: Configure clean npm registry
         run: |
-          # Override user-level npmrc (which has Aliyun configured)
-          echo 'registry=https://registry.npmjs.org/' > ~/.npmrc
-          echo 'strict-ssl=true' >> ~/.npmrc
-          # Also create project-level override
-          echo 'registry=https://registry.npmjs.org/' > .npmrc
-          # Verify
-          npm config get registry
+          # Override user-level npmrc with clean config
+          cat > ~/.npmrc << 'EOF'
+          registry=https://registry.npmjs.org/
+          strict-ssl=true
+          EOF
+          # Remove any existing auth tokens from all npmrc locations
+          npm config delete _auth 2>/dev/null || true
+          npm config delete _authToken 2>/dev/null || true
+          npm config delete //registry.npmjs.org/:_authToken 2>/dev/null || true
+          npm config delete //packages.aliyun.com/:_authToken 2>/dev/null || true
+          # Verify final config
+          npm config list
+          echo "---registry: $(npm config get registry)"
 
       - name: Install dependencies
         run: |
