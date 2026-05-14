@@ -22,16 +22,20 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Force official npm registry (override Aliyun mirror)
-        run: |
-          # Override at project level - this takes precedence over global/system config
-          echo 'registry=https://registry.npmjs.org/' > .npmrc
-          echo 'strict-ssl=true' >> .npmrc
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+
+      - name: Force official npm registry at all levels
+        run: |
+          # Override user-level npmrc (which has Aliyun configured)
+          echo 'registry=https://registry.npmjs.org/' > ~/.npmrc
+          echo 'strict-ssl=true' >> ~/.npmrc
+          # Also create project-level override
+          echo 'registry=https://registry.npmjs.org/' > .npmrc
+          # Verify
+          npm config get registry
 
       - name: Install dependencies
         run: |
