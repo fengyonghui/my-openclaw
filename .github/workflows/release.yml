@@ -32,9 +32,9 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pnpm install
-          pnpm install --dir backend
-          pnpm install --dir ui
+          pnpm install --ignore-scripts
+          pnpm install --dir backend --ignore-scripts
+          pnpm install --dir ui --ignore-scripts
 
       - name: Build
         run: pnpm run build
