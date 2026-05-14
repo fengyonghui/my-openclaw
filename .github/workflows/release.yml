@@ -27,36 +27,18 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Inspect all npm config sources
+      - name: Install dependencies
         run: |
-          echo "=== project .npmrc ===" && cat .npmrc 2>/dev/null || echo "(not found)"
-          echo "=== backend/.npmrc ===" && cat backend/.npmrc 2>/dev/null || echo "(not found)"
-          echo "=== ui/.npmrc ===" && cat ui/.npmrc 2>/dev/null || echo "(not found)"
-          echo "=== npm config ls -l (registry/auth only) ===" && npm config ls -l | grep -iE "registry|auth|token|@.*registry|aliyun|mirror" || echo "(no matches)"
-
-      - name: Install root + backend (verbose debug)
-        run: |
-          rm -f ui/package-lock.json backend/package-lock.json
-          npm cache clean --force
-          # Root install with verbose log
-          npm install --registry https://registry.npmjs.org/ --loglevel verbose > /tmp/npm-root.log 2>&1 || true
-          # Backend install with verbose log
-          npm install --prefix backend --registry https://registry.npmjs.org/ --loglevel verbose > /tmp/npm-backend.log 2>&1 || true
-          echo "=== ROOT LOG (last 10 lines) ===" && tail -10 /tmp/npm-root.log
-          echo "=== BACKEND LOG (last 10 lines) ===" && tail -10 /tmp/npm-backend.log
-          echo "=== BACKEND LOG (http lines) ===" && grep -iE "http|registry|fetch|401|error" /tmp/npm-backend.log | head -20
-
-      - name: Upload debug logs
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: npm-debug-logs
-          path: /tmp/npm-*.log
-
-      - name: Install UI dependencies
-        if: always()
-        run: |
-          npm install --prefix ui --registry https://registry.npmjs.org/
+          # Delete lock files that may contain Aliyun tarball URLs
+          rm -f backend/package-lock.json ui/package-lock.json
+          # Delete entire npm cache to force fresh fetches
+          rm -rf ~/.npm/_cacache
+          # Root install (small, ~concurrently only)
+          npm install --registry https://registry.npmjs.org/ --no-package-lock
+          # Backend install - prefer-offline=false forces fresh registry fetch
+          npm install --prefix backend --registry https://registry.npmjs.org/ --prefer-offline=false
+          # UI install
+          npm install --prefix ui --registry https://registry.npmjs.org/ --prefer-offline=false
 
       - name: Build
         run: npm run build
