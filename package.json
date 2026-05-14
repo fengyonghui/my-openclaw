@@ -1,0 +1,16 @@
+{
+  "name": "my-openclaw",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI coding agent with project isolation and team collaboration",
+  "scripts": {
+    "dev": "concurrently -n backend,frontend -c blue,green \"npm run dev --prefix backend\" \"npm run dev --prefix ui\"",
+    "build": "npm run build --prefix backend && npm run build --prefix ui",
+    "start": "node backend/dist/index.js",
+    "install:all": "npm install --prefix backend && npm install --prefix ui",
+    "clean": "npm run clean --prefix backend && npm run clean --prefix ui && rm -rf backend/dist ui/dist"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  }
+}
