@@ -22,24 +22,26 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Create .npmrc files
-        run: |
-          echo 'registry=https://registry.npmjs.org/' > backend/.npmrc
-          echo 'registry=https://registry.npmjs.org/' > ui/.npmrc
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-
-      - name: Install root dependencies
-        run: npm install
+          auth-only: false
 
       - name: Install backend dependencies
-        run: npm install --prefix backend
+        run: |
+          npm install --prefix backend --registry https://registry.npmjs.org/ --loglevel verbose 2>&1 | tee backend-npm.log
+          tail -20 backend-npm.log
+
+      - name: Upload npm debug log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-debug-logs
+          path: backend-npm.log
 
       - name: Install UI dependencies
-        run: npm install --prefix ui
+        run: npm install --prefix ui --registry https://registry.npmjs.org/
 
       - name: Build
         run: npm run build
@@ -52,6 +54,7 @@ jobs:
 
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v2
+        if: success()
         with:
           files: my-openclaw-*.tar.gz
           generate_release_notes: true
