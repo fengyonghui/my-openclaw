@@ -27,32 +27,21 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Configure clean npm registry
+      - name: Inspect all npm config sources
         run: |
-          # Override user-level npmrc with clean config
-          cat > ~/.npmrc << 'EOF'
-          registry=https://registry.npmjs.org/
-          strict-ssl=true
-          EOF
-          # Remove any existing auth tokens from all npmrc locations
-          npm config delete _auth 2>/dev/null || true
-          npm config delete _authToken 2>/dev/null || true
-          npm config delete //registry.npmjs.org/:_authToken 2>/dev/null || true
-          npm config delete //packages.aliyun.com/:_authToken 2>/dev/null || true
-          # Verify final config
-          npm config list
-          echo "---registry: $(npm config get registry)"
+          echo "=== ~/.npmrc ===" && cat ~/.npmrc
+          echo "=== project .npmrc ===" && cat .npmrc
+          echo "=== backend/.npmrc ===" && cat backend/.npmrc 2>/dev/null || echo "(not found)"
+          echo "=== ui/.npmrc ===" && cat ui/.npmrc 2>/dev/null || echo "(not found)"
+          echo "=== npm config ls -l ===" && npm config ls -l | grep -E "registry|@|auth|aliyun" | head -20
 
       - name: Install dependencies
         run: |
-          # Remove lock files that may contain cached Aliyun mirror URLs
-          rm -f ui/package-lock.json
-          rm -f backend/package-lock.json
-          # Clear npm cache to ensure fresh fetches from official registry
+          rm -f ui/package-lock.json backend/package-lock.json
           npm cache clean --force
-          npm install --registry https://registry.npmjs.org/ --prefer-offline=false
-          npm install --prefix backend --registry https://registry.npmjs.org/ --prefer-offline=false
-          npm install --prefix ui --registry https://registry.npmjs.org/ --prefer-offline=false
+          npm install --registry https://registry.npmjs.org/
+          npm install --prefix backend --registry https://registry.npmjs.org/
+          npm install --prefix ui --registry https://registry.npmjs.org/
 
       - name: Build
         run: npm run build
