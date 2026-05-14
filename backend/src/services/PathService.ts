@@ -45,15 +45,31 @@ export function getProjectWorkspacePath(workspace: string): string {
   return workspace.replace(/\\/g, '/');
 }
 
+// WSL/Linux 路径转 Windows 路径（/mnt/d/... → D:\...\）
+export function toWindowsPath(wslPath: string): string {
+  if (!wslPath) return '';
+
+  // 如果是 WSL /mnt/d/xxx 格式
+  const match = wslPath.match(/^\/mnt\/([a-z])\/(.*)$/);
+  if (match) {
+    const drive = match[1].toUpperCase();
+    const rest = match[2].replace(/\//g, '\\');
+    return `${drive}:\\${rest}`;
+  }
+
+  // 如果已经是 Windows 路径，返回原样
+  return wslPath;
+}
+
 // Windows 到 WSL 路径转换（用于需要 WSL 路径的场景）
 export function toWSLPath(windowsPath: string): string {
   if (!windowsPath) return '';
-  
+
   // 如果已经是 WSL 路径
   if (windowsPath.startsWith('/mnt/')) {
     return windowsPath.replace(/\\/g, '/');
   }
-  
+
   // Windows 驱动器路径
   const match = windowsPath.match(/^([a-zA-Z]):[/\\](.*)$/);
   if (match) {
@@ -61,8 +77,8 @@ export function toWSLPath(windowsPath: string): string {
     const rest = match[2].replace(/\\/g, '/');
     return `/mnt/${drive}/${rest}`;
   }
-  
+
   return windowsPath.replace(/\\/g, '/');
 }
 
-export default { toWSLPath, getProjectWorkspacePath, isWSL };
+export default { toWSLPath, toWindowsPath, getProjectWorkspacePath, isWSL };

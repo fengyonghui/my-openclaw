@@ -136,6 +136,7 @@ export function buildSystemMessage(
 - platform: **${sysInfo.platformName}** (${sysInfo.platform})
 - shell: **${sysInfo.shell}** (${sysInfo.shellPath})
 - workspace: \`${workspace}\`
+- workspace path format: **${workspace.includes('/mnt/') ? 'Unix-style (/mnt/d/...) — use Linux commands' : workspace.match(/^[a-z]:\\/i) ? 'Windows-style (D:\\...) — use Windows commands' : 'relative or other format'}**
 - path separator: \`${sysInfo.pathSeparator}\`
 
 ## SHELL COMMANDS (${sysInfo.platformName})
