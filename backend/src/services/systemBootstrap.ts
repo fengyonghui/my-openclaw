@@ -1,13 +1,8 @@
 /**
- * 系统引导服务 - 启动时自动写入当前系统的正确命令集
+ * 系统引导服务 - 启动时输出当前系统的正确命令集
  * 供 AI 上下文使用
- * 
- * 增强版：使用 SystemCommands 服务生成更完整的命令集
  */
 
-import { platform } from 'os';
-import { writeFileSync, existsSync, mkdirSync } from 'fs';
-import { join } from 'path';
 import { getSystemCommands, getSystemInfo } from './SystemCommands.js';
 
 interface CommandSet {
@@ -29,21 +24,12 @@ export function getCommandSet(): CommandSet {
 
 /**
  * 启动时引导
- * 生成系统命令配置文件
+ * 检测当前系统信息并输出到控制台
  */
 export function bootstrapSystemCommands(): CommandSet {
   // 调一次 getSystemInfo()，getSystemCommands() 内部不会再重复调用
   const sysInfo = getSystemInfo();
   const commands = getSystemCommands();
-
-  // 写入到项目的数据目录
-  const dataDir = join(process.cwd(), 'data');
-  if (!existsSync(dataDir)) {
-    mkdirSync(dataDir, { recursive: true });
-  }
-
-  const outputPath = join(dataDir, 'system-commands.json');
-  writeFileSync(outputPath, JSON.stringify(commands, null, 2));
 
   // 输出启动信息
   console.log('');
@@ -53,7 +39,6 @@ export function bootstrapSystemCommands(): CommandSet {
   console.log(`   Platform: ${sysInfo.platformName} (${sysInfo.platform})`);
   console.log(`   Shell: ${sysInfo.shell} (${sysInfo.shellPath})`);
   console.log(`   Login Shell: ${sysInfo.loginShell || 'N/A'}`);
-  console.log(`   Config: ${outputPath}`);
   console.log(`   API: GET http://localhost:3001/api/tools/commands`);
   console.log('═'.repeat(60));
   console.log('');

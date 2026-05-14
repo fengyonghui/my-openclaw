@@ -10,7 +10,7 @@
 
 import { platform, homedir, tmpdir } from 'os';
 import { execSync } from 'child_process';
-import { existsSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 
 // ============================================
@@ -657,30 +657,6 @@ export function isPathOverrideAllowed(envVar: string): boolean {
 }
 
 // ============================================
-// 文件持久化
-// ============================================
-
-/**
- * 将系统命令写入 JSON 文件
- */
-export function persistSystemCommands(): string {
-  const commands = getSystemCommands();
-  const sys = getSystemInfo();
-  
-  const dataDir = join(process.cwd(), 'data');
-  const outputPath = join(dataDir, 'system-commands.json');
-  
-  writeFileSync(outputPath, JSON.stringify(commands, null, 2));
-  
-  console.log(`✅ System commands written to: ${outputPath}`);
-  console.log(`   Platform: ${sys.platformName}`);
-  console.log(`   Shell: ${sys.shell}`);
-  console.log(`   API: GET http://localhost:3001/api/tools/commands`);
-  
-  return outputPath;
-}
-
-// ============================================
 // 导出
 // ============================================
 
@@ -692,6 +668,5 @@ export default {
   getMergedPath,
   isCommandSafe,
   isPathOverrideAllowed,
-  persistSystemCommands,
   COMMAND_MAPPINGS
 };
