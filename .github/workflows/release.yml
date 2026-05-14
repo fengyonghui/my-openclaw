@@ -25,22 +25,18 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
-      - name: Install root dependencies
-        run: npm install
-        env:
-          NODE_AUTH_TOKEN: ''
+      - name: Remove stale lock files (might have old auth tokens)
+        run: |
+          rm -f backend/package-lock.json
+          rm -f ui/package-lock.json
 
-      - name: Install backend dependencies
-        run: npm install --prefix backend
-        env:
-          NODE_AUTH_TOKEN: ''
-
-      - name: Install UI dependencies
-        run: npm install --prefix ui
-        env:
-          NODE_AUTH_TOKEN: ''
+      - name: Install dependencies
+        run: |
+          npm install
+          npm install --prefix backend
+          npm install --prefix ui
 
       - name: Build
         run: npm run build
