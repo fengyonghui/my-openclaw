@@ -27,31 +27,29 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Diagnose npm environment
+        run: |
+          echo "=== All env vars containing registry/npm/aliyun ==="
+          env | grep -iE "npm|registry|aliyun|npmjs" || echo "(none found)"
+          echo "=== npm config list ==="
+          npm config list
+          echo "=== npm config get registry ==="
+          npm config get registry
+          echo "=== system npmrc ==="
+          cat /etc/npmrc 2>/dev/null || echo "(none)"
+          echo "=== npm cache location ==="
+          npm config get cache
+
       - name: Install dependencies
         run: |
-          # Clear all npm registry environment variables that might override --registry flag
-          unset NPM_CONFIG_REGISTRY
-          unset NPM_REGISTRY
-          unset npm_config_registry
-
-          # Use a fresh temp cache directory to avoid Aliyun URL cache
-          export npm_config_cache=/tmp/npm-fresh-cache
+          rm -f backend/package-lock.json ui/package-lock.json
           rm -rf /tmp/npm-fresh-cache
           mkdir -p /tmp/npm-fresh-cache
-
-          rm -f backend/package-lock.json ui/package-lock.json
-
           npm install --registry https://registry.npmjs.org/ --no-package-lock
           npm install --prefix backend --registry https://registry.npmjs.org/
           npm install --prefix ui --registry https://registry.npmjs.org/
-
-      - name: Upload npm debug logs
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: npm-debug-logs
-          path: /tmp/npm-fresh-cache/
-          retention-days: 1
+        env:
+          npm_config_cache: /tmp/npm-fresh-cache
 
       - name: Build
         run: npm run build
