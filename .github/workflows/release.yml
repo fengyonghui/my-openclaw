@@ -22,23 +22,27 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node.js (no npm cache)
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: false  # Disable built-in npm cache that persists across runs
 
       - name: Install dependencies
         run: |
-          # Delete lock files that may contain Aliyun tarball URLs
           rm -f backend/package-lock.json ui/package-lock.json
-          # Delete entire npm cache to force fresh fetches
           rm -rf ~/.npm/_cacache
-          # Root install (small, ~concurrently only)
           npm install --registry https://registry.npmjs.org/ --no-package-lock
-          # Backend install - prefer-offline=false forces fresh registry fetch
           npm install --prefix backend --registry https://registry.npmjs.org/ --prefer-offline=false
-          # UI install
           npm install --prefix ui --registry https://registry.npmjs.org/ --prefer-offline=false
+
+      - name: Upload npm debug logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-debug-logs
+          path: /home/runner/.npm/_logs/
+          retention-days: 1
 
       - name: Build
         run: npm run build
