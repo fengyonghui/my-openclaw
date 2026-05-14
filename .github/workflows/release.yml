@@ -48,9 +48,11 @@ jobs:
           # Remove lock files that may contain cached Aliyun mirror URLs
           rm -f ui/package-lock.json
           rm -f backend/package-lock.json
-          npm install --registry https://registry.npmjs.org/
-          npm install --prefix backend --registry https://registry.npmjs.org/
-          npm install --prefix ui --registry https://registry.npmjs.org/
+          # Clear npm cache to ensure fresh fetches from official registry
+          npm cache clean --force
+          npm install --registry https://registry.npmjs.org/ --prefer-offline=false
+          npm install --prefix backend --registry https://registry.npmjs.org/ --prefer-offline=false
+          npm install --prefix ui --registry https://registry.npmjs.org/ --prefer-offline=false
 
       - name: Build
         run: npm run build
