@@ -27,18 +27,21 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Configure npm for public packages
+        run: |
+          npm config set registry https://registry.npmjs.org/
+          npm config delete username || true
+          npm config delete _auth || true
+          npm config delete _authToken || true
+
       - name: Install root dependencies
         run: npm install
 
       - name: Install backend dependencies
-        run: npm install --prefix backend
-        env:
-          NODE_AUTH_TOKEN: ''
+        run: npm install --prefix backend --registry https://registry.npmjs.org/
 
       - name: Install UI dependencies
-        run: npm install --prefix ui
-        env:
-          NODE_AUTH_TOKEN: ''
+        run: npm install --prefix ui --registry https://registry.npmjs.org/
 
       - name: Build
         run: npm run build
