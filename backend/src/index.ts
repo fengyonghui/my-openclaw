@@ -1,5 +1,7 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import fastifyStatic from '@fastify/static';
+import { join } from 'path';
 import { ProjectRoutes } from './routes/projects.js';
 import { AgentRoutes } from './routes/agents.js';
 import { ChatRoutes } from './routes/chats.js';
@@ -40,6 +42,20 @@ await fastify.register(SystemCommandsRoutes, { prefix: '/api/tools' });
 await fastify.register(HeartbeatRoutes, { prefix: '/api/v1/heartbeats' });
 await fastify.register(FeatureFlagsRoutes, { prefix: '/api/v1/flags' });
 
+// --- Serve built frontend in production ---
+const uiDistPath = join(process.cwd(), 'ui', 'dist');
+await fastify.register(fastifyStatic, {
+  root: uiDistPath,
+  prefix: '/',
+  decorateReply: false,
+  wildcard: false,
+});
+
+// SPA fallback — all non-API routes serve index.html
+fastify.setNotFoundHandler((request, reply) => {
+  reply.sendFile('index.html');
+});
+
 // --- Start Server ---
 try {
   // 启动时写入当前系统的正确命令集
@@ -49,7 +65,7 @@ try {
   await restoreHeartbeats();
   
   await fastify.listen({ port: 3001, host: '0.0.0.0' });
-  console.log('🚀 OpenClaw Backend running on http://localhost:3001');
+  console.log(`🚀 OpenClaw Backend + Frontend running on http://localhost:3001`);
 } catch (err) {
   fastify.log.error(err);
   process.exit(1);
