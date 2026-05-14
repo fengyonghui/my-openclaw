@@ -132,12 +132,44 @@
       "projectAgents": [],
       "coordinatorAgentId": "1",
       "createdAt": "2026-04-13T07:19:32.605Z"
+    },
+    {
+      "id": "onewindow-dify",
+      "name": "onewindow-dify",
+      "description": "onewindow-dify",
+      "workspace": "D:\\workspace\\onewindow\\onewindow-dify",
+      "defaultAgentId": "1",
+      "defaultModel": "mx27",
+      "ignorePatterns": [
+        "node_modules",
+        ".git",
+        "dist",
+        ".DS_Store",
+        "package-lock.json"
+      ],
+      "enabledSkillIds": [
+        "builtin-file-io",
+        "builtin-inline-python-edit",
+        "builtin-shell-cmd",
+        "1774673108386",
+        "1774673158506"
+      ],
+      "projectSkills": [],
+      "enabledAgentIds": [
+        "1",
+        "2",
+        "1774659173367",
+        "1774670276206"
+      ],
+      "projectAgents": [],
+      "coordinatorAgentId": "1",
+      "createdAt": "2026-05-12T09:10:18.968Z"
     }
   ],
   "agents": [
     {
       "id": "1",
-      "name": "PM Agent",
+      "name": "产品经理",
       "role": "高级产品经理",
       "model": "gpt-4o",
       "status": "ready",
@@ -147,7 +179,7 @@
     },
     {
       "id": "2",
-      "name": "Backend Agent",
+      "name": "后端",
       "role": "API / DB / 服务设计",
       "model": "claude-3-5-sonnet",
       "status": "busy",
@@ -171,7 +203,7 @@
       "type": "custom",
       "id": "1774670276206",
       "status": "idle",
-      "defaultModelId": "minimaxai/minimax-m2.5"
+      "defaultModelId": "mx27"
     }
   ],
   "chats": [
@@ -533,6 +565,318 @@
     }
   ],
   "memories": [
+    {
+      "id": "1778589167895",
+      "projectId": "onewindow-dify",
+      "category": "项目信息",
+      "content": "[自动提取] 提取了 onewindow-dify 项目的架构、技术栈及核心业务逻辑，并记录了用户将信息持久化到 MEMORY.md 的要求。\n\n- 基于 Spring Cloud + Dify 的政务智能助手后端，包含知识库管理、聊天和数据同步功能。\n- 项目包含 parent、core、base 三个模块，涉及事项、证照等 7 种政务数据同步。\n- 技术栈选用 Spring Cloud、Nacos、MyBatis-Plus，并使用 Feign 调用 Dify API。\n- 要求将项目学习内容记录在 MEMORY.md 文件中，以便在不同对话间共享。",
+      "source": "auto_extract",
+      "createdAt": "2026-05-12T12:32:47.895Z"
+    },
+    {
+      "id": "1778489061782",
+      "projectId": "onewindow-mcp",
+      "category": "项目信息",
+      "content": "[自动提取] 完成了 AnonTicketController 接口的接入，在 HallTool.java 中新增了 8 个 MCP 工具并成功注册与提交。\n\n- 接入了 AnonTicketController 相关的 8 个 MCP 工具，如票号详情查询、等候状态等。\n- 项目核心文件包含 HallTool.java、McpToolRegistry.java 和 HallFeignClient.java。\n- 通过 HallFeignClient 定义接口，并在 McpToolRegistry.java 中进行工具注册。\n- 代码已提交至 master 分支，Commit ID 为 f154b18，新增代码 541 行。",
+      "source": "auto_extract",
+      "createdAt": "2026-05-11T08:44:21.782Z"
+    },
+    {
+      "id": "1778488965014",
+      "projectId": "onewindow-mcp",
+      "category": "项目信息",
+      "content": "[自动提取] 成功为 onewindow-mcp 项目集成了 OneWindowEs、AppXZYD 和 GovernmentServiceHall 三个宿主项目的多个 MCP 工具。\n\n- 接入 AppXZYD 宿主项目，涉及 OwBizDeptImplementController 接口。\n- 接入 GovernmentServiceHall 宿主项目，涉及 AnonTicketController 接口。\n- MCP 工具命名遵循前缀分类格式（如 biz_、hall_、es_）。\n- 在接入新接口时需保持现有项目结构。\n- 用户习惯提供宿主项目的绝对路径，并要求完成开发后执行 Git 提交与推送。",
+      "source": "auto_extract",
+      "createdAt": "2026-05-11T08:42:45.014Z"
+    },
+    {
+      "id": "1778488524858",
+      "projectId": "onewindow-mcp",
+      "category": "项目信息",
+      "content": "[自动提取] 正在为 onewindow-mcp 项目接入 AppXZYD 和 GovernmentServiceHall 两个宿主系统的接口并封装为 MCP 工具。\n\n- 接入了 AppXZYD 宿主项目的 getHallInfoByImplId 接口，工具名为 biz_getHallInfoByImplId。\n- 接入了 GovernmentServiceHall 宿主项目的 AnonTicketController 下的所有接口。\n- 已实现 es_searchByConfig 工具，对接宿主系统的 ES 多条件搜索接口。\n- MCP 工具采用“模块_方法名”或“功能描述”的命名方式，并配套相应的 DTO 文件。\n- 要求在开发过程中保持现有项目结构，并明确授权助手读取宿主项目文件。\n- 宿主项目路径位于 D:\\workspace\\onewindow\\ 下的多个子目录中。",
+      "source": "auto_extract",
+      "createdAt": "2026-05-11T08:35:24.858Z"
+    },
+    {
+      "id": "1778472681600",
+      "projectId": "onewindow-mcp",
+      "category": "项目信息",
+      "content": "[自动提取] 修复了 Feign 调用超时问题，并清理了 Git 仓库中误追踪的临时和配置目录。\n\n- 项目包含 robot 和 hall 服务，其中 robot 服务涉及 AI 问答等长耗时接口。\n- 在 bootstrap 配置文件中按服务差异化配置 Feign 超时（robot 3分钟，hall 30秒）。\n- 增加 FeignConfig.java 并配置 Request.Options Bean 作为代码层超时兜底。\n- 通过 .gitignore 忽略并从 Git 索引中移除 target/、logs/、.idea/、data/ 等目录。",
+      "source": "auto_extract",
+      "createdAt": "2026-05-11T04:11:21.600Z"
+    },
+    {
+      "id": "1778472602433",
+      "projectId": "onewindow-mcp",
+      "category": "项目信息",
+      "content": "[自动提取] 修复了 Feign 调用超时问题，优化了环境配置，并清理了 Git 追踪的冗余目录。\n\n- 项目包含 AI 问答业务接口 robot_getAnswer，处理时间较长。\n- 为 Feign 配置默认连接超时 5s，读取超时 12s，解决 AI 接口调用超时问题。\n- 通过 bootstrap-dev.yml 和 bootstrap-prod.yml 实现开发与生产环境的配置隔离。\n- 从 Git 追踪中移除了 target/、logs/、.idea/ 等本应被忽略的目录。",
+      "source": "auto_extract",
+      "createdAt": "2026-05-11T04:10:02.433Z"
+    },
+    {
+      "id": "1778472271502",
+      "projectId": "onewindow-mcp",
+      "category": "项目信息",
+      "content": "[自动提取] 修复了 Feign 调用超时问题，并明确了 Spring Cloud OpenFeign 的配置自动注入机制。\n\n- 项目包含 AI 问答业务（如 robot_getAnswer），该接口处理时间较长，易触发默认超时。\n- 在 bootstrap-dev.yml 等文件中配置 Feign 的连接和读取超时，解决接口调用断开问题。\n- 修复涉及 3 个文件，包括 YAML 配置层和 FeignConfig.java 代码层。\n- 项目使用 Spring Cloud OpenFeign，并利用 bootstrap 配置文件进行环境差异化配置。",
+      "source": "auto_extract",
+      "createdAt": "2026-05-11T04:04:31.502Z"
+    },
+    {
+      "id": "1778471729762",
+      "projectId": "onewindow-mcp",
+      "category": "项目信息",
+      "content": "[自动提取] 修复了 onewindow-mcp 项目中因 Feign 默认超时设置过短导致的 AI 接口调用失败问题。\n\n- 项目包含 AI 问答（robot_getAnswer）业务，涉及 MCP 工具调用。\n- 使用 Spring Cloud OpenFeign 进行服务间调用。\n- 在 bootstrap-dev.yml 和 bootstrap-prod.yml 中显式配置 Feign 超时时间。\n- 解决了 Feign 默认 readTimeout（约10秒）不足以处理长时间 AI 响应的问题。",
+      "source": "auto_extract",
+      "createdAt": "2026-05-11T03:55:29.762Z"
+    },
+    {
+      "id": "1778227559264",
+      "projectId": "onewindow-mcp",
+      "category": "技术决策",
+      "content": "[自动提取] 优化了 Feign 配置，取消了鉴权 Header 的黑名单限制并增强了 Header 透传与注入的日志打印。\n\n- 修改 FeignConfig 去掉鉴权 Header 黑名单，允许透传上游的 sign、token 等值。\n- 在 Feign 调用逻辑中增加逐条打印透传 Header 和注入 Header 的日志功能。\n- FeignConfig.java 负责处理服务间调用的 Header 传递、签名计算及日志记录。\n- 用户偏好在调试时通过日志完整查看所有注入和透传的 Header 明细。",
+      "source": "auto_extract",
+      "createdAt": "2026-05-08T08:05:59.264Z"
+    },
+    {
+      "id": "1778227420835",
+      "projectId": "onewindow-mcp",
+      "category": "技术决策",
+      "content": "[自动提取] 修复了 Feign 配置中的签名注入逻辑，并根据用户要求取消了 Header 透传黑名单，增加了透传日志记录。\n\n- Feign 签名注入逻辑由空字符串改为 null，并增加注入前的判断与警告日志。\n- 用户要求取消 Header 透传黑名单（如 sign、token 等），直接透传上游值。\n- 在 Feign 透传 Header 时，逐条打印每个 Header 的键值对以便调试。\n- 涉及核心配置文件为 src/main/java/cn/onewindow/mcp/config/FeignConfig.java。",
+      "source": "auto_extract",
+      "createdAt": "2026-05-08T08:03:40.835Z"
+    },
+    {
+      "id": "1778227253788",
+      "projectId": "onewindow-mcp",
+      "category": "项目信息",
+      "content": "[自动提取] 修复了 FeignConfig 中 sign 变量因初始为空字符串导致无法注入及日志缺失的问题，并优化了拦截器逻辑。\n\n- 项目包含 Feign 拦截器配置 FeignConfig 及 API 签名工具类 SignUtil。\n- Feign 拦截器顺序：注入 route、注入 token/secret/timestamp、计算并注入 sign、透传上游 Header。\n- 修复 sign 注入：初始值由 \"\" 改为 null，注入前增加非空判断并添加 WARN 日志。\n- 用户要求即使 Header 被覆盖，也应在 Feign 日志中打印出来以便排查问题。",
+      "source": "auto_extract",
+      "createdAt": "2026-05-08T08:00:53.788Z"
+    },
+    {
+      "id": "1778227076909",
+      "projectId": "onewindow-mcp",
+      "category": "项目信息",
+      "content": "[自动提取] 排查了 Feign 拦截器中 sign 请求头未正确打印的问题，确认了拦截器执行顺序及签名注入逻辑。\n\n- 项目使用 Feign 拦截器 `routeHeaderInterceptor` 处理 Header 透传和签名注入。\n- 接口安全机制包含 token、secret、timestamp 以及基于业务参数生成的 sign 签名。\n- 拦截器执行顺序：注入 route、注入基础信息、计算并注入 sign、透传上游 Header 并打印日志。\n- 使用 `SignUtil` 工具类实现与前端 JS 逻辑对标的接口参数签名。\n- 修复 `FeignConfig` 中 `sign` 变量可能因初始化为空字符串且赋值失败导致注入空值的问题。",
+      "source": "auto_extract",
+      "createdAt": "2026-05-08T07:57:56.909Z"
+    },
+    {
+      "id": "1778226922616",
+      "projectId": "onewindow-mcp",
+      "category": "项目信息",
+      "content": "[自动提取] 调查了 Feign 拦截器中 Header 注入逻辑及日志打印位置，发现 sign 注入后可能被后续步骤覆盖。\n\n- FeignConfig.java 位于 src/main/java/cn/onewindow/mcp/config。\n- routeHeaderInterceptor 拦截器包含注入 route、token、计算 sign 及透传 Header 四步。\n- 使用 Feign 拦截器统一处理请求头，包括 sign 签名计算和上游 Header 透传。\n- 日志“[Feign] 透传请求 Header 数量”在 Header 透传逻辑执行后打印。",
+      "source": "auto_extract",
+      "createdAt": "2026-05-08T07:55:22.616Z"
+    },
+    {
+      "id": "1778226620392",
+      "projectId": "onewindow-mcp",
+      "category": "项目信息",
+      "content": "[自动提取] 定位了 Feign 透传 Header 的日志来源及相关配置代码位置。\n\n- 项目包含 cn.onewindow.mcp.config.FeignConfig 类，负责 Feign 配置。\n- 存在 HallFeignClient 接口，用于调用远程服务接口。\n- 在 FeignConfig 中通过 routeHeaderInterceptor 拦截器实现上游请求 Header 的透传。\n- 使用 RequestHeaderContext 类来获取和管理请求头信息。",
+      "source": "auto_extract",
+      "createdAt": "2026-05-08T07:50:20.392Z"
+    },
+    {
+      "id": "1778209479085",
+      "projectId": "onewindow-mcp",
+      "category": "项目信息",
+      "content": "[自动提取] 实现了宿主接口调用的参数签名功能，包括 SignUtil 工具类和 Feign 拦截器配置。\n\n- 宿主接口调用前需进行参数签名鉴权，逻辑需与 JS 端 encParams 保持一致。\n- 新建 util/SignUtil.java 工具类，用于实现参数过滤和签名计算逻辑。\n- 修改 config/FeignConfig.java，通过拦截器提取参数并在 Header 中注入 sign。\n- 签名逻辑中需过滤掉值为 null、undefined 或空字符串的参数。",
+      "source": "auto_extract",
+      "createdAt": "2026-05-08T03:04:39.085Z"
+    },
+    {
+      "id": "1778209093300",
+      "projectId": "onewindow-mcp",
+      "category": "项目信息",
+      "content": "[自动提取] 修复了 robot_getAnswer 接口 userId 获取优先级问题，并实现了请求 Header 的全局透传及 ApiToken 工具类。\n\n- McpToolRegistry 负责注册 robot_getAnswer 等工具，其执行器包含具体的业务逻辑。\n- McpJsonRpcController 和 McpProtocolController 是 Header 提取的入口。\n- 修正 userId 获取逻辑：优先从透传 Header 的 UC-id 中获取，而非仅从工具参数中获取。\n- 通过 FeignConfig 全局拦截器实现请求 Header 向宿主项目的透传。\n- 引入 ApiToken DTO 和 ApiTokenUtil 工具类用于统一管理 Token 信息。\n- 在 Controller 中采用 setFromRequest 并在 finally 块中 clear 的模式管理 ThreadLocal。",
+      "source": "auto_extract",
+      "createdAt": "2026-05-08T02:58:13.300Z"
+    },
+    {
+      "id": "1778140683845",
+      "projectId": "onewindow-mcp",
+      "category": "技术决策",
+      "content": "[自动提取] 实现了通过 ThreadLocal 和 Feign 拦截器将请求 Header 透传至宿主项目的功能，并完成了编译验证与代码推送。\n\n- 使用 ThreadLocal (RequestHeaderContext) 存储并透传请求 Header。\n- 通过 Feign 拦截器实现全局注入 route=feign 请求头及透传其他 Header。\n- 在 McpJsonRpcController 和 McpProtocolController 中统一处理 Header 提取与清理。\n- 项目已实现 MCP SSE 端点支持 Dify 连接。\n- 代码已推送至 codeup.aliyun.com:onewindow-tech/onewindow-mcp.git。",
+      "source": "auto_extract",
+      "createdAt": "2026-05-07T07:58:03.845Z"
+    },
+    {
+      "id": "1778134066238",
+      "projectId": "onewindow-mcp",
+      "category": "项目信息",
+      "content": "[自动提取] 实现了通过 ThreadLocal 和 Feign 拦截器将 MCP 客户端请求头透传至宿主项目的功能，并完成了编译验证与代码推送。\n\n- 项目实现了将 MCP 客户端 Header（如 Authorization、UC-id）透传至宿主项目的业务逻辑。\n- 采用 ThreadLocal (RequestHeaderContext) 存储请求头，供 Feign 拦截器在调用时读取。\n- 请求头在提取时统一将 Key 转换为小写，并提供只读 Map 访问。\n- 所有 Feign 调用均全局注入 `route=feign` 请求头，对应提交记录 16ac399。\n- 项目包含 McpJsonRpcController、McpProtocolController、FeignConfig 等核心组件。",
+      "source": "auto_extract",
+      "createdAt": "2026-05-07T06:07:46.238Z"
+    },
+    {
+      "id": "1778133675136",
+      "projectId": "onewindow-mcp",
+      "category": "项目信息",
+      "content": "[自动提取] 实现了通过 ThreadLocal 和 Feign 拦截器将 MCP 请求 Header 透传至宿主项目的功能。\n\n- 实现了从 MCP Client 到宿主项目的 Header 透传功能。\n- 使用 ThreadLocal (RequestHeaderContext) 存储并传递请求 Header。\n- 通过 Feign 拦截器从 ThreadLocal 中读取 Header 并进行转发。\n- 在提取 Header 时，将 Key 统一转换为小写存储。\n- 新增了 RequestHeaderContext.java 类用于管理请求上下文。",
+      "source": "auto_extract",
+      "createdAt": "2026-05-07T06:01:15.136Z"
+    },
+    {
+      "id": "1778133475635",
+      "projectId": "onewindow-mcp",
+      "category": "技术决策",
+      "content": "[自动提取] 实现了 Feign 全局请求头注入，并建立了从 MCP 请求到 Feign 调用的 Header 传递链路。\n\n- 采用 Feign 全局 RequestInterceptor 统一注入 route=feign 请求头，降低维护成本。\n- 建立了 MCP 请求 Header 传递链路：Controller 存入 ThreadLocal，再由 Feign 拦截器读取。\n- 使用 RequestHeaderContext 类封装 ThreadLocal 逻辑，实现请求头在线程间的透传。\n- 倾向于通过更新 MEMORY.md 文件来持久化记录项目的技术决策和变更历史。",
+      "source": "auto_extract",
+      "createdAt": "2026-05-07T05:57:55.635Z"
+    },
+    {
+      "id": "1778133189843",
+      "projectId": "onewindow-mcp",
+      "category": "项目信息",
+      "content": "[自动提取] 为项目中的所有 Feign 客户端统一配置了全局请求头拦截器，以注入特定的路由标识。\n\n- 项目包含 Robot、Hall、Es、AppXzyd 等多个 Feign 业务客户端模块。\n- 在 FeignConfig 中实现 RequestInterceptor，统一为请求注入 route=feign 头部。\n- 选择全局拦截器方案而非逐个接口添加注解，旨在降低维护成本并确保一致性。\n- 更新了 MEMORY.md 文件，用于记录项目的技术决策和变更历史。",
+      "source": "auto_extract",
+      "createdAt": "2026-05-07T05:53:09.843Z"
+    },
+    {
+      "id": "1778132934107",
+      "projectId": "onewindow-mcp",
+      "category": "项目信息",
+      "content": "[自动提取] 为 Feign 请求配置了全局拦截器以添加特定的路由 Header。\n\n- 宿主项目要求 Feign 请求需携带 Header：route=feign。\n- 在 FeignConfig.java 中通过全局 RequestInterceptor 统一添加 Header。\n- 选择全局拦截器方案而非逐个接口配置，以降低维护成本。",
+      "source": "auto_extract",
+      "createdAt": "2026-05-07T05:48:54.107Z"
+    },
+    {
+      "id": "1777615581244",
+      "projectId": "onewindow-dv",
+      "category": "技术决策",
+      "content": "[自动提取] 确认“助手配置管理”模块尚未实现且原型中无定义，需明确功能需求；已完成前端代码分割优化。\n\n- 已完成前端代码分割，主要 chunk 包括 echarts-core (1.1MB) 和 vis (521KB)。\n- “助手配置管理”模块目前在 App.tsx 中仅为占位符，显示“正在迁移中...”。\n- 经检查 HTML 原型，未发现“助手配置管理”模块的具体 UI 设计或功能定义。\n- 需明确并实现“助手配置管理”模块的具体功能，如 AI 参数配置、系统参数或 Prompt 模板管理。",
+      "source": "auto_extract",
+      "createdAt": "2026-05-01T06:06:21.244Z"
+    },
+    {
+      "id": "1777615281984",
+      "projectId": "onewindow-dv",
+      "category": "技术决策",
+      "content": "[自动提取] 完成了前端构建体积优化和代码分割，并确认了“助手配置管理”模块目前仅为占位符，需进一步开发。\n\n- 通过 Vite 配置实现了代码分割，将 ECharts、vis-network 等大库拆分为独立 chunk。\n- QueryModule.tsx 组件集成了 ECharts 和 lucide-react 用于数据查询与可视化展示。\n- 优化后主包 index.js 体积从 1.8MB 降至约 60kB，显著提升加载性能。\n- 实现“助手配置管理”模块，需确认包含 AI 参数、系统参数或 Prompt 模板管理功能。",
+      "source": "auto_extract",
+      "createdAt": "2026-05-01T06:01:21.984Z"
+    },
+    {
+      "id": "1777615162721",
+      "projectId": "onewindow-dv",
+      "category": "项目信息",
+      "content": "[自动提取] 修复了前端编译错误并根据用户建议完成了代码分割优化。\n\n- 前端代码位于 ui 目录，依赖 vis-network、vis-data、axios 和 echarts。\n- 移除 RelationsModule.tsx 中未使用的 loading 状态及相关 setter 以修复编译错误。\n- 当单个 chunk 超过 500KB 时，建议进行代码分割优化。\n- 实施代码分割，将 echarts-core、vis、react-vendor 等库拆分为独立 chunk。",
+      "source": "auto_extract",
+      "createdAt": "2026-05-01T05:59:22.721Z"
+    },
+    {
+      "id": "1777614573102",
+      "projectId": "onewindow-dv",
+      "category": "技术决策",
+      "content": "[自动提取] 修复了后端 Java 注解冲突及 Mapper 缺失问题，并解决了前端依赖缺失和代码清理问题，确保项目整体编译通过。\n\n- Java 中 @TableField 注解不能重复，需合并使用 value 和 fill 属性。\n- 用户希望助手能主动验证项目编译情况并直接修复编译问题。\n- 前端项目使用 Vite 架构，依赖 vis-network、vis-data 和 axios。\n- 通过安装缺失依赖、移除未使用导入和状态来解决前端编译错误。",
+      "source": "auto_extract",
+      "createdAt": "2026-05-01T05:49:33.102Z"
+    },
+    {
+      "id": "1777614132655",
+      "projectId": "onewindow-dv",
+      "category": "项目信息",
+      "content": "[自动提取] 修复了后端编译错误，包括补全缺失的 Mapper 文件和修正重复的 MyBatis Plus 注解，确保项目成功编译。\n\n- 项目使用 Java 和 MyBatis Plus 框架，包含 AiReport 和 ForeignRelation 实体。\n- 修正 @TableField 注解不能重复使用的问题，将列名和填充策略合并为单个注解。\n- 用户希望助手能直接验证项目的编译情况并修复发现的编译问题。\n- 补全了缺失的 AiReportMapper.java 文件以解决编译失败问题。",
+      "source": "auto_extract",
+      "createdAt": "2026-05-01T05:42:12.655Z"
+    },
+    {
+      "id": "1777614057739",
+      "projectId": "onewindow-dv",
+      "category": "项目信息",
+      "content": "[自动提取] 修复了项目中缺失的 Mapper 文件以及实体类中重复注解导致的编译错误。\n\n- 项目包含 AiReport、QueryLog、AiQueryHistory 和 ForeignRelation 等实体类。\n- 后端使用 MyBatis Plus 框架，Mapper 接口需继承 BaseMapper。\n- Java 中 @TableField 注解不可重复，需将列名和填充策略合并在同一个注解内。\n- 在 backend 对应目录下补全了缺失的 AiReportMapper.java 文件。",
+      "source": "auto_extract",
+      "createdAt": "2026-05-01T05:40:57.739Z"
+    },
+    {
+      "id": "1777613991769",
+      "projectId": "onewindow-dv",
+      "category": "项目信息",
+      "content": "[自动提取] 修复了后端编译时找不到 AiReportMapper 的问题，并确认了项目使用 MyBatis-Plus 框架及部分包结构。\n\n- 后端代码路径包含 com.onewindow.aichart，涉及 ReportController 和 AiReport 实体。\n- 使用 MyBatis-Plus 框架，AiReportMapper 继承自 BaseMapper。\n- 项目包结构包含 mapper 和 entity，存在 AiReport 实体类。",
+      "source": "auto_extract",
+      "createdAt": "2026-05-01T05:39:51.769Z"
+    },
+    {
+      "id": "1777613570908",
+      "projectId": "onewindow-dv",
+      "category": "项目信息",
+      "content": "[自动提取] 完成了从单文件 HTML 原型到 React + TypeScript 生产级架构的工程化重构，涵盖了看板、审计和查询等核心模块。\n\n- 项目名为 Onewindow-AIChart，目标是将 HTML 原型重构为 React + TS 架构。\n- 标准目录结构包括 ui/src/api（接口）、ui/src/components（组件）及 App.tsx 入口。\n- 采用 Axios 封装 API 通信层，实现类型安全的接口调用。\n- 看板模块（DashboardModule）支持动态加载、实时刷新及响应式 Grid 布局。\n- 智能查询模块支持自然语言提问、SQL 预览、ECharts 渲染及双视图切换。\n- 已完成看板模块、审计模块、智能查询及外键维护模块的迁移工作。",
+      "source": "auto_extract",
+      "createdAt": "2026-05-01T05:32:50.908Z"
+    },
+    {
+      "id": "1777613234277",
+      "projectId": "onewindow-dv",
+      "category": "项目信息",
+      "content": "[自动提取] 正在将 onewindow-dv 项目的前端从 HTML 原型迁移至 React + TypeScript 架构，已完成 API 层及核心模块的拆解与实现。\n\n- 前端项目名为 aichart-ui，目录结构包含 api/、components/ 及主入口 App.tsx。\n- 看板模块支持动态加载卡片，通过调用 queryApi.execute 接口根据 SQL 实时渲染图表。\n- 采用 React + TypeScript + Vite 技术栈，并使用 Axios 统一管理后端接口调用。\n- 看板模块采用响应式 Grid 布局，并针对单个报表加载失败增加了错误处理机制。\n- 继续完成剩余组件的迁移工作，目前工程化迁移进度约为 80%。",
+      "source": "auto_extract",
+      "createdAt": "2026-05-01T05:27:14.277Z"
+    },
+    {
+      "id": "1777613154220",
+      "projectId": "onewindow-dv",
+      "category": "项目信息",
+      "content": "[自动提取] 项目实现了报表保存与看板功能，并正式启动了从 HTML 原型向 React+TS 架构的前端工程化重构。\n\n- 实现了“自定义报表看板保存”功能，支持持久化存储 SQL、图表类型及元数据。\n- 后端新增 AiReport 实体类及 ReportController 控制器，用于报表管理。\n- 前端架构从单文件 HTML 原型重构为 React + TypeScript 生产级架构。\n- 前端引入 Axios 并在 ui/src/api/ 目录下统一管理后端接口调用。\n- 执行“任务 A：前端工程化重构”，将原型拆解为组件化代码并完善目录结构。",
+      "source": "auto_extract",
+      "createdAt": "2026-05-01T05:25:54.220Z"
+    },
+    {
+      "id": "1777613072630",
+      "projectId": "onewindow-dv",
+      "category": "项目信息",
+      "content": "[自动提取] 实现了自定义报表看板保存功能，并明确了当前前端代码为高保真功能原型的技术定位。\n\n- 实现了“保存到看板”功能，支持持久化存储AI生成的SQL、图表类型及原始问题元数据。\n- 项目正从查询工具向BI平台演进，包含后端实体、控制器及前端看板界面。\n- 前端代码定位为“高保真功能原型”，目前采用HTML/CSS/JS单文件架构。\n- 后端采用Java实现，包含AiReport实体和ReportController，并使用SQL迁移管理数据库。",
+      "source": "auto_extract",
+      "createdAt": "2026-05-01T05:24:32.630Z"
+    },
+    {
+      "id": "1777612675211",
+      "projectId": "onewindow-dv",
+      "category": "项目信息",
+      "content": "[自动提取] 完成了Redis缓存优化、审计日志功能以及自定义报表看板的保存与展示功能，项目向BI平台演进。\n\n- 项目正从AI查询工具演进为具备看板管理能力的商业智能（BI）平台。\n- 在 ForeignRelationServiceImpl 中集成 Spring Cache，使用 Redis 缓存外键关系。\n- 通过 AuditController 暴露 AiQueryHistory 数据，实现查询审计日志的全链路开发。\n- 新增“保存到看板”功能，支持持久化存储 AI 生成的 SQL、图表类型及元数据。\n- 更新了 ui/integrated_dashboard.html，添加了“审计日志”和“我的看板”功能标签页。",
+      "source": "auto_extract",
+      "createdAt": "2026-05-01T05:17:55.211Z"
+    },
+    {
+      "id": "1777612398289",
+      "projectId": "onewindow-dv",
+      "category": "技术决策",
+      "content": "[自动提取] 完成了后端统一响应框架、Redis缓存优化、审计日志开发及前端UI体验升级。\n\n- 后端采用 Result<T> 统一响应格式，并实现 GlobalExceptionHandler 全局异常拦截。\n- 前端 UI 引入 Toast 通知系统、骨架屏加载状态及响应式布局优化。\n- 使用 Redis (Spring Cache) 缓存外键关系，缓存键为 ai:relations::all。\n- 完成了任务 D-03 (Redis 缓存) 与 D-04 (审计日志) 的全链路开发。\n- 用户倾向于并行处理多个开发任务（如同时进行 D-03 和 D-04）。",
+      "source": "auto_extract",
+      "createdAt": "2026-05-01T05:13:18.289Z"
+    },
+    {
+      "id": "1777612130884",
+      "projectId": "onewindow-dv",
+      "category": "项目信息",
+      "content": "[自动提取] 完成了外键拓扑图与导出功能，并根据生产级标准重构了后端响应框架与异常处理机制。\n\n- 核心UI文件为 ui/integrated_dashboard.html，包含外键维护与查询导出功能。\n- 集成 vis-network 库实现外键关系拓扑图，支持节点拖拽与关联关系高亮。\n- 集成 SheetJS (XLSX) 实现 Excel 导出，利用 ECharts 原生功能导出图表。\n- 后端引入 Result<T> 统一响应框架，包含 code, message, data, timestamp。\n- 实现 GlobalExceptionHandler 全局异常拦截，杜绝前端暴露原始堆栈信息。\n- 要求按照生产级原型的标准进行开发，注重系统加固与体验升级。",
+      "source": "auto_extract",
+      "createdAt": "2026-05-01T05:08:50.884Z"
+    },
+    {
+      "id": "1777610168140",
+      "projectId": "onewindow-dv",
+      "category": "项目信息",
+      "content": "[自动提取] 完成了综合管理工作台的外键拓扑图可视化（vis-network）与查询结果Excel导出（SheetJS）功能。\n\n- 项目全称为 Onewindow-AIChart 综合管理工作台，核心文件为 ui/integrated_dashboard.html。\n- 前端使用 Tailwind CSS 框架进行页面布局与样式设计。\n- 集成 vis-network 库实现外键关系拓扑图，支持节点拖拽、关联高亮及视图切换。\n- 集成 SheetJS (XLSX) 库，实现将查询结果表格一键导出为 Excel 文件。\n- 计划引入 jsPDF 库并利用 ECharts 原生功能实现图表与文档的导出。",
+      "source": "auto_extract",
+      "createdAt": "2026-05-01T04:36:08.140Z"
+    },
+    {
+      "id": "1777608940161",
+      "projectId": "onewindow-dv",
+      "category": "项目信息",
+      "content": "[自动提取] 本次对话确认了后端 NL2SQL 的核心逻辑，并明确了外键拓扑图和多格式导出两个后续开发任务。\n\n- 后端代码包含 Nl2SqlFactory，用于上下文创建和策略选择。\n- AiNl2SqlStrategy 通过 foreignRelationService 注入外键关系到 Prompt 中。\n- 在“外键关系维护”模块中使用 vis-network 库实现拓扑图展示。\n- 集成 SheetJS (XLSX) 实现 Excel 导出，利用 ECharts 原生功能导出图表。\n- 任务 D-01：开发外键关系拓扑图 (Topology Map)。\n- 任务 D-02：实现查询结果的多格式导出功能（Excel 和图表）。",
+      "source": "auto_extract",
+      "createdAt": "2026-05-01T04:15:40.161Z"
+    },
+    {
+      "id": "1777600301639",
+      "projectId": "onewindow-dv",
+      "category": "项目信息",
+      "content": "[自动提取] 完成了外键关联管理（Foreign Relation Management）的后端CRUD、前端集成及QA测试用例编写，并更新了项目记忆文件。\n\n- 项目名为Onewindow-AIChart，核心功能为自然语言转SQL（NL2SQL）及数据可视化。\n- 外键关联管理（Foreign Relation Management）的后端代码（Entity, Mapper等）已完成。\n- 后端采用Java Spring Boot 3.2.5和Spring Cloud架构。\n- 前端使用React组件（AIChartDashboard.tsx）并集成Fetch API调用后端接口。\n- AiNl2SqlStrategy通过foreignRelationService获取关联信息并注入Prompt。\n- 修改ui/dashboard.html中的JavaScript，使用fetch调用真实后端API替换模拟数据。",
+      "source": "auto_extract",
+      "createdAt": "2026-05-01T01:51:41.639Z"
+    },
     {
       "id": "1777599462429",
       "projectId": "onewindow-dv",

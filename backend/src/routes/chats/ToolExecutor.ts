@@ -15,7 +15,7 @@ import { FileToolService } from '../../services/FileToolService.js';
 import { getBuiltinShellSkill, getBuiltinFileIOSkill } from '../../services/BuiltinSkills.js';
 import { DbService } from '../../services/DbService.js';
 import { getSystemInfo } from '../../services/SystemCommands.js';
-import { toWSLPath, getProjectWorkspacePath } from '../../services/PathService.js';
+import { toWSLPath, toWindowsPath, getProjectWorkspacePath } from '../../services/PathService.js';
 
 export type ToolCall = {
   id?: string;
@@ -225,8 +225,11 @@ export async function executeShellCommand(project: any, args: any): Promise<Tool
 
   if (sys.isWindows) {
     // ── Windows 原生执行 ──
-    // 路径保持 Windows 格式（project.workspace 本身即 Windows 路径）
-    const cwd = project.workspace;
+    // 将 workspace 路径转为 Windows 格式，确保命令能正确访问
+    const windowsWorkspace = sys.isWSL
+      ? toWindowsPath(project.workspace)  // WSL 后端访问 Windows 文件
+      : project.workspace;                 // 原生 Windows
+    const cwd = windowsWorkspace;
     const isPowerShellCmd = /^(Test-|Remove-|Write-|Get-|New-|Set-)/i.test(trimmedCmd) ||
                              trimmedCmd.startsWith('if ');
     if (isPowerShellCmd) {
