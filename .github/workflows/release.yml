@@ -22,26 +22,35 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js (no npm cache)
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: false  # Disable built-in npm cache that persists across runs
 
       - name: Install dependencies
         run: |
+          # Clear all npm registry environment variables that might override --registry flag
+          unset NPM_CONFIG_REGISTRY
+          unset NPM_REGISTRY
+          unset npm_config_registry
+
+          # Use a fresh temp cache directory to avoid Aliyun URL cache
+          export npm_config_cache=/tmp/npm-fresh-cache
+          rm -rf /tmp/npm-fresh-cache
+          mkdir -p /tmp/npm-fresh-cache
+
           rm -f backend/package-lock.json ui/package-lock.json
-          rm -rf ~/.npm/_cacache
+
           npm install --registry https://registry.npmjs.org/ --no-package-lock
-          npm install --prefix backend --registry https://registry.npmjs.org/ --prefer-offline=false
-          npm install --prefix ui --registry https://registry.npmjs.org/ --prefer-offline=false
+          npm install --prefix backend --registry https://registry.npmjs.org/
+          npm install --prefix ui --registry https://registry.npmjs.org/
 
       - name: Upload npm debug logs
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: npm-debug-logs
-          path: /home/runner/.npm/_logs/
+          path: /tmp/npm-fresh-cache/
           retention-days: 1
 
       - name: Build
