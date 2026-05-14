@@ -22,26 +22,24 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Create .npmrc files
+        run: |
+          echo 'registry=https://registry.npmjs.org/' > backend/.npmrc
+          echo 'registry=https://registry.npmjs.org/' > ui/.npmrc
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: Configure npm for public packages
-        run: |
-          npm config set registry https://registry.npmjs.org/
-          npm config delete username || true
-          npm config delete _auth || true
-          npm config delete _authToken || true
-
       - name: Install root dependencies
         run: npm install
 
       - name: Install backend dependencies
-        run: npm install --prefix backend --registry https://registry.npmjs.org/
+        run: npm install --prefix backend
 
       - name: Install UI dependencies
-        run: npm install --prefix ui --registry https://registry.npmjs.org/
+        run: npm install --prefix ui
 
       - name: Build
         run: npm run build
