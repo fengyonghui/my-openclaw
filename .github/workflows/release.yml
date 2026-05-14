@@ -32,9 +32,9 @@ jobs:
           rm -f backend/package-lock.json ui/package-lock.json
           rm -rf /tmp/npm-clean-cache
           mkdir -p /tmp/npm-clean-cache
-          npm install --registry https://registry.npmjs.org/ --no-package-lock --cache /tmp/npm-clean-cache
-          npm install --prefix backend --registry https://registry.npmjs.org/ --cache /tmp/npm-clean-cache
-          npm install --prefix ui --registry https://registry.npmjs.org/ --cache /tmp/npm-clean-cache
+          npm install --registry https://registry.npmjs.org/ --no-package-lock --ignore-scripts --cache /tmp/npm-clean-cache
+          npm install --prefix backend --registry https://registry.npmjs.org/ --ignore-scripts --cache /tmp/npm-clean-cache
+          npm install --prefix ui --registry https://registry.npmjs.org/ --ignore-scripts --cache /tmp/npm-clean-cache
 
       - name: Build
         run: npm run build
