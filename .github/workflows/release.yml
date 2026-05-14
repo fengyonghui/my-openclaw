@@ -45,9 +45,9 @@ jobs:
 
       - name: Install dependencies
         run: |
-          npm install
-          npm install --prefix backend
-          npm install --prefix ui
+          npm install --registry https://registry.npmjs.org/
+          npm install --prefix backend --registry https://registry.npmjs.org/
+          npm install --prefix ui --registry https://registry.npmjs.org/
 
       - name: Build
         run: npm run build
