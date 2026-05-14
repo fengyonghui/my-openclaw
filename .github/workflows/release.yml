@@ -29,18 +29,33 @@ jobs:
 
       - name: Inspect all npm config sources
         run: |
-          echo "=== ~/.npmrc ===" && cat ~/.npmrc
-          echo "=== project .npmrc ===" && cat .npmrc
+          echo "=== project .npmrc ===" && cat .npmrc 2>/dev/null || echo "(not found)"
           echo "=== backend/.npmrc ===" && cat backend/.npmrc 2>/dev/null || echo "(not found)"
           echo "=== ui/.npmrc ===" && cat ui/.npmrc 2>/dev/null || echo "(not found)"
-          echo "=== npm config ls -l ===" && npm config ls -l | grep -E "registry|@|auth|aliyun" | head -20
+          echo "=== npm config ls -l (registry/auth only) ===" && npm config ls -l | grep -iE "registry|auth|token|@.*registry|aliyun|mirror" || echo "(no matches)"
 
-      - name: Install dependencies
+      - name: Install root + backend (verbose debug)
         run: |
           rm -f ui/package-lock.json backend/package-lock.json
           npm cache clean --force
-          npm install --registry https://registry.npmjs.org/
-          npm install --prefix backend --registry https://registry.npmjs.org/
+          # Root install with verbose log
+          npm install --registry https://registry.npmjs.org/ --loglevel verbose > /tmp/npm-root.log 2>&1 || true
+          # Backend install with verbose log
+          npm install --prefix backend --registry https://registry.npmjs.org/ --loglevel verbose > /tmp/npm-backend.log 2>&1 || true
+          echo "=== ROOT LOG (last 10 lines) ===" && tail -10 /tmp/npm-root.log
+          echo "=== BACKEND LOG (last 10 lines) ===" && tail -10 /tmp/npm-backend.log
+          echo "=== BACKEND LOG (http lines) ===" && grep -iE "http|registry|fetch|401|error" /tmp/npm-backend.log | head -20
+
+      - name: Upload debug logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-debug-logs
+          path: /tmp/npm-*.log
+
+      - name: Install UI dependencies
+        if: always()
+        run: |
           npm install --prefix ui --registry https://registry.npmjs.org/
 
       - name: Build
