@@ -27,17 +27,17 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Install pnpm
+        run: npm install -g pnpm
+
       - name: Install dependencies
         run: |
-          rm -f backend/package-lock.json ui/package-lock.json
-          rm -rf /tmp/npm-clean-cache
-          mkdir -p /tmp/npm-clean-cache
-          npm install --registry https://registry.npmjs.org/ --no-package-lock --ignore-scripts --cache /tmp/npm-clean-cache
-          npm install --prefix backend --registry https://registry.npmjs.org/ --ignore-scripts --cache /tmp/npm-clean-cache
-          npm install --prefix ui --registry https://registry.npmjs.org/ --ignore-scripts --cache /tmp/npm-clean-cache
+          pnpm install
+          pnpm install --dir backend
+          pnpm install --dir ui
 
       - name: Build
-        run: npm run build
+        run: pnpm run build
 
       - name: Package distributable
         run: |
