@@ -22,22 +22,22 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Force official npm registry (override Aliyun mirror)
+        run: |
+          # Override at project level - this takes precedence over global/system config
+          echo 'registry=https://registry.npmjs.org/' > .npmrc
+          echo 'strict-ssl=true' >> .npmrc
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
 
-      - name: Install yarn
-        run: npm install -g yarn
-
-      - name: Test npm connectivity
-        run: curl -s https://registry.npmjs.org/ | head -c 100
-
       - name: Install dependencies
         run: |
           npm install
-          yarn install --cwd backend
-          yarn install --cwd ui
+          npm install --prefix backend
+          npm install --prefix ui
 
       - name: Build
         run: npm run build
