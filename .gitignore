@@ -4,3 +4,4 @@ dist/
 *.bak
 data/db.json
 .idea/
+dist-package/
