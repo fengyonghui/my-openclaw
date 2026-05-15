@@ -17,11 +17,32 @@ mkdir -p "$OUTPUT/backend"
 mkdir -p "$OUTPUT/ui"
 
 # Copy built artifacts into correct subdirectories
+# Use rsync -a --copy-dirlinks: when symlink points to a directory (like avvio -> .pnpm/.../node_modules/avvio),
+# --copy-dirlinks copies the directory CONTENT into the destination, not into the symlink target.
 cp -r backend/dist "$OUTPUT/backend/"
-# Use rsync -a --copy-unsafe-links: only dereference symlinks pointing outside
-# the source tree (avvio's symlinks point into .pnpm/ which IS outside), so it
-# copies each package's content to its top-level location as a real directory.
-rsync -a --copy-unsafe-links backend/node_modules/ "$OUTPUT/backend/node_modules/"
+rsync -a --copy-dirlinks backend/node_modules/ "$OUTPUT/backend/node_modules/"
+
+# Post-process: if pnpm symlinks survived, dereference them explicitly
+# pnpm v11 stores packages as: backend/node_modules/.pnpm/<pkg>@<ver>/node_modules/<pkg>/
+# and creates symlinks: backend/node_modules/<pkg> -> ../.pnpm/<pkg>@<ver>/node_modules/<pkg>/
+# When these symlinks survive rsync, Node can't find them. Fix by copying target content.
+for symlink in "$OUTPUT/backend/node_modules"/*; do
+  if [ -L "$symlink" ]; then
+    target=$(readlink "$symlink")
+    # Resolve relative target: ../.pnpm/xxx/node_modules/xxx -> /abs/path/.pnpm/xxx/node_modules/xxx
+    case "$target" in
+      /*) resolved="$target" ;;
+      *)  resolved="$(dirname "$symlink")/$target" ;;
+    esac
+    # If target exists and is a directory, copy its content over the symlink
+    if [ -d "$resolved" ]; then
+      echo "  Dereferencing symlink: $(basename "$symlink")"
+      rm -rf "$symlink"
+      cp -r "$resolved/." "$symlink/"
+    fi
+  fi
+done
+
 cp -r ui/dist "$OUTPUT/ui/"
 
 # Create a clean package.json for distribution (no devDependencies)
