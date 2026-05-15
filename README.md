@@ -18,10 +18,10 @@ unzip my-openclaw-v0.1.0-dist.zip
 cd my-openclaw-v0.1.0-dist
 
 # Install backend dependencies
-npm install
+npm install --prefix backend --registry https://registry.npmjs.org/
 
 # Start the server
-npm start
+npm start --prefix backend
 ```
 
 Then open [http://localhost:3001](http://localhost:3001) in your browser.
