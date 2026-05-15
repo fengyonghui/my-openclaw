@@ -16,34 +16,38 @@ rm -rf "$OUTPUT" "${OUTPUT}.tar.gz" "${OUTPUT}.zip"
 mkdir -p "$OUTPUT/backend"
 mkdir -p "$OUTPUT/ui"
 
-# Copy built artifacts into correct subdirectories
-# Use rsync -a --copy-dirlinks: when symlink points to a directory (like avvio -> .pnpm/.../node_modules/avvio),
-# --copy-dirlinks copies the directory CONTENT into the destination, not into the symlink target.
+# Copy built artifacts
 cp -r backend/dist "$OUTPUT/backend/"
+cp -r ui/dist "$OUTPUT/ui/"
+
+# Copy node_modules with rsync --copy-dirlinks (dereferences top-level symlinked dirs)
 rsync -a --copy-dirlinks backend/node_modules/ "$OUTPUT/backend/node_modules/"
 
-# Post-process: if pnpm symlinks survived, dereference them explicitly
-# pnpm v11 stores packages as: backend/node_modules/.pnpm/<pkg>@<ver>/node_modules/<pkg>/
-# and creates symlinks: backend/node_modules/<pkg> -> ../.pnpm/<pkg>@<ver>/node_modules/<pkg>/
-# When these symlinks survive rsync, Node can't find them. Fix by copying target content.
-for symlink in "$OUTPUT/backend/node_modules"/*; do
-  if [ -L "$symlink" ]; then
-    target=$(readlink "$symlink")
-    # Resolve relative target: ../.pnpm/xxx/node_modules/xxx -> /abs/path/.pnpm/xxx/node_modules/xxx
-    case "$target" in
-      /*) resolved="$target" ;;
-      *)  resolved="$(dirname "$symlink")/$target" ;;
-    esac
-    # If target exists and is a directory, copy its content over the symlink
-    if [ -d "$resolved" ]; then
-      echo "  Dereferencing symlink: $(basename "$symlink")"
-      rm -rf "$symlink"
-      cp -r "$resolved/." "$symlink/"
-    fi
-  fi
-done
+# Flatten pnpm v11 structure: for each package in .pnpm/<pkg>@<ver>/node_modules/<pkg>/,
+# copy its content to backend/node_modules/<pkg>/ if not already there as a real dir.
+# This ensures non-hoisted packages (like avvio) are also accessible.
+if [ -d "$OUTPUT/backend/node_modules/.pnpm" ]; then
+  echo "  Flattening pnpm structure..."
+  shopt -s nullglob
+  for nested_pkg in "$OUTPUT/backend/node_modules/.pnpm"/*/node_modules/*/; do
+    [ -d "$nested_pkg" ] || continue
+    pkgname=$(basename "$nested_pkg")
 
-cp -r ui/dist "$OUTPUT/ui/"
+    # Skip if already exists as real dir at top level
+    top_level="$OUTPUT/backend/node_modules/$pkgname"
+    if [ -d "$top_level" ] && [ ! -L "$top_level" ]; then
+      continue
+    fi
+
+    echo "  Installing: $pkgname"
+    rm -rf "$top_level"
+    cp -r "$nested_pkg/." "$top_level/"
+  done
+
+  # Remove the now-redundant .pnpm store
+  echo "  Removing .pnpm store..."
+  rm -rf "$OUTPUT/backend/node_modules/.pnpm"
+fi
 
 # Create a clean package.json for distribution (no devDependencies)
 cat > "$OUTPUT/package.json" << 'EOF'
