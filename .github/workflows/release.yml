@@ -29,9 +29,14 @@ jobs:
 
       - name: Install dependencies
         run: |
-          npm install --ignore-scripts --registry https://registry.npmjs.org/
-          npm install --prefix backend --ignore-scripts --registry https://registry.npmjs.org/
-          npm install --prefix ui --ignore-scripts --registry https://registry.npmjs.org/
+          rm -f ~/.npmrc /etc/npmrc
+          npm cache clean --force
+          (
+            npm config set registry https://registry.npmjs.org/
+            npm install --ignore-scripts
+            npm install --prefix backend --ignore-scripts
+            npm install --prefix ui --ignore-scripts
+          )
 
       - name: Build
         run: npm run build
