@@ -37,8 +37,8 @@ cat > "$OUTPUT/package.json" << 'EOF'
   "type": "module",
   "description": "AI coding agent with project isolation and team collaboration",
   "scripts": {
-    "install": "node $npm_execpath install --prefix backend --registry https://registry.npmjs.org/",
-    "start": "node $npm_execpath run start --prefix backend"
+    "install": "node %npm_execpath% install --prefix backend --registry https://registry.npmjs.org/",
+    "start": "node %npm_execpath% run start --prefix backend"
   },
   "engines": {
     "node": ">=18"
