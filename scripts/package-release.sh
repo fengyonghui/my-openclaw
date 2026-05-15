@@ -17,8 +17,9 @@ mkdir -p "$OUTPUT/backend"
 mkdir -p "$OUTPUT/ui"
 
 # Copy built artifacts into correct subdirectories
+# Use rsync -aL to dereference pnpm symlinks (flat files survive zip extraction)
 cp -r backend/dist "$OUTPUT/backend/"
-cp -r backend/node_modules "$OUTPUT/backend/"
+rsync -aL backend/node_modules/ "$OUTPUT/backend/node_modules/"
 cp -r ui/dist "$OUTPUT/ui/"
 
 # Create a clean package.json for distribution (no devDependencies)
