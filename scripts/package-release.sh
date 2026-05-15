@@ -20,36 +20,10 @@ mkdir -p "$OUTPUT/ui"
 cp -r backend/dist "$OUTPUT/backend/"
 cp -r ui/dist "$OUTPUT/ui/"
 
-# Copy node_modules with rsync --copy-dirlinks (dereferences top-level symlinked dirs)
-rsync -a --copy-dirlinks backend/node_modules/ "$OUTPUT/backend/node_modules/"
+# Copy backend/package.json (needed for: npm install --prefix backend)
+cp backend/package.json "$OUTPUT/backend/"
 
-# Flatten pnpm v11 structure: for each package in .pnpm/<pkg>@<ver>/node_modules/<pkg>/,
-# copy its content to backend/node_modules/<pkg>/ if not already there as a real dir.
-# This ensures non-hoisted packages (like avvio) are also accessible.
-if [ -d "$OUTPUT/backend/node_modules/.pnpm" ]; then
-  echo "  Flattening pnpm structure..."
-  shopt -s nullglob
-  for nested_pkg in "$OUTPUT/backend/node_modules/.pnpm"/*/node_modules/*/; do
-    [ -d "$nested_pkg" ] || continue
-    pkgname=$(basename "$nested_pkg")
-
-    # Skip if already exists as real dir at top level
-    top_level="$OUTPUT/backend/node_modules/$pkgname"
-    if [ -d "$top_level" ] && [ ! -L "$top_level" ]; then
-      continue
-    fi
-
-    echo "  Installing: $pkgname"
-    rm -rf "$top_level"
-    cp -r "$nested_pkg/." "$top_level/"
-  done
-
-  # Remove the now-redundant .pnpm store
-  echo "  Removing .pnpm store..."
-  rm -rf "$OUTPUT/backend/node_modules/.pnpm"
-fi
-
-# Create a clean package.json for distribution (no devDependencies)
+# Create a clean root package.json
 cat > "$OUTPUT/package.json" << 'EOF'
 {
   "name": "my-openclaw",
@@ -58,7 +32,8 @@ cat > "$OUTPUT/package.json" << 'EOF'
   "type": "module",
   "description": "AI coding agent with project isolation and team collaboration",
   "scripts": {
-    "start": "node backend/dist/index.js"
+    "install": "npm install --prefix backend",
+    "start": "npm run start --prefix backend"
   },
   "engines": {
     "node": ">=18"
