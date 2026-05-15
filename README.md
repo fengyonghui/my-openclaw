@@ -18,7 +18,7 @@ unzip my-openclaw-v0.1.0-dist.zip
 cd my-openclaw-v0.1.0-dist
 
 # Install backend dependencies
-npm run install
+npm install
 
 # Start the server
 npm start

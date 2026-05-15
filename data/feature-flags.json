@@ -1,0 +1,56 @@
+[
+  {
+    "key": "runtime_status_panel",
+    "name": "运行时状态面板",
+    "description": "在项目仪表盘显示实时运行状态面板",
+    "enabled": true,
+    "rollout": 100,
+    "createdAt": 1778767967781,
+    "updatedAt": 1778767967781
+  },
+  {
+    "key": "workspace_lock",
+    "name": "Workspace 文件锁",
+    "description": "防止多个会话同时修改同一文件",
+    "enabled": true,
+    "rollout": 100,
+    "createdAt": 1778767967781,
+    "updatedAt": 1778767967781
+  },
+  {
+    "key": "session_events",
+    "name": "会话事件记录",
+    "description": "记录所有会话事件用于审计",
+    "enabled": true,
+    "rollout": 100,
+    "createdAt": 1778767967781,
+    "updatedAt": 1778767967781
+  },
+  {
+    "key": "streaming_mode",
+    "name": "流式生成模式",
+    "description": "使用 SSE 流式响应替代批响应",
+    "enabled": false,
+    "rollout": 0,
+    "createdAt": 1778767967781,
+    "updatedAt": 1778767967781
+  },
+  {
+    "key": "agent_delegation",
+    "name": "Agent 委托功能",
+    "description": "允许 Agent 之间相互委托任务",
+    "enabled": false,
+    "rollout": 0,
+    "createdAt": 1778767967781,
+    "updatedAt": 1778767967781
+  },
+  {
+    "key": "memory_auto_save",
+    "name": "自动记忆保存",
+    "description": "自动将对话要点保存到 MEMORY.md",
+    "enabled": false,
+    "rollout": 0,
+    "createdAt": 1778767967781,
+    "updatedAt": 1778767967781
+  }
+]

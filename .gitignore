@@ -5,3 +5,4 @@ dist/
 data/db.json
 .idea/
 dist-package/
+my-openclaw-*-dist.tar.gz
