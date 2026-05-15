@@ -43,17 +43,18 @@ await fastify.register(HeartbeatRoutes, { prefix: '/api/v1/heartbeats' });
 await fastify.register(FeatureFlagsRoutes, { prefix: '/api/v1/flags' });
 
 // --- Serve built frontend in production ---
-const uiDistPath = join(process.cwd(), 'ui', 'dist');
+// In release zip: backend/ and ui/ are siblings, so ui/dist is ../ui/dist relative to backend/
+const uiDistPath = join(process.cwd(), '..', 'ui', 'dist');
 await fastify.register(fastifyStatic, {
   root: uiDistPath,
   prefix: '/',
-  decorateReply: false,
+  decorateReply: true,
   wildcard: false,
 });
 
 // SPA fallback — all non-API routes serve index.html
-fastify.setNotFoundHandler((request, reply) => {
-  reply.sendFile('index.html');
+fastify.setNotFoundHandler(async (_request, reply) => {
+  return reply.sendFile('index.html');
 });
 
 // --- Start Server ---
