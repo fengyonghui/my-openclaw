@@ -41,7 +41,7 @@ jobs:
 
       - name: Package distributable
         run: |
-          apt-get install -y zip
+          sudo apt-get install -y zip
           chmod +x scripts/package-release.sh
           ./scripts/package-release.sh "$VERSION"
         env:
