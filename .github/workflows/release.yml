@@ -41,9 +41,10 @@ jobs:
 
       - name: Package distributable
         run: |
-          VERSION=${GITHUB_REF_NAME:-${{ github.event.inputs.version }}
           chmod +x scripts/package-release.sh
           ./scripts/package-release.sh "$VERSION"
+        env:
+          VERSION: ${{ github.event.inputs.version || github.ref_name }}
 
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v2
