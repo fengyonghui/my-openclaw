@@ -12,13 +12,14 @@ echo "Packaging my-openclaw ${VERSION}..."
 # Clean up
 rm -rf "$OUTPUT" "${OUTPUT}.tar.gz" "${OUTPUT}.zip"
 
-# Create output directory
-mkdir -p "$OUTPUT"
+# Create subdirectories
+mkdir -p "$OUTPUT/backend"
+mkdir -p "$OUTPUT/ui"
 
-# Copy built artifacts
-cp -r backend/dist "$OUTPUT/"
-cp -r backend/node_modules "$OUTPUT/"
-cp -r ui/dist "$OUTPUT/"
+# Copy built artifacts into correct subdirectories
+cp -r backend/dist "$OUTPUT/backend/"
+cp -r backend/node_modules "$OUTPUT/backend/"
+cp -r ui/dist "$OUTPUT/ui/"
 
 # Create a clean package.json for distribution (no devDependencies)
 cat > "$OUTPUT/package.json" << 'EOF'
