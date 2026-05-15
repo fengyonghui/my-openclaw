@@ -17,9 +17,11 @@ mkdir -p "$OUTPUT/backend"
 mkdir -p "$OUTPUT/ui"
 
 # Copy built artifacts into correct subdirectories
-# Use rsync -aL to dereference pnpm symlinks (flat files survive zip extraction)
 cp -r backend/dist "$OUTPUT/backend/"
-rsync -aL backend/node_modules/ "$OUTPUT/backend/node_modules/"
+# Use rsync -a --copy-unsafe-links: only dereference symlinks pointing outside
+# the source tree (avvio's symlinks point into .pnpm/ which IS outside), so it
+# copies each package's content to its top-level location as a real directory.
+rsync -a --copy-unsafe-links backend/node_modules/ "$OUTPUT/backend/node_modules/"
 cp -r ui/dist "$OUTPUT/ui/"
 
 # Create a clean package.json for distribution (no devDependencies)
