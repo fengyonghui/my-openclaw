@@ -23,6 +23,11 @@ cp -r ui/dist "$OUTPUT/ui/"
 # Copy backend/package.json (needed for: npm install --prefix backend)
 cp backend/package.json "$OUTPUT/backend/"
 
+# Create root .npmrc to override user's global Aliyun mirror
+cat > "$OUTPUT/.npmrc" << 'NPMRC'
+registry=https://registry.npmjs.org/
+NPMRC
+
 # Create a clean root package.json
 cat > "$OUTPUT/package.json" << 'EOF'
 {
@@ -32,7 +37,7 @@ cat > "$OUTPUT/package.json" << 'EOF'
   "type": "module",
   "description": "AI coding agent with project isolation and team collaboration",
   "scripts": {
-    "install": "npm install --prefix backend",
+    "install": "npm install --prefix backend --registry https://registry.npmjs.org/",
     "start": "npm run start --prefix backend"
   },
   "engines": {
