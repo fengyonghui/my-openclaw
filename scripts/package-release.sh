@@ -10,7 +10,7 @@ OUTPUT="my-openclaw-${VERSION}-dist"
 echo "Packaging my-openclaw ${VERSION}..."
 
 # Clean up
-rm -rf "$OUTPUT" "${OUTPUT}.tar.gz"
+rm -rf "$OUTPUT" "${OUTPUT}.tar.gz" "${OUTPUT}.zip"
 
 # Create output directory
 mkdir -p "$OUTPUT"
@@ -40,10 +40,16 @@ sed -i "s/VERSION_PLACEHOLDER/$VERSION/" "$OUTPUT/package.json"
 # Copy root files needed
 cp "$OUTPUT/backend/dist/index.js" "$OUTPUT/backend/" 2>/dev/null || true
 
-# Package
+# Package as tar.gz
 tar -czvf "${OUTPUT}.tar.gz" "$OUTPUT"
+
+# Package as zip (if zip is available)
+if command -v zip &> /dev/null; then
+  zip -rq "${OUTPUT}.zip" "$OUTPUT"
+  echo "Done: ${OUTPUT}.tar.gz + ${OUTPUT}.zip"
+else
+  echo "Done: ${OUTPUT}.tar.gz (zip not available)"
+fi
 
 # Cleanup
 rm -rf "$OUTPUT"
-
-echo "Done: ${OUTPUT}.tar.gz"

@@ -41,6 +41,7 @@ jobs:
 
       - name: Package distributable
         run: |
+          apt-get install -y zip
           chmod +x scripts/package-release.sh
           ./scripts/package-release.sh "$VERSION"
         env:
@@ -50,7 +51,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.version || github.ref_name }}
-          files: my-openclaw-*.tar.gz
+          files: |
+            my-openclaw-*.tar.gz
+            my-openclaw-*.zip
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
