@@ -27,21 +27,22 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Install pnpm
-        run: npm install -g pnpm
-
       - name: Install dependencies
+        env:
+          npm_config_registry: https://registry.npmjs.org/
         run: |
-          pnpm install --ignore-scripts
-          pnpm install --dir backend --ignore-scripts
-          pnpm install --dir ui --ignore-scripts
+          npm install --ignore-scripts
+          npm install --prefix backend --ignore-scripts
+          npm install --prefix ui --ignore-scripts
 
       - name: Build
-        run: pnpm run build
+        env:
+          npm_config_registry: https://registry.npmjs.org/
+        run: npm run build
 
       - name: Package distributable
         run: |
-          sudo apt-get install -y zip rsync
+          sudo apt-get install -y zip
           chmod +x scripts/package-release.sh
           ./scripts/package-release.sh "$VERSION"
         env:
