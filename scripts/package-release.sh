@@ -27,6 +27,7 @@ cat > "$OUTPUT/package.json" << 'EOF'
   "name": "my-openclaw",
   "version": "VERSION_PLACEHOLDER",
   "private": true,
+  "type": "module",
   "description": "AI coding agent with project isolation and team collaboration",
   "scripts": {
     "start": "node backend/dist/index.js"
@@ -37,9 +38,6 @@ cat > "$OUTPUT/package.json" << 'EOF'
 }
 EOF
 sed -i "s/VERSION_PLACEHOLDER/$VERSION/" "$OUTPUT/package.json"
-
-# Copy root files needed
-cp "$OUTPUT/backend/dist/index.js" "$OUTPUT/backend/" 2>/dev/null || true
 
 # Package as tar.gz
 tar -czvf "${OUTPUT}.tar.gz" "$OUTPUT"
