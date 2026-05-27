@@ -386,6 +386,46 @@ export function ChatDetailPage({ projectId, chatId, onMinimize }: { projectId: s
               fullContent += agentMsg;
               setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: fullContent } : m));
             }
+            // 处理工具执行结果
+            if (data.type === 'tool_result') {
+              const tr = data.result;
+              // 1. 清理 LLM 在工具执行期间生成的中间状态文字
+              const inProgressPatterns = [
+                // 中文进度类: 执行中...、正在...、处理中...
+                /^.*(?:执行中|正在|处理中|working|fixing|running)[^\n]*/gim,
+                // 英文进度类: working on..., fixing...
+                /^.*(?:working on|fixing|running|executing|calling)[^\n]*/gim,
+                // 纯符号+文字: 🔧 正在..., 📋 执行中...
+                /^.*[\u2600-\u26FF][^\n]*/gm,
+                // 行尾的加载提示: ...中...、...ing...
+                /\s*(?:中\.{3}|ing\.{3}|\.{3})[^\n]*$/gm,
+              ];
+              let cleanedContent = fullContent;
+              for (const pattern of inProgressPatterns) {
+                cleanedContent = cleanedContent.replace(pattern, '');
+              }
+              // 压缩多余的空行
+              cleanedContent = cleanedContent.replace(/\n{3,}/g, '\n\n').trim();
+              fullContent = cleanedContent;
+
+              // 2. 追加工具结果
+              let resultText = '';
+              if (tr?.error) {
+                resultText = `\n\n❌ **工具执行失败**: ${tr.error}`;
+              } else {
+                const lines: string[] = [];
+                if (tr?.message) lines.push(tr.message);
+                if (tr?.stdout) lines.push('```\n' + tr.stdout.trim() + '\n```');
+                if (tr?.path) lines.push(`📁 ${tr.path}`);
+                if (lines.length > 0) {
+                  resultText = `\n\n🔧 **[${data.toolName}]** 执行结果:\n\n` + lines.join('\n');
+                } else {
+                  resultText = `\n\n✅ **[${data.toolName}]** 执行完成`;
+                }
+              }
+              fullContent += resultText;
+              setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: fullContent } : m));
+            }
           } catch (e) {}
         }
       }
@@ -493,6 +533,46 @@ export function ChatDetailPage({ projectId, chatId, onMinimize }: { projectId: s
             if (data.type === 'agent_error') {
               const agentMsg = `\n\n❌ **${data.agentName}** 执行失败: ${data.error}`;
               fullContent += agentMsg;
+              setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: fullContent } : m));
+            }
+            // 处理工具执行结果
+            if (data.type === 'tool_result') {
+              const tr = data.result;
+              // 1. 清理 LLM 在工具执行期间生成的中间状态文字
+              const inProgressPatterns = [
+                // 中文进度类: 执行中...、正在...、处理中...
+                /^.*(?:执行中|正在|处理中|working|fixing|running)[^\n]*/gim,
+                // 英文进度类: working on..., fixing...
+                /^.*(?:working on|fixing|running|executing|calling)[^\n]*/gim,
+                // 纯符号+文字: 🔧 正在..., 📋 执行中...
+                /^.*[\u2600-\u26FF][^\n]*/gm,
+                // 行尾的加载提示: ...中...、...ing...
+                /\s*(?:中\.{3}|ing\.{3}|\.{3})[^\n]*$/gm,
+              ];
+              let cleanedContent = fullContent;
+              for (const pattern of inProgressPatterns) {
+                cleanedContent = cleanedContent.replace(pattern, '');
+              }
+              // 压缩多余的空行
+              cleanedContent = cleanedContent.replace(/\n{3,}/g, '\n\n').trim();
+              fullContent = cleanedContent;
+
+              // 2. 追加工具结果
+              let resultText = '';
+              if (tr?.error) {
+                resultText = `\n\n❌ **工具执行失败**: ${tr.error}`;
+              } else {
+                const lines: string[] = [];
+                if (tr?.message) lines.push(tr.message);
+                if (tr?.stdout) lines.push('```\n' + tr.stdout.trim() + '\n```');
+                if (tr?.path) lines.push(`📁 ${tr.path}`);
+                if (lines.length > 0) {
+                  resultText = `\n\n🔧 **[${data.toolName}]** 执行结果:\n\n` + lines.join('\n');
+                } else {
+                  resultText = `\n\n✅ **[${data.toolName}]** 执行完成`;
+                }
+              }
+              fullContent += resultText;
               setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: fullContent } : m));
             }
           } catch (e) {}
