@@ -1,6 +1,6 @@
 # My-OpenClaw 项目记忆
 
-> 最后更新：2026-04-28
+> 最后更新：2026-05-29
 
 ## 项目概述
 
@@ -20,9 +20,9 @@
 | Phase 1 | Project 壳层 | ✅ 完成 | CRUD/import/ProjectContext |
 | Phase 2 | Chat/Session 项目化 | 🔶 基本完成 | 核心 bug 已修复 |
 | Phase 3 | Agent 项目化 | 🔶 部分完成 | Agent 绑定已修通 |
-| Phase 4 | Runtime 隔离与并发 | 🔴 未开始 | 已新增 status API |
+| Phase 4 | Runtime 隔离与并发 | 🔶 部分完成 | status API 已新增 |
 | Phase 5 | Memory/Activity/Settings | 🔶 部分完成 | Activity 已增强 |
-| Phase 6 | 测试、灰度、上线 | 🔴 未开始 | |
+| **Phase 6** | **测试、灰度、上线** | 🔶 部分完成 | 文件解析功能已实现 |
 
 ## 技术细节
 
@@ -42,12 +42,103 @@
 - `ProjectChatService` - 项目会话 CRUD
 - `HeartbeatService` - 心跳调度
 - `PathService` - 跨平台路径
+- `FileParserService` - 文档解析（Word/Excel/PDF/TXT/图片）
+- `MemoryAutoSaveService` - 双层记忆自动提取（L1 会话层，L2 项目层 MEMORY.md）
+- `MemoryFileHandler` - 手动记忆写入（"请注意"触发词 + "请牢记"等）
 
-### 关键 Bug 修复记录 (2026-04-28)
+## 记忆系统
+
+### 存储层次
+| 层级 | 存储位置 | 触发方式 |
+|------|----------|----------|
+| 会话层 | `chat.json` → `sessionMemory[]` | 自动：LLM 提取最近 10 条消息 |
+| 项目层 | 项目 `MEMORY.md` | 自动（每日分区）+ 手动（"请注意"前缀） |
+| 数据库层 | `db.json` → `memories[]` | 自动同步 + 前端手动添加 |
+
+### 记忆写入触发词（`MemoryFileHandler.ts`）
+`请注意`、`请记住`、`记住`、`记住：`、`请牢记` — 触发后将内容追加到 MEMORY.md
+
+### 摘要去重逻辑（写入前强制执行）
+- 从 MEMORY.md 现有内容提取所有 `- [category] content（来源: ...）` 行
+- 对每条内容做**规范化**：去空格 → 去中文标点 → 小写化
+- 与待写入内容同样规范化后做 Set 比对，命中则跳过
+- 同样逻辑适用于 `MemoryAutoSaveService.saveProjectMemory()` 和 `MemoryFileHandler.saveToMemoryFile()`
+
+### MEMORY.md 格式
+```markdown
+## 2026-05-29 自动提取
+**摘要**: 一句话描述
+
+- [项目信息] 内容（来源: 来源描述）
+- [技术决策] 内容（来源: 来源描述）
+```
+
+## 文件上传与 AI 解读功能
+
+### 实现状态（Phase 6）
+
+**前端** (`ui/src/pages/ChatDetailPage.tsx`)
+- `addFileAsAttachment()` 函数：所有文件类型均通过 `FileReader.readAsDataURL` 读取 base64
+- Word/Excel/TXT/PDF/图片均支持上传
+
+**后端** (`backend/src/services/FileParserService.ts`)
+- `parseFile()` - 统一分发入口
+- `parseAttachments()` - 批量解析 attachments 数组
+- `buildMessageWithAttachments()` - 将解析内容合并到用户消息文本
+
+### Word 文档解析三层策略
+
+| 策略 | 适用 | 方式 | 备注 |
+|------|------|------|------|
+| 1 | `.docx` | mammoth（内置 Node.js） | 主路径 |
+| 2 | `.docx`+`.doc` | MinerU flash-extract | 兜底，免费无 token |
+| 3 | `.doc` 兜底 | 二进制 UTF-16/GBK 扫描 | 纯 Node.js，无需依赖 |
+
+- **MinerU CLI**: `~/.hermes/node/lib/node_modules/mineru-open-api-linux-x64/bin/mineru-open-api`
+- **MinerU flash-extract 限制**: 10MB / 20页，无需 token
+- **MinerU extract 模式**: 支持 `.doc`、表格识别、公式识别，需要 https://mineru.net/apiManage/token
+- mammoth 只支持 `.docx`（ZIP/XML），不支持 `.doc` 二进制格式
+
+### 支持的文件类型
+
+| 类型 | 解析方式 | 后端模块 |
+|------|----------|----------|
+| `.docx` | mammoth → MinerU | FileParserService.parseWord |
+| `.doc` | MinerU → 二进制扫描 | FileParserService.parseOldDoc |
+| `.xlsx`/`.xls` | xlsx (SheetJS) | FileParserService.parseExcel |
+| `.pdf` | pdf-parse | FileParserService.parsePdf |
+| `.txt` | Node.js Buffer | FileParserService.parseText |
+| 图片 | base64 透传 | FileParserService.parseImage |
+
+### 消息内容合并格式
+```
+【Word 文档内容 - xxx.docx】
+<提取的纯文本>
+```
+
+错误时在消息后追加：
+```
+📎 [xxx.doc]: <错误提示>
+```
+
+## ClawHub CLI 集成
+
+**安装位置**: `~/.hermes/node/lib/node_modules/clawhub/`
+**主要命令**:
+- `clawhub search <query>` - 向量搜索技能
+- `clawhub inspect <slug>` - 查看技能元数据（无需安装）
+- `clawhub install <slug> --dir <path>` - 安装技能到本地目录
+- `clawhub explore` - 浏览最新更新的技能
+
+**工作流**: `clawhub search` → `clawhub inspect` → 读 SKILL.md → 调用对应工具
+
+## 关键 Bug 修复记录
+
 1. ✅ `chats.ts` 中 3 处双重 `getProjectWorkspacePath()` 调用 → 已修复
 2. ✅ `db.chats.find()` → `ProjectChatService` → 已修复
 3. ✅ DELETE 端点缺少 `projectId` query 参数 → 已修复
 4. ✅ 新建会话时 `agentId/modelId` 未保存 → 已修复
+5. ✅ mammoth 不支持 `.doc` 二进制格式 → 已修复（MinerU + 二进制扫描）
 
 ## Agent 角色
 - `architect_agent.md` - 系统架构师
@@ -57,8 +148,27 @@
 - `pm_agent.md` - 产品经理
 - `qa_agent.md` - QA 工程师
 
-## 维护约定
-- 所有文件操作用 `read_file`/`write_file` 工具，不用 shell 命令
-- Windows 下 shell 命令先 `curl http://localhost:3001/api/tools/commands` 获取正确语法
-- GitHub token 已配置在 `~/.git-credentials`
-- Git identity: fengyonghui / fengyonghui@github.com
+## MEMORY.md 维护规范
+
+**核心原则**：只存稳定事实，不存临时任务状态和会话过程。
+
+**写入前进行摘要去重**：
+1. **合并同类项** — 同模块的多条修复记录合并为一个条目
+2. **去除过程细节** — 不存"尝试了 A 方法失败"、"改了 B 代码"等过程，只存最终结论
+3. **去除重复状态** — Active State / Pending User Asks / In Progress 等会话过程不写入
+4. **稳定事实优先** — Bug 修复、技术决策、路径约定、工具版本等持久化信息才写入
+5. **结构化压缩** — 用表格替代列表过长项，用分层标题减少重复描述
+
+**MEMORY.md 只应包含**：
+- 项目结构和技术栈（稳定）
+- Bug 修复记录（最终结论，只留一条）
+- 关键路径约定和坑点（避免重复踩坑）
+- 工具安装和配置状态（持久化）
+- Phase 完成度（定期更新）
+
+**MEMORY.md 不应包含**：
+- 任务进度和 TODO
+- Active State / In Progress 等临时状态
+- 具体错误日志和堆栈
+- 已被覆盖的方案和尝试过程
+- 用户 Ask 的详细描述

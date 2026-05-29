@@ -100,15 +100,22 @@ export async function saveToMemoryFile(userMessage: string, projectWorkspace: st
       existingContent = fs.readFileSync(memoryPath, 'utf-8').trim();
     }
 
-    // 去重检查
-    const normalizedContent = noteContent.replace(/\s+/g, ' ').trim();
-    if (existingContent) {
-      const normalizedExisting = existingContent.replace(/\s+/g, ' ').trim();
-      if (normalizedExisting.includes(normalizedContent)) {
-        console.log('[Memory] 内容已存在，跳过重复写入');
-        return 'duplicate';
+    // ========== 摘要去重：提取现有内容中的记忆条目，与待写入内容做规范化比对 ==========
+    const existingLines = existingContent.split('\n');
+    const existingContents = new Set<string>();
+    for (const line of existingLines) {
+      const match = line.match(/^\s*-\s*\[.+\]\s*(.+?)（来源:/);
+      if (match) {
+        const norm = match[1].replace(/\s+/g, '').replace(/[，。！？；：""'']/g, '').toLowerCase();
+        existingContents.add(norm);
       }
     }
+    const normNew = noteContent.replace(/\s+/g, '').replace(/[，。！？；：""'']/g, '').toLowerCase();
+    if (existingContents.has(normNew)) {
+      console.log('[Memory] 内容已存在（规范化比对），跳过重复写入');
+      return 'duplicate';
+    }
+    // ==============================================================
 
     // 添加时间戳和新内容
     const timestamp = new Date().toLocaleString('zh-CN', {

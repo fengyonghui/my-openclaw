@@ -15,6 +15,7 @@ import { buildToolList } from '../services/ToolDefinitions.js';
 import { parseApiError, setModelRateLimited, calculateBackoff } from '../services/RateLimitHandler.js';
 import { projectRuntimeManager } from '../services/ProjectRuntimeManager.js';
 import { autoSaveMemory } from '../services/MemoryAutoSaveService.js';
+import { parseAttachments, buildMessageWithAttachments } from '../services/FileParserService.js';
 
 /**
  * 安全地将工具结果序列化为 JSON 字符串。
@@ -416,10 +417,19 @@ export async function ChatRoutes(fastify: FastifyInstance) {
     // 清理消息中的 @AgentName 提及
     const { cleanContent } = cleanMentions(content);
 
-    // 保存用户消息到项目目录
+    // 解析附件内容（Word/Excel/TXT/图片 → 文本）
+    let finalContent = cleanContent;
+    if (attachments && attachments.length > 0) {
+      console.log(`[Attachments] 解析 ${attachments.length} 个附件...`);
+      const parsed = await parseAttachments(attachments);
+      finalContent = buildMessageWithAttachments(cleanContent, parsed);
+      console.log(`[Attachments] 解析完成，合并后文本长度: ${finalContent.length}`);
+    }
+
+    // 保存用户消息到项目目录（使用原始附件数据）
     await ProjectChatService.addMessageToChat(getProjectWorkspacePath(targetProject.workspace), chatId, {
       role: 'user',
-      content: cleanContent,
+      content: finalContent,
       attachments: attachments || []
     });
 
