@@ -157,15 +157,19 @@ export function ChatDetailPage({ projectId, chatId, onMinimize }: { projectId: s
 
   const addFileAsAttachment = (file: File) => {
     const id = Date.now().toString() + Math.random().toString(36).slice(2);
-    const att: Attachment = { id, name: file.name, type: file.type, size: file.size, file };
-    if (file.type.startsWith('image/')) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setAttachments(prev => prev.map(a => a.id === id ? { ...a, dataUrl: e.target?.result as string } : a));
-      };
-      reader.readAsDataURL(file);
-    }
-    setAttachments(prev => [...prev, att]);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target?.result as string;
+      setAttachments(prev => [...prev, {
+        id,
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        dataUrl,
+        file,
+      }]);
+    };
+    reader.readAsDataURL(file);
     textareaRef.current?.focus();
   };
 

@@ -181,6 +181,7 @@ async function saveSessionMemory(
 
 /**
  * 保存项目层记忆到 MEMORY.md
+ * 写入前会提取现有内容，与待写入 points 做内容去重，避免重复条目
  */
 function saveProjectMemory(
   workspacePath: string,
@@ -199,7 +200,7 @@ function saveProjectMemory(
       }
     } else {
       if (/^[A-Z]:/i.test(memoryPath)) {
-        const match = memoryPath.match(/^([A-Z]):[\\\/](.+)$/i);
+        const match = memoryPath.match(/^([A-Z]):[\\/](.+)$/i);
         if (match) memoryPath = `/mnt/${match[1].toLowerCase()}/${match[2].replace(/\\/g, '/')}`;
       }
     }
@@ -219,19 +220,43 @@ function saveProjectMemory(
     const today = new Date().toISOString().split('T')[0];
     const alreadyHasToday = existing.includes(`## ${today}`);
 
+    // ========== 摘要去重：过滤掉 MEMORY.md 中已存在的条目 ==========
+    const existingLines = existing.split('\n');
+    const existingContents = new Set<string>();
+    for (const line of existingLines) {
+      // 匹配 `- [category] content（来源: source）` 格式
+      const match = line.match(/^\s*-\s*\[.+\]\s*(.+?)（来源:/);
+      if (match) {
+        // 规范化：去除空格/标点差异，小写化后再存入 Set
+        const norm = match[1].replace(/\s+/g, '').replace(/[，。！？；：""'']/g, '').toLowerCase();
+        existingContents.add(norm);
+      }
+    }
+
+    const uniquePoints = points.filter(p => {
+      const norm = p.content.replace(/\s+/g, '').replace(/[，。！？；：""'']/g, '').toLowerCase();
+      return !existingContents.has(norm);
+    });
+
+    if (uniquePoints.length === 0) {
+      console.log('[MemoryAutoSave] All points already exist in MEMORY.md, skipping');
+      return;
+    }
+    // ==============================================================
+
     let newSection = '';
     if (!alreadyHasToday) {
       newSection = existing ? `\n\n## ${today} 自动提取\n` : `## ${today} 自动提取\n`;
     }
 
     newSection += `**摘要**: ${summary}\n\n`;
-    for (const point of points) {
+    for (const point of uniquePoints) {
       newSection += `- [${point.category}] ${point.content}（来源: ${point.source}）\n`;
     }
 
     const updated = existing + newSection;
     fs.writeFileSync(memoryPath, updated, 'utf-8');
-    console.log(`[MemoryAutoSave] Saved ${points.length} points to project MEMORY.md`);
+    console.log(`[MemoryAutoSave] Saved ${uniquePoints.length}/${points.length} unique points to project MEMORY.md`);
   } catch (err: any) {
     console.warn(`[MemoryAutoSave] Failed to save project memory: ${err.message}`);
   }
@@ -277,11 +302,21 @@ export function appendPointToProjectMemory(
 
     let newLine = `- [${point.category}] ${point.content}（来源: ${point.source}）`;
     
-    // 避免重复
-    if (existing.includes(newLine)) {
-      console.log('[MemoryAutoSave] Point already exists in project memory, skipping');
+    // ========== 摘要去重（规范化比对） ==========
+    const existingLines = existing.split('\n');
+    const existingNorms = new Set<string>();
+    for (const line of existingLines) {
+      const m = line.match(/^\s*-\s*\[.+\]\s*(.+?)（来源:/);
+      if (m) {
+        existingNorms.add(m[1].replace(/\s+/g, '').replace(/[，。！？；：""'']/g, '').toLowerCase());
+      }
+    }
+    const normContent = point.content.replace(/\s+/g, '').replace(/[，。！？；：""'']/g, '').toLowerCase();
+    if (existingNorms.has(normContent)) {
+      console.log('[MemoryAutoSave] Point already exists (normalized), skipping promote');
       return;
     }
+    // ==========================================
 
     let newSection = '';
     if (!alreadyHasToday) {
