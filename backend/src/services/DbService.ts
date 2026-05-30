@@ -4,6 +4,7 @@ import { BUILTIN_FILE_IO_SKILL, BUILTIN_INLINE_PYTHON_SKILL, BUILTIN_SHELL_CMD_S
 
 const DB_PATH = path.resolve(process.cwd(), 'data/db.json');
 const AGENTS_DIR = path.resolve(process.cwd(), 'agents');
+const CURRENT_VERSION = 2;
 
 export interface ModelConfig {
   id: string;
@@ -23,11 +24,14 @@ export class DbService {
     try {
       const content = await readFile(DB_PATH, 'utf-8');
       this.data = JSON.parse(content);
+      // 版本迁移：v1 (agents 在 db.json) → v2 (agents 在 backend/agents/ 目录)
+      await this.migrateToV2();
       return this.data;
     } catch (err) {
       const initial = {
+        version: CURRENT_VERSION,
         projects: [],
-        agents: [{ id: "1", name: "PM Agent", description: "项目经理 Agent", type: "pm", role: "Manager", status: "idle" }],
+        agents: [],
         chats: [],
         availableModels: [],
         availableSkills: [], // 新增全局技能池
@@ -43,6 +47,60 @@ export class DbService {
   static async save() {
     if (!this.data) return;
     await writeFile(DB_PATH, JSON.stringify(this.data, null, 2), 'utf-8');
+  }
+
+  // ============================================================
+  // 版本迁移 (Migration)
+  // ============================================================
+
+  // 版本迁移：v1 → v2
+  // v1: agents 存储在 db.json 的 agents 数组
+  // v2: agents 存储在 backend/agents/*.json 文件，db.json 的 agents 数组清空
+  private static async migrateToV2() {
+    const db = this.data;
+    const version = db.version ?? 1;
+
+    if (version >= CURRENT_VERSION) return; // 已是最新版本
+
+    console.log(`[Migration] 检测到旧版本 (v${version})，正在迁移到 v${CURRENT_VERSION}...`);
+
+    // --- v1 → v2：将 db.json 中的 agents 迁移到 backend/agents/ 目录 ---
+    const legacyAgents = db.agents ?? [];
+    if (legacyAgents.length > 0) {
+      await mkdir(AGENTS_DIR, { recursive: true });
+      for (const agent of legacyAgents) {
+        const fileName = this.agentIdToFileName(agent);
+        const filePath = path.join(AGENTS_DIR, fileName);
+        await writeFile(filePath, JSON.stringify(agent, null, 2), 'utf-8');
+      }
+      console.log(`[Migration] v${version} → v2: 已将 ${legacyAgents.length} 个 Agent 定义写入 ${AGENTS_DIR}/`);
+    }
+    // 清空 db.json 中的 agents 数组（已迁移到文件）
+    db.agents = [];
+
+    // 标记版本已迁移
+    db.version = CURRENT_VERSION;
+    await this.save();
+    console.log(`[Migration] 完成，已升级到 v${CURRENT_VERSION}`);
+  }
+
+  // 根据 agent 属性生成文件名
+  private static agentIdToFileName(agent: any): string {
+    const id = String(agent.id);
+    // 已有文件名的优先用文件名
+    const knownFiles: Record<string, string> = {
+      '1': 'product-manager.json',
+      '2': 'backend.json',
+      '1774659173367': 'ux.json',
+      '1774670276206': 'qa.json',
+    };
+    if (knownFiles[id]) return knownFiles[id];
+    // 兜底：用 name 生成文件名
+    const safeName = (agent.name || 'agent')
+      .toLowerCase()
+      .replace(/\s+/g, '-')
+      .replace(/[^a-z0-9-]/g, '');
+    return `${safeName}-${id}.json`;
   }
 
   // --- 项目记忆管理 ---
