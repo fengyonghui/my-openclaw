@@ -105,14 +105,6 @@ function parseText(buffer: Buffer, fileName: string): ParsedContent {
   }
 }
 
-function parseImage(base64Data: string, mimeType: string, fileName: string): ParsedContent {
-  return {
-    type: 'image_base64',
-    text: `【图片文件 - ${fileName}】\n[data:image/${mimeType.split('/')[1]};base64,${base64Data}]`,
-    fileName,
-  };
-}
-
 /**
  * 解析 Word 文档 (.docx)
  * 策略: mammoth 为主，失败后尝试 MinerU flash-extract
@@ -458,18 +450,88 @@ function tryDecodeChunk(buffer: Buffer): string | null {
 }
 
 // ============================================
-// 批量解析附件
+// Vision OCR（用于图片文本提取）
 // ============================================
+
+let _ocrApiKey: string | null = null;
+let _ocrApiKeyTried = false;
+
+async function getOcrApiKey(): Promise<string | null> {
+  if (_ocrApiKeyTried) return _ocrApiKey;
+  _ocrApiKeyTried = true;
+  try {
+    const db = await import('../services/DbService.js').then(m => (m.DbService as any).load?.() || null);
+    if (db?.availableModels?.[0]?.apiKey) {
+      _ocrApiKey = db.availableModels[0].apiKey;
+    }
+  } catch {
+    // ignore — OCR 失败不影响主流程
+  }
+  return _ocrApiKey;
+}
+
+/**
+ * 用 gemini-2.5-flash vision 提取图片中的文本
+ */
+async function callVisionOcr(base64Data: string, mimeType: string, fileName: string): Promise<string | null> {
+  const apiKey = await getOcrApiKey();
+  if (!apiKey) return null;
+
+  const imageMime = mimeType.includes('png') ? 'png' : mimeType.includes('gif') ? 'gif' : mimeType.includes('webp') ? 'webp' : 'jpeg';
+  const body = JSON.stringify({
+    model: 'gemini-2.5-flash',
+    messages: [{
+      role: 'user',
+      content: [
+        { type: 'text', text: '请仔细阅读图片中的所有文字内容，并完整输出。不要遗漏任何文字。' },
+        { type: 'image_url', image_url: { url: `data:image/${imageMime};base64,${base64Data}` } }
+      ]
+    }],
+    temperature: 0.3,
+    max_tokens: 4096
+  });
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+
+  try {
+    const res = await fetch('http://localhost:8080/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body,
+      signal: controller.signal
+    });
+    clearTimeout(timeout);
+    if (!res.ok) return null;
+    const data = await res.json() as any;
+    const text = data.choices?.[0]?.message?.content;
+    return typeof text === 'string' && text.trim().length > 0 ? text.trim() : null;
+  } catch {
+    clearTimeout(timeout);
+    return null;
+  }
+}
+
+// ============================================
+function parseImage(base64Data: string, mimeType: string, fileName: string): ParsedContent {
+  // 图片不解析 base64 — 改由 callVisionOcr 做 OCR 后嵌入文本
+  // 如果 OCR 失败，保留文件名提示（不塞 base64 字符串）
+  return {
+    type: 'image_base64',
+    text: `【图片文件 - ${fileName}】\n[图片 OCR 提取中...]`,
+    fileName,
+  };
+}
 
 export interface ParsedAttachment {
   name: string;
   parsedContent: ParsedContent;
 }
 
-/**
- * 批量解析 attachments 数组
- * attachments 格式: [{ name, type, dataUrl }]
- */
+// 批量解析完成后，对图片做 vision OCR 并更新文本
 export async function parseAttachments(attachments: any[]): Promise<ParsedAttachment[]> {
   if (!attachments || attachments.length === 0) return [];
 
@@ -488,7 +550,32 @@ export async function parseAttachments(attachments: any[]): Promise<ParsedAttach
     const base64Data = parts[1] || att.dataUrl;
 
     const parsed = await parseFile(att.name || 'unknown', base64Data, mimeType);
-    results.push({ name: att.name || 'unknown', parsedContent: parsed });
+
+    // 图片：先做 OCR，再更新结果中的文本
+    if (parsed.type === 'image_base64') {
+      const ocrText = await callVisionOcr(base64Data, mimeType, att.name || 'unknown');
+      if (ocrText) {
+        results.push({
+          name: att.name || 'unknown',
+          parsedContent: {
+            type: 'text',
+            text: `【图片文件 - ${att.name || 'unknown'}】\n${ocrText}`,
+            fileName: att.name || 'unknown',
+          }
+        });
+      } else {
+        results.push({
+          name: att.name || 'unknown',
+          parsedContent: {
+            type: 'text',
+            text: `【图片文件 - ${att.name || 'unknown'}】\n[图片已上传，AI 将通过 vision 直接解读图片内容]`,
+            fileName: att.name || 'unknown',
+          }
+        });
+      }
+    } else {
+      results.push({ name: att.name || 'unknown', parsedContent: parsed });
+    }
   }
 
   return results;
