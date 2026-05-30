@@ -1,8 +1,9 @@
-import { readFile, writeFile, mkdir, stat } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, stat, readdir } from 'node:fs/promises';
 import * as path from 'node:path';
 import { BUILTIN_FILE_IO_SKILL, BUILTIN_INLINE_PYTHON_SKILL, BUILTIN_SHELL_CMD_SKILL } from './BuiltinSkills.js';
 
 const DB_PATH = path.resolve(process.cwd(), 'data/db.json');
+const AGENTS_DIR = path.resolve(process.cwd(), 'agents');
 
 export interface ModelConfig {
   id: string;
@@ -241,9 +242,31 @@ export class DbService {
   }
 
   // --- Agent 管理 ---
+  // 从 backend/agents/*.json 文件加载全局 Agent 定义
+  static async loadAgentsFromFiles() {
+    try {
+      const files = await readdir(AGENTS_DIR);
+      const jsonFiles = files.filter(f => f.endsWith('.json'));
+      const agents = await Promise.all(
+        jsonFiles.map(async (file) => {
+          const content = await readFile(path.join(AGENTS_DIR, file), 'utf-8');
+          return JSON.parse(content);
+        })
+      );
+      return agents;
+    } catch {
+      return [];
+    }
+  }
+
   static async getAgents(projectId?: string) {
+    // 优先从文件加载全局 Agent 定义
+    const fileAgents = await this.loadAgentsFromFiles();
+    if (fileAgents.length > 0) {
+      return fileAgents;
+    }
+    // 回退：从 db.json 加载（兼容旧数据）
     const db = await this.load();
-    // 目前 Agent 还是全局配置，未来可以根据 projectId 过滤
     return db.agents || [];
   }
 
@@ -266,6 +289,11 @@ export class DbService {
   }
 
   static async getAgent(id: string) {
+    // 优先从文件加载全局 Agent 定义
+    const fileAgents = await this.loadAgentsFromFiles();
+    const fromFiles = fileAgents.find((a: any) => String(a.id) === String(id));
+    if (fromFiles) return fromFiles;
+    // 回退：从 db.json 加载（兼容旧数据）
     const db = await this.load();
     return db.agents.find((a: any) => String(a.id) === String(id));
   }
@@ -339,11 +367,15 @@ export class DbService {
     const project = await this.getProject(projectId);
     if (!project) return [];
 
-    const allGlobalAgents = await this.getAgents();
+    // 优先从文件加载全局 Agent 定义
+    const allGlobalAgents = await this.loadAgentsFromFiles();
+    const dbAgents = (await this.load()).agents || [];
+    const globalAgents = allGlobalAgents.length > 0 ? allGlobalAgents : dbAgents;
+
     const enabledAgentIds = project?.enabledAgentIds || [];
 
     // 全局启用的 Agent
-    const enabledGlobalAgents = allGlobalAgents.filter((a: any) => enabledAgentIds.includes(a.id));
+    const enabledGlobalAgents = globalAgents.filter((a: any) => enabledAgentIds.includes(a.id));
 
     // 私有 Agent
     const privateAgents = project?.projectAgents || [];
@@ -354,7 +386,7 @@ export class DbService {
       project.defaultAgentId,
     ].filter(Boolean);
 
-    const fallbackAgents = allGlobalAgents.filter(
+    const fallbackAgents = globalAgents.filter(
       (a: any) => coordinatorOrDefaultIds.includes(a.id)
     );
 
