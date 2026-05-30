@@ -949,6 +949,15 @@ export async function ChatRoutes(fastify: FastifyInstance) {
 
     console.log(`[Resend] ChatID: ${chatId}, Content: ${content?.slice(0, 50)}...`);
 
+    // 解析附件内容（Word/Excel/TXT/图片 → 文本），与 /send 保持一致
+    let finalContent = content || '';
+    if (attachments && attachments.length > 0) {
+      console.log(`[Resend Attachments] 解析 ${attachments.length} 个附件...`);
+      const parsed = await parseAttachments(attachments);
+      finalContent = buildMessageWithAttachments(content || '', parsed);
+      console.log(`[Resend Attachments] 解析完成，合并后文本长度: ${finalContent.length}`);
+    }
+
     // 找到所属项目
     const projects = await DbService.getProjects();
     let targetProject = null;
