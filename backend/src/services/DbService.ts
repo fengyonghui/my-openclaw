@@ -1,10 +1,10 @@
-import { readFile, writeFile, mkdir, stat, readdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, stat, readdir, unlink } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import * as path from 'node:path';
 import { BUILTIN_FILE_IO_SKILL, BUILTIN_INLINE_PYTHON_SKILL, BUILTIN_SHELL_CMD_SKILL } from './BuiltinSkills.js';
 
 const DB_PATH = path.resolve(process.cwd(), 'data/db.json');
-const AGENTS_DIR = path.resolve(process.cwd(), 'agents');
-const CURRENT_VERSION = 2;
+const CURRENT_VERSION = 3;
 
 export interface ModelConfig {
   id: string;
@@ -24,8 +24,8 @@ export class DbService {
     try {
       const content = await readFile(DB_PATH, 'utf-8');
       this.data = JSON.parse(content);
-      // 版本迁移：v1 (agents 在 db.json) → v2 (agents 在 backend/agents/ 目录)
-      await this.migrateToV2();
+      // 版本迁移
+      await this.migrateToV3();
       return this.data;
     } catch (err) {
       const initial = {
@@ -34,7 +34,7 @@ export class DbService {
         agents: [],
         chats: [],
         availableModels: [],
-        availableSkills: [], // 新增全局技能池
+        availableSkills: [],
         memories: []
       };
       await mkdir(path.dirname(DB_PATH), { recursive: true });
@@ -53,41 +53,60 @@ export class DbService {
   // 版本迁移 (Migration)
   // ============================================================
 
-  // 版本迁移：v1 → v2
-  // v1: agents 存储在 db.json 的 agents 数组
-  // v2: agents 存储在 backend/agents/*.json 文件，db.json 的 agents 数组清空
-  private static async migrateToV2() {
+  private static getProjectAgentsDir(projectWorkspace: string): string {
+    return path.join(projectWorkspace, 'agents');
+  }
+
+  // v1: agents 在 db.json
+  // v2: agents 在 backend/agents/ (全局)
+  // v3: agents 在各项目的 workspace/agents/ (项目私有)
+  private static async migrateToV3() {
     const db = this.data;
     const version = db.version ?? 1;
 
-    if (version >= CURRENT_VERSION) return; // 已是最新版本
+    if (version >= CURRENT_VERSION) return;
 
     console.log(`[Migration] 检测到旧版本 (v${version})，正在迁移到 v${CURRENT_VERSION}...`);
 
-    // --- v1 → v2：将 db.json 中的 agents 迁移到 backend/agents/ 目录 ---
-    const legacyAgents = db.agents ?? [];
-    if (legacyAgents.length > 0) {
-      await mkdir(AGENTS_DIR, { recursive: true });
-      for (const agent of legacyAgents) {
+    // --- v1 → v2: db.json agents 迁移到 backend/agents/ ---
+    if (version === 1 && (db.agents ?? []).length > 0) {
+      const globalAgentsDir = path.resolve(process.cwd(), 'agents');
+      await mkdir(globalAgentsDir, { recursive: true });
+      for (const agent of db.agents) {
         const fileName = this.agentIdToFileName(agent);
-        const filePath = path.join(AGENTS_DIR, fileName);
-        await writeFile(filePath, JSON.stringify(agent, null, 2), 'utf-8');
+        await writeFile(path.join(globalAgentsDir, fileName), JSON.stringify(agent, null, 2), 'utf-8');
       }
-      console.log(`[Migration] v${version} → v2: 已将 ${legacyAgents.length} 个 Agent 定义写入 ${AGENTS_DIR}/`);
+      console.log(`[Migration] v1 → v2: ${db.agents.length} 个 Agent 已写入 backend/agents/`);
+      db.agents = [];
     }
-    // 清空 db.json 中的 agents 数组（已迁移到文件）
-    db.agents = [];
 
-    // 标记版本已迁移
+    // --- v2 → v3: backend/agents/ 迁移到各项目 workspace/agents/ ---
+    if (version <= 2) {
+      const globalAgentsDir = path.resolve(process.cwd(), 'agents');
+      try {
+        const files = (await readdir(globalAgentsDir)).filter(f => f.endsWith('.json'));
+        for (const proj of db.projects ?? []) {
+          if (!proj.workspace) continue;
+          const projAgentsDir = this.getProjectAgentsDir(proj.workspace);
+          await mkdir(projAgentsDir, { recursive: true });
+          for (const file of files) {
+            const content = await readFile(path.join(globalAgentsDir, file), 'utf-8');
+            await writeFile(path.join(projAgentsDir, file), content, 'utf-8');
+          }
+          console.log(`[Migration] v2 → v3: Agent 已复制到 ${projAgentsDir}/`);
+        }
+      } catch {
+        console.log(`[Migration] v2 → v3: backend/agents/ 不存在，跳过`);
+      }
+    }
+
     db.version = CURRENT_VERSION;
     await this.save();
     console.log(`[Migration] 完成，已升级到 v${CURRENT_VERSION}`);
   }
 
-  // 根据 agent 属性生成文件名
   private static agentIdToFileName(agent: any): string {
     const id = String(agent.id);
-    // 已有文件名的优先用文件名
     const knownFiles: Record<string, string> = {
       '1': 'product-manager.json',
       '2': 'backend.json',
@@ -95,11 +114,7 @@ export class DbService {
       '1774670276206': 'qa.json',
     };
     if (knownFiles[id]) return knownFiles[id];
-    // 兜底：用 name 生成文件名
-    const safeName = (agent.name || 'agent')
-      .toLowerCase()
-      .replace(/\s+/g, '-')
-      .replace(/[^a-z0-9-]/g, '');
+    const safeName = (agent.name || 'agent').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
     return `${safeName}-${id}.json`;
   }
 
@@ -194,11 +209,11 @@ export class DbService {
       defaultAgentId: '1',
       defaultModel: db.availableModels?.[0]?.id || '',
       ignorePatterns: ['node_modules', '.git', 'dist', '.DS_Store', 'package-lock.json'],
-      enabledSkillIds: [], // 项目启用的全局技能ID列表
-      projectSkills: [], // 项目私有技能列表
-      enabledAgentIds: [], // 项目启用的全局Agent ID列表
-      projectAgents: [], // 项目私有Agent列表
-      coordinatorAgentId: null, // 主协调Agent ID
+      enabledSkillIds: [],
+      projectSkills: [],
+      enabledAgentIds: [],
+      projectAgents: [],
+      coordinatorAgentId: null,
       createdAt: new Date().toISOString()
     };
 
@@ -236,7 +251,7 @@ export class DbService {
       projectSkills: [],
       enabledAgentIds: [],
       projectAgents: [],
-      coordinatorAgentId: null, // 主协调Agent
+      coordinatorAgentId: null,
       createdAt: new Date().toISOString()
     };
 
@@ -300,14 +315,35 @@ export class DbService {
   }
 
   // --- Agent 管理 ---
-  // 从 backend/agents/*.json 文件加载全局 Agent 定义
+  // 从项目的 agents/*.json 文件加载 Agent 定义
+  static async loadAgentsFromProjectDir(projectWorkspace: string) {
+    try {
+      const agentsDir = this.getProjectAgentsDir(projectWorkspace);
+      const files = (await readdir(agentsDir)).filter(f => f.endsWith('.json'));
+      const agents = await Promise.all(
+        files.map(async (file) => {
+          const content = await readFile(path.join(agentsDir, file), 'utf-8');
+          return JSON.parse(content);
+        })
+      );
+      return agents;
+    } catch {
+      return [];
+    }
+  }
+
+  // 全局 agents 回退目录（backend/agents/）
+  private static getGlobalAgentsDir(): string {
+    return path.resolve(process.cwd(), 'agents');
+  }
+
   static async loadAgentsFromFiles() {
     try {
-      const files = await readdir(AGENTS_DIR);
-      const jsonFiles = files.filter(f => f.endsWith('.json'));
+      const dir = this.getGlobalAgentsDir();
+      const files = (await readdir(dir)).filter(f => f.endsWith('.json'));
       const agents = await Promise.all(
-        jsonFiles.map(async (file) => {
-          const content = await readFile(path.join(AGENTS_DIR, file), 'utf-8');
+        files.map(async (file) => {
+          const content = await readFile(path.join(dir, file), 'utf-8');
           return JSON.parse(content);
         })
       );
@@ -318,12 +354,18 @@ export class DbService {
   }
 
   static async getAgents(projectId?: string) {
-    // 优先从文件加载全局 Agent 定义
-    const fileAgents = await this.loadAgentsFromFiles();
-    if (fileAgents.length > 0) {
-      return fileAgents;
+    // 优先从项目 workspace/agents/ 加载
+    if (projectId) {
+      const project = await this.getProject(projectId);
+      if (project?.workspace) {
+        const fileAgents = await this.loadAgentsFromProjectDir(project.workspace);
+        if (fileAgents.length > 0) return fileAgents;
+      }
     }
-    // 回退：从 db.json 加载（兼容旧数据）
+    // 回退：从 backend/agents/ 加载（全局 agents）
+    const fileAgents = await this.loadAgentsFromFiles();
+    if (fileAgents.length > 0) return fileAgents;
+    // 再回退：db.json（兼容旧数据）
     const db = await this.load();
     return db.agents || [];
   }
@@ -333,6 +375,13 @@ export class DbService {
     const newAgent = { ...agent, id: Date.now().toString(), status: 'idle' };
     db.agents.push(newAgent);
     await this.save();
+    // 同时写入 backend/agents/ 目录（getAgents 优先读文件）
+    try {
+      const dir = this.getGlobalAgentsDir();
+      await writeFile(path.join(dir, `${newAgent.id}.json`), JSON.stringify(newAgent, null, 2), 'utf-8');
+    } catch (err) {
+      console.error('[addAgent] Failed to write agent file:', err);
+    }
     return db.agents;
   }
 
@@ -343,26 +392,38 @@ export class DbService {
       db.agents[index] = { ...db.agents[index], ...updates };
       await this.save();
     }
+    // 同步更新 backend/agents/ 下的文件
+    try {
+      const agentFile = path.join(this.getGlobalAgentsDir(), `${id}.json`);
+      if (existsSync(agentFile)) {
+        const content = await readFile(agentFile, 'utf-8');
+        const agent = JSON.parse(content);
+        await writeFile(agentFile, JSON.stringify({ ...agent, ...updates }, null, 2), 'utf-8');
+      }
+    } catch (err) {
+      console.error('[updateAgent] Failed to sync agent file:', err);
+    }
     return db.agents;
   }
 
   static async getAgent(id: string) {
-    // 优先从文件加载全局 Agent 定义
-    const fileAgents = await this.loadAgentsFromFiles();
-    const fromFiles = fileAgents.find((a: any) => String(a.id) === String(id));
-    if (fromFiles) return fromFiles;
-    // 回退：从 db.json 加载（兼容旧数据）
     const db = await this.load();
     return db.agents.find((a: any) => String(a.id) === String(id));
   }
-
-  // 重复定义已注释
-  // static async updateAgent(id: string, updates: any) { ... }
 
   static async deleteAgent(id: string) {
     const db = await this.load();
     db.agents = db.agents.filter((a: any) => String(a.id) !== String(id));
     await this.save();
+    // 同时删除 backend/agents/ 下的文件
+    try {
+      const agentFile = path.join(this.getGlobalAgentsDir(), `${id}.json`);
+      if (existsSync(agentFile)) {
+        await unlink(agentFile);
+      }
+    } catch (err) {
+      console.error('[deleteAgent] Failed to remove agent file:', err);
+    }
     return db.agents;
   }
 
@@ -373,18 +434,38 @@ export class DbService {
     return project.projectAgents || [];
   }
 
+  // 生成文件名（PA_{slugified_name}.json）
+  private static slugify(name: string): string {
+    return name.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
+  }
+
+  private static getPrivateAgentFilePath(workspace: string, agent: any): string {
+    const name = this.slugify(agent.name || agent.id);
+    return path.join(this.getProjectAgentsDir(workspace), `PA_${name}.json`);
+  }
+
   static async addProjectPrivateAgent(projectId: string, agent: any) {
     const project = await this.getProject(projectId);
     if (!project) throw new Error('项目不存在');
     if (!project.projectAgents) project.projectAgents = [];
-    const newAgent = { 
-      ...agent, 
-      id: agent.id || `private-agent-${Date.now()}`,
+    const newAgent = {
+      ...agent,
+      id: agent.id || `PA_${Date.now()}`,
       isPrivate: true,
-      createdAt: new Date().toISOString() 
+      createdAt: new Date().toISOString()
     };
     project.projectAgents.push(newAgent);
     await this.saveProject(project);
+    // 同时写入项目的 agents/ 目录（与 loadAgentsFromProjectDir 读取路径一致）
+    if (project.workspace) {
+      try {
+        const agentsDir = this.getProjectAgentsDir(project.workspace);
+        await mkdir(agentsDir, { recursive: true });
+        await writeFile(this.getPrivateAgentFilePath(project.workspace, newAgent), JSON.stringify(newAgent, null, 2), 'utf-8');
+      } catch (err) {
+        console.error('[addProjectPrivateAgent] Failed to write agent file:', err);
+      }
+    }
     return project.projectAgents;
   }
 
@@ -392,8 +473,21 @@ export class DbService {
     const project = await this.getProject(projectId);
     if (!project) throw new Error('项目不存在');
     if (!project.projectAgents) project.projectAgents = [];
+    const agentToDelete = project.projectAgents.find((a: any) => a.id === agentId);
     project.projectAgents = project.projectAgents.filter((a: any) => a.id !== agentId);
     await this.saveProject(project);
+    // 同时删除项目的 agents/ 目录下的文件（旧名和新名都要尝试）
+    if (project.workspace && agentToDelete) {
+      try {
+        const agentsDir = this.getProjectAgentsDir(project.workspace);
+        const oldFile = path.join(agentsDir, `${agentId}.json`); // 旧文件名（ID直接命名）
+        const newFile = this.getPrivateAgentFilePath(project.workspace, agentToDelete); // 新文件名（PA_name.json）
+        if (existsSync(oldFile)) await unlink(oldFile);
+        if (oldFile !== newFile && existsSync(newFile)) await unlink(newFile);
+      } catch (err) {
+        console.error('[deleteProjectPrivateAgent] Failed to delete agent file:', err);
+      }
+    }
     return project.projectAgents;
   }
 
@@ -405,6 +499,15 @@ export class DbService {
     if (index !== -1) {
       project.projectAgents[index] = { ...project.projectAgents[index], ...updates };
       await this.saveProject(project);
+      // 同时更新项目的 agents/ 目录下的文件
+      if (project.workspace) {
+        try {
+          const agentFile = this.getPrivateAgentFilePath(project.workspace, project.projectAgents[index]);
+          await writeFile(agentFile, JSON.stringify(project.projectAgents[index], null, 2), 'utf-8');
+        } catch (err) {
+          console.error('[updateProjectPrivateAgent] Failed to update agent file:', err);
+        }
+      }
     }
     return project.projectAgents;
   }
@@ -412,47 +515,80 @@ export class DbService {
   static async toggleProjectAgent(projectId: string, agentId: string) {
     const project = await this.getProject(projectId);
     if (!project) throw new Error('项目不存在');
+    if (!project.workspace) throw new Error('项目没有 workspace');
+
+    const globalAgentsDir = path.resolve(process.cwd(), 'agents');
+    const globalFileName = await this.findGlobalAgentFile(agentId);
+    if (!globalFileName) throw new Error('全局 Agent 不存在: ' + agentId);
+
+    const projAgentsDir = this.getProjectAgentsDir(project.workspace);
+    const projAgentFile = path.join(projAgentsDir, globalFileName);
+
     if (!project.enabledAgentIds) project.enabledAgentIds = [];
-    const index = project.enabledAgentIds.indexOf(agentId);
-    if (index === -1) project.enabledAgentIds.push(agentId);
-    else project.enabledAgentIds.splice(index, 1);
+
+    if (project.enabledAgentIds.includes(agentId)) {
+      // 停用：删除项目目录下的 agent 文件
+      project.enabledAgentIds = project.enabledAgentIds.filter(id => id !== agentId);
+      try { await this.deleteFile(projAgentFile); } catch { /* 文件不存在则忽略 */ }
+    } else {
+      // 启用：复制全局 agent 文件到项目目录
+      await mkdir(projAgentsDir, { recursive: true });
+      const src = path.join(globalAgentsDir, globalFileName);
+      const content = await readFile(src, 'utf-8');
+      await writeFile(projAgentFile, content, 'utf-8');
+      project.enabledAgentIds.push(agentId);
+    }
+
     await this.saveProject(project);
     return project.enabledAgentIds;
   }
 
-  // 获取项目可用的所有 Agent（全局启用 + 私有 + Coordinator 默认）
+  // 根据 agentId 在 backend/agents/ 中找到对应文件名
+  private static async findGlobalAgentFile(agentId: string): Promise<string | null> {
+    const globalAgentsDir = path.resolve(process.cwd(), 'agents');
+    try {
+      const files = (await readdir(globalAgentsDir)).filter(f => f.endsWith('.json'));
+      for (const file of files) {
+        const content = await readFile(path.join(globalAgentsDir, file), 'utf-8');
+        const agent = JSON.parse(content);
+        if (String(agent.id) === String(agentId)) return file;
+      }
+    } catch { /* ignore */ }
+    return null;
+  }
+
+  private static async deleteFile(filePath: string): Promise<void> {
+    const { unlink } = await import('node:fs/promises');
+    await unlink(filePath);
+  }
+
+  // 更新项目目录下的 agent 文件（支持项目定制化描述）
+  static async updateProjectAgentFile(projectWorkspace: string, agentId: string, updates: any) {
+    const agentsDir = this.getProjectAgentsDir(projectWorkspace);
+    const files = (await readdir(agentsDir)).filter(f => f.endsWith('.json'));
+    for (const file of files) {
+      const content = await readFile(path.join(agentsDir, file), 'utf-8');
+      const agent = JSON.parse(content);
+      if (String(agent.id) === String(agentId)) {
+        const merged = { ...agent, ...updates };
+        await writeFile(path.join(agentsDir, file), JSON.stringify(merged, null, 2), 'utf-8');
+        return;
+      }
+    }
+    throw new Error('项目 Agent 不存在: ' + agentId);
+  }
+
+  // 获取项目可用的所有 Agent（从项目 workspace/agents/ 目录读取 = 已启用的）
   static async getProjectAgents(projectId: string) {
     const project = await this.getProject(projectId);
     if (!project) return [];
 
-    // 优先从文件加载全局 Agent 定义
-    const allGlobalAgents = await this.loadAgentsFromFiles();
-    const dbAgents = (await this.load()).agents || [];
-    const globalAgents = allGlobalAgents.length > 0 ? allGlobalAgents : dbAgents;
+    const fileAgents = project.workspace
+      ? await this.loadAgentsFromProjectDir(project.workspace)
+      : [];
 
-    const enabledAgentIds = project?.enabledAgentIds || [];
-
-    // 全局启用的 Agent
-    const enabledGlobalAgents = globalAgents.filter((a: any) => enabledAgentIds.includes(a.id));
-
-    // 私有 Agent
     const privateAgents = project?.projectAgents || [];
-
-    // Coordinator / Default Agent（即使不在 enabledAgentIds 中也纳入，确保至少有一个可用）
-    const coordinatorOrDefaultIds = [
-      project.coordinatorAgentId,
-      project.defaultAgentId,
-    ].filter(Boolean);
-
-    const fallbackAgents = globalAgents.filter(
-      (a: any) => coordinatorOrDefaultIds.includes(a.id)
-    );
-
-    // 合并去重（避免与 enabledGlobalAgents 重复）
-    const seen = new Set(enabledGlobalAgents.map((a: any) => a.id));
-    const uniqueFallback = fallbackAgents.filter((a: any) => !seen.has(a.id));
-
-    return [...enabledGlobalAgents, ...uniqueFallback, ...privateAgents];
+    return [...fileAgents, ...privateAgents];
   }
 
   // --- Skill 管理 ---
@@ -474,15 +610,10 @@ export class DbService {
   static async getProjectSkills(projectId: string) {
     const project = await this.getProject(projectId);
     if (!project) return [];
-    
     const globalSkills = await this.getGlobalSkills();
     const skillIds = project?.enabledSkillIds || [];
     const enabledGlobalSkills = globalSkills.filter((s: any) => skillIds.includes(s.id));
-    
-    // 获取项目私有技能
     const privateSkills = project?.projectSkills || [];
-    
-    // 合并返回
     return [...enabledGlobalSkills, ...privateSkills];
   }
 
@@ -508,11 +639,11 @@ export class DbService {
     const project = await this.getProject(projectId);
     if (!project) throw new Error('项目不存在');
     if (!project.projectSkills) project.projectSkills = [];
-    const newSkill = { 
-      ...skill, 
+    const newSkill = {
+      ...skill,
       id: skill.id || `project-skill-${Date.now()}`,
       isPrivate: true,
-      createdAt: new Date().toISOString() 
+      createdAt: new Date().toISOString()
     };
     project.projectSkills.push(newSkill);
     await this.saveProject(project);
@@ -600,25 +731,32 @@ export class DbService {
     return db.heartbeats;
   }
 
-  static async getHeartbeatHistory(projectId?: string, limit = 20) {
+  static async getHeartbeatHistory(projectId: string, limit = 20) {
     const db = await this.load();
     if (!db.heartbeatHistory) db.heartbeatHistory = [];
-    let history = db.heartbeatHistory;
-    if (projectId) {
-      history = history.filter((h: any) => h.projectId === projectId);
-    }
-    return history.slice(0, limit);
+    return db.heartbeatHistory
+      .filter((h: any) => h.projectId === projectId)
+      .slice(0, limit);
   }
 
-  static async clearHeartbeatHistory(projectId?: string) {
+  static async addHeartbeatHistory(entry: any) {
     const db = await this.load();
     if (!db.heartbeatHistory) db.heartbeatHistory = [];
-    if (projectId) {
-      db.heartbeatHistory = db.heartbeatHistory.filter((h: any) => h.projectId !== projectId);
-    } else {
-      db.heartbeatHistory = [];
+    db.heartbeatHistory.unshift({
+      id: `hbh_${Date.now()}`,
+      projectId: entry.projectId,
+      heartbeatId: entry.heartbeatId,
+      heartbeatName: entry.heartbeatName || '',
+      status: entry.status || 'completed',
+      triggeredAt: entry.triggeredAt || new Date().toISOString(),
+      completedAt: entry.completedAt || new Date().toISOString(),
+      response: entry.response || '',
+      error: entry.error || null
+    });
+    // 只保留最近 200 条
+    if (db.heartbeatHistory.length > 200) {
+      db.heartbeatHistory = db.heartbeatHistory.slice(0, 200);
     }
     await this.save();
-    return { success: true };
   }
 }

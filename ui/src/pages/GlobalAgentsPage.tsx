@@ -54,7 +54,7 @@ export function GlobalAgentsPage() {
       });
       
       if (res.ok) {
-        setAgents(await res.json());
+        await fetchAgents();
         setShowForm(false);
         setEditingAgent(null);
         setFormData({ name: '', role: '', description: '', type: 'custom' });
@@ -80,7 +80,7 @@ export function GlobalAgentsPage() {
       const res = await fetch(`http://localhost:3001/api/v1/projects/global/agents/${id}`, {
         method: 'DELETE'
       });
-      if (res.ok) setAgents(await res.json());
+      if (res.ok) await fetchAgents();
     } catch (err) { alert('删除失败'); }
   };
 
