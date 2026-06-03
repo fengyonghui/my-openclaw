@@ -24,6 +24,28 @@ type Message = {
   mentions?: string[];
 };
 
+// 思考块渲染器（默认折叠）
+function ThinkBlock({ children }: any) {
+  const [collapsed, setCollapsed] = useState(true);
+  return (
+    <details className="my-3 border border-amber-500/40 rounded-xl bg-amber-950/70 overflow-hidden" open={!collapsed}>
+      <summary
+        onClick={(e) => { e.preventDefault(); setCollapsed(!collapsed); }}
+        className="flex items-center gap-2 px-4 py-2.5 cursor-pointer text-xs font-bold text-amber-300 hover:text-amber-100 select-none list-none"
+      >
+        <span className={`transition-transform ${collapsed ? '' : 'rotate-90'}`}>
+          <ChevronDown className="h-3.5 w-3.5" />
+        </span>
+        🧠 AI 思考过程
+        {collapsed && <span className="ml-1 text-amber-600">(已折叠)</span>}
+      </summary>
+      <div className={`px-4 pb-3 text-xs text-amber-50 whitespace-pre-wrap font-mono leading-relaxed border-t border-amber-500/20 ${collapsed ? 'hidden' : ''}`}>
+        {children}
+      </div>
+    </details>
+  );
+}
+
 // 代码块渲染器
 function PreBlock({ children }: any) {
   const [copied, setCopied] = useState(false);
@@ -887,25 +909,58 @@ export function ChatDetailPage({ projectId, chatId, onMinimize }: { projectId: s
                               ? 'bg-red-50 border border-red-100 text-red-700'
                               : 'bg-white border border-slate-100 text-slate-700 rounded-tl-sm'
                         }`}>
-                          {m.role === 'assistant' ? (
-                            <div className="prose prose-sm max-w-none">
-                              <ReactMarkdown 
-                                remarkPlugins={[remarkGfm]}
-                                components={{
-                                  pre: PreBlock,
-                                  code: ({ inline, className, children: codeChildren, ...props }: any) => {
-                                    if (className || !inline) return <code className={className} {...props}>{codeChildren}</code>;
-                                    return <code className="bg-slate-100 text-indigo-600 px-1.5 py-0.5 rounded text-sm font-mono" {...props}>{codeChildren}</code>;
-                                  }
-                                }}
-                              >
-                                {m.content || ''}
-                              </ReactMarkdown>
-                              {m.status === 'streaming' && (
-                                <span className="inline-block w-2 h-4 ml-1 bg-indigo-400 animate-pulse align-middle rounded-sm" />
-                              )}
-                            </div>
-                          ) : (
+                          {m.role === 'assistant' ? (() => {
+                            const END_THINK = '[/think]';
+                            const START_THINK = '<think>';
+                            const tIdx = m.content.lastIndexOf(END_THINK);
+                            const sIdx = m.content.indexOf(START_THINK);
+                            let thinkContent = '';
+                            let rawBody = m.content;
+                            if (tIdx !== -1 && sIdx !== -1 && tIdx > sIdx) {
+                              // 有完整标签对: <think>...\n[/think]\n...body
+                              const rawThink = m.content.slice(sIdx + START_THINK.length, tIdx);
+                              thinkContent = rawThink.trim();
+                              rawBody = m.content.slice(tIdx + END_THINK.length).trimStart();
+} else if (sIdx !== -1 && tIdx === -1) {
+                              // 只有开始标签，无结束标签: <think>...\\n...body → 整个内容是 body
+                              rawBody = m.content;
+                            }
+                            // 清理 think 内容：移除工具调用 XML，保留思考文字
+                            const cleanThink = thinkContent
+                              .replace(/<invoke\s+[^<]*>[\s\S]*?<\/invoke>/gi, '')
+                              .replace(/&lt;invoke\s+[^<]*&gt;[\s\S]*?&lt;\/invoke&gt;/gi, '')
+                              .replace(/\n{3,}/g, '\n\n')
+                              .trim();
+                            // 过滤工具结果行和 XML
+                            const cleanBody = rawBody
+                              .replace(/\n\n✅ \*\*[^\*]+\*\* 执行成功[^\n]*\n[^\n]*\n\n/g, '\n')
+                              .replace(/\n\n❌ \*\*[^\*]+\*\* 执行失败[^\n]*\n[^\n]*\n\n/g, '\n')
+                              .replace(/minimax:\w+\s*<invoke\s+[^<]*>[\s\S]*?<\/invoke>/gi, '')
+                              .replace(/minimax:\w+\s*&lt;invoke\s+[^<]*&gt;[\s\S]*?&lt;\/invoke&gt;/gi, '')
+                              .replace(/<invoke\s+[^<]*>[\s\S]*?<\/invoke>/gi, '')
+                              .replace(/&lt;invoke\s+[^<]*&gt;[\s\S]*?&lt;\/invoke&gt;/gi, '')
+                              .trim();
+                            return (
+                              <div className="prose prose-sm max-w-none">
+                                {cleanThink && <ThinkBlock>{cleanThink}</ThinkBlock>}
+                                <ReactMarkdown
+                                  remarkPlugins={[remarkGfm]}
+                                  components={{
+                                    pre: PreBlock,
+                                    code: ({ inline, className, children: codeChildren, ...props }: any) => {
+                                      if (className || !inline) return <code className={className} {...props}>{codeChildren}</code>;
+                                      return <code className="bg-slate-100 text-indigo-600 px-1.5 py-0.5 rounded text-sm font-mono" {...props}>{codeChildren}</code>;
+                                    }
+                                  }}
+                                >
+                                  {cleanBody}
+                                </ReactMarkdown>
+                                {m.status === 'streaming' && (
+                                  <span className="inline-block w-2 h-4 ml-1 bg-indigo-400 animate-pulse align-middle rounded-sm" />
+                                )}
+                              </div>
+                            );
+                          })() : (
                             <p className="whitespace-pre-wrap break-words overflow-wrap-anywhere text-sm leading-relaxed max-w-full">{m.content}</p>
                           )}
                           

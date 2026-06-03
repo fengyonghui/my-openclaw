@@ -57,10 +57,24 @@ export function extractToolCalls(choice: any): any[] {
   if (Array.isArray(choice?.delta?.tool_calls)) {
     return choice.delta.tool_calls;
   }
-  
+
   // MiniMax 推理模型：工具调用可能在 content 的 <think> 标签中
   const content = choice?.message?.content || '';
   return extractToolCallsFromContent(content);
+}
+
+/**
+ * 验证 tool_call.arguments 是否是合法的 JSON 字符串。
+ * 非法则返回 null（该 tool call 不使用）。
+ */
+function validateToolCallArguments(tc: any): any | null {
+  try {
+    JSON.parse(tc.function.arguments);
+    return tc;
+  } catch {
+    console.warn(`[extractToolCalls] Skipping invalid tool_call "${tc.function.name}" — arguments is not valid JSON`);
+    return null;
+  }
 }
 
 /**
@@ -141,7 +155,7 @@ function extractToolCallsFromContent(content: string): any[] {
   }
   
   console.log(`[extractToolCalls] Found ${toolCalls.length} tool calls from content`);
-  return toolCalls;
+  return toolCalls.filter(validateToolCallArguments);
 }
 
 /**
