@@ -726,14 +726,9 @@ export async function ChatRoutes(fastify: FastifyInstance) {
       }
       lastToolCallSignature = currentSignature;
 
-                // 🔧 保存工具调用时的部分内容
-                if (message.content) {
-                  partialContent = message.content;
-                  reply.raw.write(`data: ${JSON.stringify({ 
-                    chunk: message.content, 
-                    type: 'assistant' 
-                  })}\n\n`);
-                }
+                // 🔧 NOTE: We no longer stream message.content here because it often contains
+                // <think>...[/think] thinking blocks which pollute the UI.
+                // The final response will be streamed after tool calls are processed.
 
                 reply.raw.write(`data: ${JSON.stringify({ 
                   type: 'tool_call', 
@@ -746,17 +741,18 @@ export async function ChatRoutes(fastify: FastifyInstance) {
 
                 finalMessages.push({
                   role: 'assistant',
-                  content: message.content || '',
-                  tool_calls: normalizedToolCalls
+                  content: normalizedToolCalls.length > 0 ? '' : (choice?.message?.content || ''),
+                  tool_calls: normalizedToolCalls.length > 0 ? normalizedToolCalls : undefined
                 });
 
-                // 保存 assistant 消息（带 tool_calls）到数据库，避免 tool result 成为孤儿
+                // 保存 assistant 消息到数据库（带 tool_calls）并执行工具调用
                 await ProjectChatService.addMessageToChat(getProjectWorkspacePath(targetProject.workspace), chatId, {
                   role: 'assistant',
-                  content: message.content || '',
+                  content: '',
                   tool_calls: normalizedToolCalls
                 });
 
+                // 执行工具调用
                 for (const toolCall of normalizedToolCalls) {
                   let toolResult: any;
                   try {
@@ -765,7 +761,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
                     projectRuntimeManager.getEventService().record('tool_call', {
                       chatId,
                       projectId: targetProject.id,
-                      toolName: toolCall.function?.name || toolCall.function?.name || 'unknown',
+                      toolName: toolCall.function?.name || 'unknown',
                       toolArgs: JSON.parse(toolCall.function?.arguments || '{}'),
                     });
                   } catch (err: any) {
@@ -776,6 +772,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
                     type: 'tool_result',
                     toolCallId: toolCall.id,
                     toolName: toolCall.function?.name,
+                    arguments: toolCall.function?.arguments,
                     result: toolResult
                   })}\n\n`);
 
@@ -795,8 +792,13 @@ export async function ChatRoutes(fastify: FastifyInstance) {
                 continue;
               }
 
-              // 获取最终响应
-              fullAssistantContent = message.content || '';
+              // 没有 tool_calls → 视为最终响应（stream: false 一次返回完整内容）
+              // ⚠️ 修复：原本此分支先流式发送再 continue，导致同一个问题被重复发给 LLM 最多 8 次，
+              //    用户看到 8 份相同/近似的回答。改为一次性发送并 break，与 /resend 端点保持一致。
+              fullAssistantContent = choice?.message?.content || '';
+              if (fullAssistantContent) {
+                reply.raw.write(`data: ${JSON.stringify({ chunk: fullAssistantContent })}\n\n`);
+              }
               success = true;
               currentModelSuccess = true;
               pickedModelCfg = modelCfg;
@@ -841,8 +843,12 @@ export async function ChatRoutes(fastify: FastifyInstance) {
       }
 
       if (!success || !pickedModelCfg) {
-        // 🔧 如果有部分内容，使用它而不是抛出错误
-        if (partialContent) {
+        // 🔧 如果有累积内容（guard 达到上限但有文本），使用它
+        if (fullAssistantContent) {
+          console.log(`[Model] Guard limit reached, using accumulated content (${fullAssistantContent.length} chars)`);
+          success = true;
+          pickedModelCfg = modelsToTry[0];
+        } else if (partialContent) {
           console.log(`[Model] Using partial content due to failure`);
           fullAssistantContent = partialContent;
           success = true;
@@ -868,27 +874,19 @@ export async function ChatRoutes(fastify: FastifyInstance) {
         }
       }
 
-      // 🔧 发送最终响应（使用 fullAssistantContent 或 partialContent）
+      // 🔧 持久化最终响应（fullAssistantContent 已在内层循环中通过 SSE 发送过）
+      // ⚠️ 修复：原本此处再发一次 SSE chunk，会导致同一份内容在对话框里出现 2 次。
       const finalContent = fullAssistantContent || partialContent;
-      if (finalContent) {
-        // 如果使用的是部分内容，添加说明
-        if (!fullAssistantContent && partialContent) {
-          reply.raw.write(`data: ${JSON.stringify({
-            chunk: partialContent + '\n\n⚠️ 注意：部分操作未能完成，以上是已生成的内容。'
-          })}\n\n`);
-        } else {
-          reply.raw.write(`data: ${JSON.stringify({ chunk: finalContent })}\n\n`);
-        }
-        await ProjectChatService.addMessageToChat(getProjectWorkspacePath(targetProject.workspace), chatId, {
-          role: 'assistant',
-          content: finalContent
-        });
+      // 保存到数据库（内容和对话框完全一致，包括 thinking block）
+      await ProjectChatService.addMessageToChat(getProjectWorkspacePath(targetProject.workspace), chatId, {
+        role: 'assistant',
+        content: finalContent
+      });
 
-        // 自动记忆保存（后台，不阻塞响应）
-        const msgsAfterAdd = [...(chatWithHistory?.messages || []), { id: Date.now().toString(), role: 'assistant', content: finalContent }];
-        console.log(`[MemoryAutoSave] ⏩ Triggered for chat ${chatId}, ${msgsAfterAdd.length} messages, project=${targetProject.name}`);
-        autoSaveMemory(targetProject, chatId, msgsAfterAdd).catch((err: any) => console.warn('[MemoryAutoSave]', err.message));
-      }
+      // 自动记忆保存（后台，不阻塞响应）
+      const msgsAfterAdd = [...(chatWithHistory?.messages || []), { id: Date.now().toString(), role: 'assistant', content: finalContent }];
+      console.log(`[MemoryAutoSave] ⏩ Triggered for chat ${chatId}, ${msgsAfterAdd.length} messages, project=${targetProject.name}`);
+      autoSaveMemory(targetProject, chatId, msgsAfterAdd).catch((err: any) => console.warn('[MemoryAutoSave]', err.message));
 
       reply.raw.write(`data: [DONE]\n\n`);
 
@@ -1240,14 +1238,14 @@ export async function ChatRoutes(fastify: FastifyInstance) {
 
               finalMessages.push({
                 role: 'assistant',
-                content: message.content || '',
+                content: '', // Omit partial content with <think> block
                 tool_calls: toolCalls
               });
 
               // 保存 assistant 消息（带 tool_calls）到数据库，避免 tool result 成为孤儿
               await ProjectChatService.addMessageToChat(workspacePath, chatId, {
                 role: 'assistant',
-                content: message.content || '',
+                content: '', // Omit partial content with <think> block
                 tool_calls: toolCalls
               });
 
@@ -1290,6 +1288,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
                   type: 'tool_result',
                   toolCallId: toolCall.id,
                   toolName: toolCall.function?.name,
+                  arguments: toolCall.function?.arguments,
                   result: displayResult
                 })}\n\n`);
 
