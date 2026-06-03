@@ -36,6 +36,54 @@ export interface ToolResult {
 }
 
 /**
+ * 规范化 child_process.exec 错误。
+ *
+ * Node.js 默认对"进程退出码非 0"产生 err.message 形如
+ *   "Command failed: <cmd>\n  stderr: ...\n  stdout: ..."
+ * 这种纯文本对 LLM 不友好，且会把"grep/findstr 无匹配"误报为失败。
+ *
+ * 改进点：
+ * 1. 错误消息显式带上退出码与原始命令（截断 200 字符）
+ * 2. exit=1 且 stdout/stderr 都为空 → 通常是 grep/findstr/Select-String 的"无匹配"，
+ *    改写为信息性错误，并附 _note 提示 LLM 改用 PowerShell Select-String 或加 /R 标志
+ */
+function normalizeExecError(
+  err: any,
+  stdout: string,
+  stderr: string,
+  originalCommand: string,
+): ToolResult {
+  const exitCode = typeof err?.code === 'number' ? err.code : undefined;
+  const trimmedOut = (stdout || '').trim();
+  const trimmedErr = (stderr || '').trim();
+  const cmdPreview = originalCommand.length > 200
+    ? originalCommand.slice(0, 200) + '...'
+    : originalCommand;
+
+  // 经典 grep/findstr "无匹配" 模式：exit=1 且输出全空
+  if (exitCode === 1 && !trimmedOut && !trimmedErr) {
+    return {
+      success: false,
+      stdout,
+      stderr,
+      error: `Command exited with code 1 (可能无匹配或文件不存在): ${cmdPreview}`,
+      _exitCode: 1,
+      _note: 'exit=1 + 空输出通常是 grep/findstr/Select-String 的"无匹配"结果。'
+           + 'Windows 上查找代码建议优先用 PowerShell Select-String（支持 Unicode），'
+           + '若用 findstr 必须加 /R 标志支持 \| 语法。',
+    };
+  }
+
+  // 其他错误：保留原始 err.message（通常含 stderr），并附上退出码
+  return {
+    error: `${err?.message || 'Unknown exec error'} [exit=${exitCode ?? '?'}]`,
+    stdout,
+    stderr,
+    _exitCode: exitCode,
+  };
+}
+
+/**
  * 执行工具调用
  */
 export async function executeToolCall(
@@ -283,7 +331,7 @@ async function executePowerShellCommand(command: string, cwd: string): Promise<T
       maxBuffer: MAX_OUTPUT
     }, (err, stdout, stderr) => {
       if (err) {
-        resolve({ error: err.message, stdout, stderr });
+        resolve(normalizeExecError(err, stdout, stderr, command));
       } else {
         resolve({ success: true, stdout, stderr });
       }
@@ -304,7 +352,7 @@ async function executeWindowsCommand(command: string, cwd: string): Promise<Tool
       maxBuffer: MAX_OUTPUT
     }, (err, stdout, stderr) => {
       if (err) {
-        resolve({ error: err.message, stdout, stderr });
+        resolve(normalizeExecError(err, stdout, stderr, command));
       } else {
         resolve({ success: true, stdout, stderr });
       }
@@ -324,7 +372,7 @@ async function executeLinuxCommand(command: string, cwd: string): Promise<ToolRe
       maxBuffer: MAX_OUTPUT
     }, (err, stdout, stderr) => {
       if (err) {
-        resolve({ error: err.message, stdout, stderr });
+        resolve(normalizeExecError(err, stdout, stderr, command));
       } else {
         resolve({ success: true, stdout, stderr });
       }
@@ -359,7 +407,7 @@ export async function executePythonCommand(project: any, args: any): Promise<Too
       timeout: 30000
     }, (err, stdout, stderr) => {
       if (err) {
-        resolve({ error: err.message, stdout, stderr });
+        resolve(normalizeExecError(err, stdout, stderr, command));
       } else {
         resolve({ success: true, stdout, stderr });
       }

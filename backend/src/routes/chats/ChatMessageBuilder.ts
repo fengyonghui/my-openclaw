@@ -155,6 +155,14 @@ Use these commands for shell_exec tool. DO NOT guess commands.
 - search in file: ${cmds.searchInFile}
 - find files by name: ${cmds.findFiles}
 
+**CRITICAL — Windows text search gotchas:**
+- \`findstr\` 的 \`|\` 是字面字符，**"或"匹配必须加 \`/R\` 标志**（regex 模式），例如：
+  \`findstr /R /N "主表\\|辅助表\\|isPrimary" file.tsx\`
+  缺 \`/R\` 时 \`\\|\` 被当字面字符串，文件里没这个 → 退出码 1 → "无匹配"（不是真错）
+- **优先使用 PowerShell \`Select-String\`**：原生支持 Unicode（中英文都行）、\`-Pattern\` 直接支持 \`|\` 语法
+  \`powershell -NoProfile -Command "Get-Content -Path 'file.tsx' | Select-String -Pattern 'isPrimary|主表'"\`
+- 退出码 1 + 空输出通常是"无匹配"，不是命令错误
+
 **IMPORTANT - Creating/Writing Files:**
 - For multi-line content (HTML, JSON, code, etc.): **USE write_file tool** (NOT shell_exec with cat/echo)
 - shell_exec is for running commands, NOT for writing file content
