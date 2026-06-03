@@ -6,3 +6,18 @@ data/db.json
 .idea/
 dist-package/
 my-openclaw-*-dist.tar.gz
+
+# ClawHub CLI state directory (lock.json 等)
+.clawhub/
+
+# Vite dev server log
+ui-dev.log
+
+# TypeScript incremental build files
+*.tsbuildinfo
+
+# 项目使用 yarn，忽略 npm 生成的 lock 避免冲突
+package-lock.json
+
+# 用户聊天数据（隐私 + 体积大，不应进入仓库）
+data/chats/

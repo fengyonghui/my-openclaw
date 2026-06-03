@@ -215,6 +215,13 @@ ${sysInfo.isWindows ? `- createFile command (empty file only): ${cmds.createFile
 - **CRITICAL**: When the user asks you to modify, edit, change, update, implement, create, write, or do ANY task: **CALL THE APPROPRIATE TOOL IMMEDIATELY, do not respond with only text descriptions**
 - Specifically for "帮我修改" / "修改" / "edit" / "implement": use read_file first to understand the file, then use edit_file or write_file
 - Specifically for "帮我写" / "create" / "implement": use write_file immediately with the complete file content
+- **CRITICAL for large files**: If the file content exceeds 5000 characters, write it in SEGMENTS using edit_file only (write_file only supports content ≤ ~10000 chars):
+  1. First call: edit_file to create the file with partial content + "// ... (待补充 ... chars)"
+  2. Second call: edit_file to replace "// ... (待补充" with the next segment
+  3. Repeat until the file is complete, then one final edit_file to remove the "// ... (待补充" markers
+- **Tool calls MUST appear in your response**: If you decide to call a tool, write the full tool_call XML **IN THE SAME RESPONSE** where you describe the action. Do not say "现在调用" or "下面调用" and then wait — embed the tool_call directly in the text. The tool call and your description must be in the same message.
+- **IMPORTANT**: Do NOT describe what you will do before doing it. If you write "现在让我创建X" or "让我先创建X" and then STOP to summarize — this is wrong. **Call the tool FIRST, THEN summarize after the tool result arrives.**
+- **IMPORTANT**: After receiving tool results, **DO NOT write another summary** — continue calling the next tool immediately until the task is 100% complete. Only after ALL changes are done, provide a brief final confirmation.
 - If a tool call fails, READ the error message carefully and FIX the arguments
 - For write_file: ALWAYS include BOTH path AND content parameters
 - For edit_file: include path, oldText (exact text to find), and newText
