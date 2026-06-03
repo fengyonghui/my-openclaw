@@ -14,6 +14,7 @@ import { SystemToolsRoutes } from './routes/systemTools.js';
 import { SystemCommandsRoutes } from './routes/systemCommands.js';
 import { HeartbeatRoutes } from './routes/heartbeats.js';
 import { FeatureFlagsRoutes } from './routes/feature-flags.js';
+import { TableMetadataRoutes } from './routes/tableMetadata.js';
 import { bootstrapSystemCommands } from './services/systemBootstrap.js';
 import { restoreHeartbeats } from './services/HeartbeatService.js';
 
@@ -41,6 +42,7 @@ await fastify.register(SystemToolsRoutes, { prefix: '/api/tools' });
 await fastify.register(SystemCommandsRoutes, { prefix: '/api/tools' });
 await fastify.register(HeartbeatRoutes, { prefix: '/api/v1/heartbeats' });
 await fastify.register(FeatureFlagsRoutes, { prefix: '/api/v1/flags' });
+await fastify.register(TableMetadataRoutes, { prefix: '/api/v1/table-metadata' });
 
 // --- Serve built frontend in production ---
 // In release zip: backend/ and ui/ are siblings, so ui/dist is ../ui/dist relative to backend/
