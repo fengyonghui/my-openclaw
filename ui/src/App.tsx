@@ -7,10 +7,11 @@ import { FilesPage } from './pages/FilesPage';
 import { ActivityPage } from './pages/ActivityPage';
 import { MemoryPage } from './pages/MemoryPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { MetadataModule } from './components/MetadataModule';
 import { ContextPanel } from './components/layout/ContextPanel';
 import { ProjectProvider } from './contexts/ProjectContext';
 
-export type AppView = 'dashboard' | 'chat' | 'files' | 'memory' | 'activity' | 'settings';
+export type AppView = 'dashboard' | 'chat' | 'files' | 'memory' | 'activity' | 'settings' | 'metadata';
 
 export default function App() {
   const [projectId, setProjectId] = useState<string | null>(null);
@@ -42,6 +43,7 @@ export default function App() {
         case 'activity': return <ActivityPage projectId={projectId} />;
         case 'memory': return <MemoryPage projectId={projectId} />;
         case 'settings': return <SettingsPage projectId={projectId} onSaved={triggerRefresh} />;
+        case 'metadata': return <MetadataModule />;
         default: return <ProjectDashboardPage projectId={projectId} onOpenChat={(chatId) => { setActiveChatId(chatId); setView('chat'); }} onProjectUpdated={triggerRefresh} />;
       }
     })();
@@ -50,7 +52,7 @@ export default function App() {
       <AppShell
         currentProjectName={projectId}
         currentProjectDescription="OpenClaw 项目工作区"
-        activeNav={view === 'dashboard' ? 'chats' : view}
+        activeNav={view === 'dashboard' ? 'chats' : (view === 'metadata' ? 'metadata' : view)}
         onNavigate={setView}
         onSwitchProject={() => setProjectId(null)}
         contextPanel={<ContextPanel projectId={projectId} refreshKey={refreshKey} />}

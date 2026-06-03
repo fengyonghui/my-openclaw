@@ -9,7 +9,8 @@ import {
   Sparkles,
   ChevronLeft,
   Home,
-  Zap
+  Zap,
+  Database
 } from 'lucide-react';
 import type { AppView } from '../../App';
 import { useState, useEffect } from 'react';
@@ -28,6 +29,7 @@ const navItems: NavItem[] = [
   { key: 'files', label: '文件', icon: <FolderOpen className="h-5 w-5" />, gradient: 'from-amber-500 to-orange-500' },
   { key: 'memory', label: '记忆', icon: <Brain className="h-5 w-5" />, gradient: 'from-rose-500 to-pink-500' },
   { key: 'activity', label: '活动', icon: <Activity className="h-5 w-5" />, gradient: 'from-emerald-500 to-teal-500' },
+  { key: 'metadata', label: '表配置', icon: <Database className="h-5 w-5" />, gradient: 'from-violet-500 to-purple-600' },
   { key: 'settings', label: '设置', icon: <Settings className="h-5 w-5" />, gradient: 'from-slate-500 to-slate-600' },
 ];
 
