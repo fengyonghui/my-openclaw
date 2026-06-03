@@ -98,6 +98,16 @@ export async function ProjectRoutes(fastify: FastifyInstance) {
     return await DbService.toggleProjectAgent(id, agentId);
   });
 
+  // 编辑项目内的 Agent 配置（修改项目目录下的 agent 文件）
+  fastify.patch('/:id/agents/:agentId', async (request) => {
+    const { id, agentId } = request.params as { id: string; agentId: string };
+    const updates = request.body as any;
+    const project = await DbService.getProject(id);
+    if (!project?.workspace) throw new Error('项目不存在或无 workspace');
+    await DbService.updateProjectAgentFile(project.workspace, agentId, updates);
+    return { success: true };
+  });
+
   // ===== 项目私有 Agent 管理 =====
   // 获取项目私有 Agent 列表
   fastify.get('/:id/agents/private', async (request) => {

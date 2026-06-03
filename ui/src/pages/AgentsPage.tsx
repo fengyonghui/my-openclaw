@@ -99,32 +99,58 @@ export function AgentsPage({ projectId, onSaved }: { projectId: string; onSaved?
 
   const handleEditPrivateAgent = async () => {
     if (!editingAgent) return;
-    const res = await fetch(`http://localhost:3001/api/v1/projects/${projectId}/agents/private/${editingAgent.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(editingAgent)
-    });
-    if (res.ok) {
-      setProjectPrivateAgents(await res.json());
-      setEditingAgent(null);
+    if (editingAgent.isProjectCopy) {
+      // 编辑项目副本（修改项目目录下的 agent 文件）
+      const res = await fetch(`http://localhost:3001/api/v1/projects/${projectId}/agents/${editingAgent.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: editingAgent.name, role: editingAgent.role, description: editingAgent.description })
+      });
+      if (res.ok) {
+        fetchData();
+        setEditingAgent(null);
+      }
+    } else {
+      // 编辑私有 agent（修改 projectAgents 数组）
+      const res = await fetch(`http://localhost:3001/api/v1/projects/${projectId}/agents/private/${editingAgent.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editingAgent)
+      });
+      if (res.ok) {
+        setProjectPrivateAgents(await res.json());
+        setEditingAgent(null);
+      }
     }
   };
 
-  const handleAgentModelChange = async (agentId: string, modelId: string) => {
+  const handleAgentModelChange = async (agentId: string, modelId: string, isProjectCopy?: boolean) => {
     setUpdatingAgentModel(agentId);
     try {
-      const res = await fetch(`http://localhost:3001/api/v1/agents/${agentId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ defaultModelId: modelId })
-      });
-      if (res.ok) {
-        setAllGlobalAgents(prev => prev.map(a => 
-          a.id === agentId ? { ...a, defaultModelId: modelId } : a
-        ));
-        setProjectPrivateAgents(prev => prev.map(a => 
-          a.id === agentId ? { ...a, defaultModelId: modelId } : a
-        ));
+      let res;
+      if (isProjectCopy) {
+        // 项目副本：PATCH 到项目 agent 文件
+        res = await fetch(`http://localhost:3001/api/v1/projects/${projectId}/agents/${agentId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ defaultModelId: modelId })
+        });
+        if (res.ok) fetchData();
+      } else {
+        // 全局 agent 或私有 agent：PATCH 到 /api/v1/agents/
+        res = await fetch(`http://localhost:3001/api/v1/agents/${agentId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ defaultModelId: modelId })
+        });
+        if (res.ok) {
+          setAllGlobalAgents(prev => prev.map(a =>
+            a.id === agentId ? { ...a, defaultModelId: modelId } : a
+          ));
+          setProjectPrivateAgents(prev => prev.map(a =>
+            a.id === agentId ? { ...a, defaultModelId: modelId } : a
+          ));
+        }
       }
     } catch (err) {
       console.error('更新模型失败:', err);
@@ -342,7 +368,7 @@ export function AgentsPage({ projectId, onSaved }: { projectId: string; onSaved?
                     <select
                       className="w-full px-3 py-2 rounded-xl bg-white border border-emerald-200 text-sm font-medium text-slate-700 outline-none focus:border-emerald-400"
                       value={agent.defaultModelId || ''}
-                      onChange={(e) => handleAgentModelChange(agent.id, e.target.value)}
+                      onChange={(e) => handleAgentModelChange(agent.id, e.target.value, agent.isProjectCopy)}
                       disabled={updatingAgentModel === agent.id}
                     >
                       <option value="">跟随项目默认</option>
@@ -354,17 +380,28 @@ export function AgentsPage({ projectId, onSaved }: { projectId: string; onSaved?
                   
                   {agent.isPrivate && (
                     <div className="mt-4 flex items-center gap-2">
-                      <button 
-                        onClick={() => setEditingAgent(agent)} 
+                      <button
+                        onClick={() => setEditingAgent(agent)}
                         className="p-2 rounded-xl text-slate-400 hover:text-cyan-600 hover:bg-cyan-50 transition-colors"
                       >
                         <Edit3 className="w-4 h-4" />
                       </button>
-                      <button 
-                        onClick={() => handleDeletePrivateAgent(agent.id)} 
+                      <button
+                        onClick={() => handleDeletePrivateAgent(agent.id)}
                         className="p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
                       >
                         <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
+                  {!agent.isPrivate && (
+                    <div className="mt-4 pt-4 border-t border-emerald-200/50 flex items-center justify-end">
+                      <button
+                        onClick={() => setEditingAgent({ ...agent, isProjectCopy: true })}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium text-emerald-600 hover:bg-emerald-50 transition-colors"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                        编辑项目副本
                       </button>
                     </div>
                   )}
@@ -433,7 +470,7 @@ export function AgentsPage({ projectId, onSaved }: { projectId: string; onSaved?
                       <select
                         className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-sm font-medium text-slate-700 outline-none focus:border-cyan-400"
                         value={agent.defaultModelId || ''}
-                        onChange={(e) => handleAgentModelChange(agent.id, e.target.value)}
+                        onChange={(e) => handleAgentModelChange(agent.id, e.target.value, isEnabled)}
                         disabled={updatingAgentModel === agent.id}
                       >
                         <option value="">跟随项目默认</option>
@@ -566,8 +603,15 @@ export function AgentsPage({ projectId, onSaved }: { projectId: string; onSaved?
                     <Edit3 className="w-6 h-6 text-white" />
                   </div>
                   <div>
-                    <h2 className="text-xl font-bold text-slate-900">编辑项目私有成员</h2>
-                    <p className="text-sm text-slate-500 mt-0.5">{editingAgent.name}</p>
+                    <h2 className="text-xl font-bold text-slate-900">{
+                      editingAgent.isProjectCopy ? '编辑项目成员副本' : '编辑项目私有成员'
+                    }</h2>
+                    <p className="text-sm text-slate-500 mt-0.5">
+                      {editingAgent.isProjectCopy
+                        ? `修改将仅影响当前项目，不影响全局成员：${editingAgent.name}`
+                        : editingAgent.name
+                      }
+                    </p>
                   </div>
                 </div>
                 <button 
