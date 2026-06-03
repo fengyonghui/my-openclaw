@@ -305,6 +305,8 @@ export async function executeShellCommand(project: any, args: any): Promise<Tool
  * 1. 末尾反斜杠（如 C:\）：PowerShell -Command "..." 中 \ 在闭合 " 前被当作转义符 → 替换为 /
  * 2. shell 重定向（2>&1）：PowerShell 不识别 → 直接剥离
  * 3. 引号嵌套：改用 -Command {block} 语法，避免引号解析问题
+ * 4. LLM 把 bash 习惯带过来：\$ → $（PowerShell 用 ` 反引号作转义，\ 是字面字符，
+ *    \$ 会被解析为字面 \$ + 后续 token，导致 "Unexpected token '\$_.Exception.Message'"）
  */
 async function executePowerShellCommand(command: string, cwd: string): Promise<ToolResult> {
   return new Promise((resolve) => {
@@ -320,6 +322,13 @@ async function executePowerShellCommand(command: string, cwd: string): Promise<T
     // 修复 Windows 路径末尾的反斜杠（PowerShell -Command 中会转义闭合引号）
     // 将 D:\ 末尾反斜杠改为正斜杠，PowerShell 兼容
     cleanCmd = cleanCmd.replace(/([A-Za-z]):\\(?=\s*(['"]|\s*[-&|]|$))/g, '$1:/');
+
+    // 把 \$ 替换为 $（LLM 常见错误：把 bash 的 \$variable 习惯带进 PowerShell）
+    // PowerShell 的转义符是反引号 `，\ 是字面字符
+    // 典型 bug 场景: catch 块里写 \$_.Exception.Message → PowerShell 报 "Unexpected token"
+    // 极少数情况: LLM 想用 \$ 作为正则字面 $ (如 '[regex]"\$foo"'），破坏可接受，
+    // 因为 LLM 不会写复杂正则，且这种场景可改用 [regex]::Escape('$') 规避
+    cleanCmd = cleanCmd.replace(/\\\$/g, '$');
 
     // 使用 {block} 语法避免引号嵌套问题
     // 注意：双大括号 {{ }} 在模板字符串中是单大括号 {}
