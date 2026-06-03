@@ -100,6 +100,11 @@ function isCorruptedJsonContent(content: any): boolean {
  * 1. 移除 incomplete JSON（未闭合的字符串/对象/数组）
  * 2. 移除含有 JSON 错误关键词的 content
  * 3. 检测并处理双重 JSON 编码字符串
+ *
+ * 重要前提：isCorruptedJsonContent 用正则匹配 `:"`、`Unterminated string` 等模式，
+ * 普通用户消息里完全可能出现 `:"`（例如 "ERR:""、JSON 示例代码片段、shell 命令引号），
+ * 不能把"长得像损坏 JSON 的文本"误判为损坏 JSON。
+ * 正确做法：只对真正"应该"是 JSON 的 content 做损坏检查，即以 `{` 或 `[` 开头的内容。
  */
 function sanitizeMessageContent(content: any): any {
   // 非字符串 content（数组、null 等）直接返回
@@ -108,10 +113,14 @@ function sanitizeMessageContent(content: any): any {
   // 如果 content 本身是合法 JSON，返回原值
   if (isValidJson(content)) return content;
 
-  // 如果是损坏的 JSON，替换为安全占位符
-  if (isCorruptedJsonContent(content)) {
-    console.warn('[Sanitize] Replacing corrupted content:', content.slice(0, 80));
-    return '[工具结果内容已损坏，已跳过]';
+  // 仅当 content 以 `{` 或 `[` 开头（"应该"是 JSON）时才检查损坏
+  // 普通文本消息（含 `:"`、`Unexpected` 等关键词）原样返回
+  const trimmed = content.trimStart();
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    if (isCorruptedJsonContent(content)) {
+      console.warn('[Sanitize] Replacing corrupted content:', content.slice(0, 80));
+      return '[工具结果内容已损坏，已跳过]';
+    }
   }
 
   // 处理双重编码的 JSON 字符串
