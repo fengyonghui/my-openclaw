@@ -19,6 +19,7 @@ export interface ModelConfig {
 
 export class DbService {
   private static data: any = null;
+  private static tableMetadataCache: Map<string, any> = new Map(); // 缓存：tableName -> metadata
 
   static async load() {
     try {
@@ -669,6 +670,93 @@ export class DbService {
       await this.saveProject(project);
     }
     return project.projectSkills;
+  }
+
+  // ============================================================
+  // 表元数据管理 (TableMetadata)
+  // ============================================================
+
+  static async getTableMetadataList(keyword?: string) {
+    const db = await this.load();
+    if (!db.tableMetadata) db.tableMetadata = [];
+    if (!keyword) return db.tableMetadata;
+    const kw = keyword.toLowerCase();
+    return db.tableMetadata.filter((m: any) =>
+      m.tableName.toLowerCase().includes(kw) ||
+      (m.businessKeywords || '').toLowerCase().includes(kw) ||
+      m.displayName.toLowerCase().includes(kw)
+    );
+  }
+
+  static async getTableMetadataByName(tableName: string) {
+    const db = await this.load();
+    if (!db.tableMetadata) db.tableMetadata = [];
+    return db.tableMetadata.find((m: any) => m.tableName === tableName) || null;
+  }
+
+  static async saveTableMetadata(record: any) {
+    const db = await this.load();
+    if (!db.tableMetadata) db.tableMetadata = [];
+    // 检查是否已存在（按 tableName 唯一）
+    const index = db.tableMetadata.findIndex((m: any) => m.tableName === record.tableName);
+    const newRecord = {
+      ...record,
+      id: record.id || (index !== -1 ? db.tableMetadata[index].id : Date.now()),
+      createdAt: index !== -1 ? db.tableMetadata[index].createdAt : new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    if (index !== -1) {
+      db.tableMetadata[index] = newRecord;
+    } else {
+      db.tableMetadata.unshift(newRecord);
+    }
+    await this.save();
+    // 刷新缓存
+    this.tableMetadataCache.set(record.tableName, newRecord);
+    return newRecord;
+  }
+
+  static async updateTableMetadata(id: number, updates: any) {
+    const db = await this.load();
+    if (!db.tableMetadata) db.tableMetadata = [];
+    const index = db.tableMetadata.findIndex((m: any) => m.id === id);
+    if (index === -1) throw new Error('记录不存在');
+    const oldTableName = db.tableMetadata[index].tableName;
+    db.tableMetadata[index] = { ...db.tableMetadata[index], ...updates, updatedAt: new Date().toISOString() };
+    await this.save();
+    // 刷新缓存
+    this.tableMetadataCache.delete(oldTableName);
+    this.tableMetadataCache.set(db.tableMetadata[index].tableName, db.tableMetadata[index]);
+    return db.tableMetadata[index];
+  }
+
+  static async deleteTableMetadata(id: number) {
+    const db = await this.load();
+    if (!db.tableMetadata) db.tableMetadata = [];
+    const record = db.tableMetadata.find((m: any) => m.id === id);
+    if (record) this.tableMetadataCache.delete(record.tableName);
+    db.tableMetadata = db.tableMetadata.filter((m: any) => m.id !== id);
+    await this.save();
+    return db.tableMetadata;
+  }
+
+  static async refreshTableMetadataCache() {
+    const db = await this.load();
+    if (!db.tableMetadata) db.tableMetadata = [];
+    this.tableMetadataCache.clear();
+    for (const m of db.tableMetadata) {
+      this.tableMetadataCache.set(m.tableName, m);
+    }
+    return this.tableMetadataCache.size;
+  }
+
+  // 获取表元数据的分页结果
+  static async getTableMetadataPage(pageNum: number, pageSize: number, keyword?: string) {
+    let list = await this.getTableMetadataList(keyword);
+    const total = list.length;
+    const start = (pageNum - 1) * pageSize;
+    const records = list.slice(start, start + pageSize);
+    return { data: { records, total, pageNum, pageSize } };
   }
 
   // ============================================================
