@@ -53,6 +53,8 @@ export function ModelsPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [collapsedProviders, setCollapsedProviders] = useState<Set<string>>(new Set());
   const [mounted, setMounted] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<{success: boolean; message: string} | null>(null);
 
   const fetchModels = useCallback(async () => {
     try {
@@ -89,6 +91,29 @@ export function ModelsPage() {
       if (res.ok) setModels(await res.json());
     } catch (err) { alert('删除失败'); }
     finally { setDeletingId(null); }
+  };
+
+  const handleSyncFromProvider = async () => {
+    setSyncing(true);
+    setSyncResult(null);
+    try {
+      const res = await fetch('http://localhost:3001/api/v1/models/sync-from-provider', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '同步失败');
+      setSyncResult({ success: true, message: data.message });
+      // 刷新模型列表
+      fetchModels();
+    } catch (err: any) {
+      setSyncResult({ success: false, message: err.message });
+    } finally {
+      setSyncing(false);
+      // 3秒后清除结果提示
+      setTimeout(() => setSyncResult(null), 3000);
+    }
   };
 
   const toggleProvider = (provider: string) => {
@@ -145,6 +170,18 @@ export function ModelsPage() {
               </p>
             </div>
             
+            {/* 同步结果提示 */}
+            {syncResult && (
+              <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${
+                syncResult.success 
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-700' 
+                  : 'bg-rose-50 border-rose-200 text-rose-700'
+              }`}>
+                {syncResult.success ? <Check className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+                <span className="text-sm font-semibold">{syncResult.message}</span>
+              </div>
+            )}
+            
             <div className="flex flex-wrap gap-4 items-center">
               {/* 搜索框 */}
               <div className="relative group">
@@ -179,6 +216,15 @@ export function ModelsPage() {
                 className="group relative inline-flex items-center gap-2 px-6 py-3 rounded-2xl bg-gradient-to-r from-violet-500 to-purple-500 text-white font-bold text-sm shadow-lg shadow-violet-500/25 hover:shadow-xl hover:shadow-violet-500/30 transition-all duration-300 hover:-translate-y-0.5 active:translate-y-0">
                 <span className="absolute inset-0 rounded-2xl bg-gradient-to-r from-violet-600 to-purple-600 opacity-0 group-hover:opacity-100 transition-opacity" />
                 <Network className="w-4 h-4 relative" /><span className="relative">批量导入</span>
+              </button>
+
+              {/* 同步当前 Provider 模型 */}
+              <button onClick={handleSyncFromProvider}
+                disabled={syncing}
+                className="group relative inline-flex items-center gap-2 px-6 py-3 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-bold text-sm shadow-lg shadow-emerald-500/25 hover:shadow-xl hover:shadow-emerald-500/30 transition-all duration-300 hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed">
+                <span className="absolute inset-0 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 opacity-0 group-hover:opacity-100 transition-opacity" />
+                {syncing ? <Loader2 className="w-4 h-4 relative animate-spin" /> : <Sparkles className="w-4 h-4 relative" />}
+                <span className="relative">{syncing ? '同步中...' : '同步模型'}</span>
               </button>
               
               {/* 添加模型 */}
