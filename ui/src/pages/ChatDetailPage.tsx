@@ -22,6 +22,12 @@ type Message = {
   status?: 'streaming' | 'error' | string;
   attachments?: Attachment[];
   mentions?: string[];
+  // 临时装饰事件（不持久化到 DB，回显时不显示）
+  // 用于在流式时显示 agent 进度，不污染 content
+  agentEvents?: Array<{ type: 'start' | 'end'; agentName: string; task?: string }>;
+  // 临时通知（不持久化到 DB，回显时不显示）
+  // 例如模型切换通知 "已自动切换至备用模型: xxx"
+  notifications?: string[];
 };
 
 // 思考块渲染器（默认折叠）
@@ -389,28 +395,33 @@ export function ChatDetailPage({ projectId, chatId, onMinimize }: { projectId: s
               setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: fullContent } : m));
             }
             if (data.info) {
-              fullContent += `\n\n${data.info}`;
-              setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: fullContent } : m));
+              // 模型切换等通知：放进 notifications 字段（不写入 content，避免回显时不一致）
+              setMessages(prev => prev.map(m => m.id === assistantMsgId ? {
+                ...m,
+                notifications: [...(m.notifications || []), data.info]
+              } : m));
             }
             if (data.status) {
               setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, status: data.status } : m));
             }
-            // 处理代理事件
+            // 处理代理事件 — 装饰性进度，放进 agentEvents 字段（不写入 content）
             if (data.type === 'agent_start') {
-              const agentMsg = `\n\n📋 **${data.agentName}** 开始执行任务...`;
-              fullContent += agentMsg;
-              setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: fullContent } : m));
+              setMessages(prev => prev.map(m => m.id === assistantMsgId ? {
+                ...m,
+                agentEvents: [...(m.agentEvents || []), { type: 'start', agentName: data.agentName, task: data.task }]
+              } : m));
             }
-            if (data.type === 'agent_end') {
-              // 代理完成，清除进度提示
-              const agentMsg = `\n\n✅ **${data.agentName}** 任务完成`;
-              fullContent += agentMsg;
-              setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: fullContent } : m));
+            if (data.type === 'agent_end' || data.type === 'agent_result') {
+              setMessages(prev => prev.map(m => m.id === assistantMsgId ? {
+                ...m,
+                agentEvents: [...(m.agentEvents || []), { type: 'end', agentName: data.agentName }]
+              } : m));
             }
             if (data.type === 'agent_error') {
-              const agentMsg = `\n\n❌ **${data.agentName}** 执行失败: ${data.error}`;
-              fullContent += agentMsg;
-              setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: fullContent } : m));
+              setMessages(prev => prev.map(m => m.id === assistantMsgId ? {
+                ...m,
+                agentEvents: [...(m.agentEvents || []), { type: 'end', agentName: data.agentName, task: `❌ 执行失败: ${data.error}` }]
+              } : m));
             }
             // 处理工具执行结果
             if (data.type === 'tool_result') {
@@ -537,29 +548,34 @@ export function ChatDetailPage({ projectId, chatId, onMinimize }: { projectId: s
               setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: fullContent } : m));
             }
             if (data.info) {
-              // 显示工具调用信息
-              fullContent += `\n\n${data.info}`;
-              setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: fullContent } : m));
+              // 模型切换等通知：放进 notifications 字段（不写入 content，避免回显时不一致）
+              setMessages(prev => prev.map(m => m.id === assistantMsgId ? {
+                ...m,
+                notifications: [...(m.notifications || []), data.info]
+              } : m));
             }
             if (data.status) {
               // 显示状态信息
               setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, status: data.status } : m));
             }
-            // 处理代理事件
+            // 处理代理事件 — 装饰性进度，放进 agentEvents 字段（不写入 content）
             if (data.type === 'agent_start') {
-              const agentMsg = `\n\n📋 **${data.agentName}** 开始执行任务...`;
-              fullContent += agentMsg;
-              setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: fullContent } : m));
+              setMessages(prev => prev.map(m => m.id === assistantMsgId ? {
+                ...m,
+                agentEvents: [...(m.agentEvents || []), { type: 'start', agentName: data.agentName, task: data.task }]
+              } : m));
             }
-            if (data.type === 'agent_end') {
-              const agentMsg = `\n\n✅ **${data.agentName}** 任务完成`;
-              fullContent += agentMsg;
-              setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: fullContent } : m));
+            if (data.type === 'agent_end' || data.type === 'agent_result') {
+              setMessages(prev => prev.map(m => m.id === assistantMsgId ? {
+                ...m,
+                agentEvents: [...(m.agentEvents || []), { type: 'end', agentName: data.agentName }]
+              } : m));
             }
             if (data.type === 'agent_error') {
-              const agentMsg = `\n\n❌ **${data.agentName}** 执行失败: ${data.error}`;
-              fullContent += agentMsg;
-              setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: fullContent } : m));
+              setMessages(prev => prev.map(m => m.id === assistantMsgId ? {
+                ...m,
+                agentEvents: [...(m.agentEvents || []), { type: 'end', agentName: data.agentName, task: `❌ 执行失败: ${data.error}` }]
+              } : m));
             }
             // 处理工具执行结果
             if (data.type === 'tool_result') {
@@ -880,6 +896,44 @@ export function ChatDetailPage({ projectId, chatId, onMinimize }: { projectId: s
                       </div>
                       
                       <div className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
+                        {/* 临时装饰：agent 进度事件（仅流式时显示，回显时无） */}
+                        {m.role === 'assistant' && m.agentEvents && m.agentEvents.length > 0 && (
+                          <div className="mb-2 flex flex-wrap gap-1">
+                            {m.agentEvents.map((ev, idx) => (
+                              <div key={idx} className={`text-xs px-2.5 py-1 rounded-full flex items-center gap-1.5 ${
+                                ev.type === 'start'
+                                  ? 'bg-indigo-50 text-indigo-600 border border-indigo-100'
+                                  : ev.task?.startsWith('❌')
+                                    ? 'bg-red-50 text-red-600 border border-red-100'
+                                    : 'bg-emerald-50 text-emerald-600 border border-emerald-100'
+                              }`}>
+                                {ev.type === 'start' ? (
+                                  <>
+                                    <Bot className="h-3 w-3" />
+                                    <span><b>{ev.agentName}</b> 执行中{ev.task ? `: ${ev.task}` : ''}</span>
+                                  </>
+                                ) : ev.task?.startsWith('❌') ? (
+                                  <span><b>{ev.agentName}</b> {ev.task}</span>
+                                ) : (
+                                  <>
+                                    <Check className="h-3 w-3" />
+                                    <span><b>{ev.agentName}</b> 任务完成</span>
+                                  </>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {/* 临时装饰：通知（仅流式时显示，回显时无） */}
+                        {m.role === 'assistant' && m.notifications && m.notifications.length > 0 && (
+                          <div className="mb-2 flex flex-wrap gap-1">
+                            {m.notifications.map((n, idx) => (
+                              <div key={idx} className="text-xs px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-100">
+                                ⚠️ {n}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                         {/* 用户附件 */}
                         {m.role === 'user' && m.attachments && m.attachments.length > 0 && (
                           <div className="flex flex-wrap gap-2 mb-3">
