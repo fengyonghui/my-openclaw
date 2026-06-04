@@ -1,4 +1,4 @@
-import { Bot, SendHorizonal, Sparkles, ChevronDown, Check, User, Cpu, Edit3, Settings, Search, X, Copy, CheckCircle2, Minus, Square, XCircle, GripHorizontal, Mic, MicOff, Paperclip, X as XIcon, Download, FileText, Users, MessageSquare, RefreshCw, Trash2 } from 'lucide-react';
+import { Bot, SendHorizonal, Sparkles, ChevronDown, Check, User, Cpu, Edit3, Settings, Search, X, Copy, CheckCircle2, Minus, Square, XCircle, GripHorizontal, Mic, MicOff, Paperclip, X as XIcon, Download, FileText, Users, MessageSquare, RefreshCw, Trash2, Wrench } from 'lucide-react';
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Card, Button, Badge } from '../components/ui';
@@ -17,7 +17,7 @@ type Attachment = {
 
 type Message = {
   id: string;
-  role: 'user' | 'assistant' | 'system';
+  role: 'user' | 'assistant' | 'system' | 'tool';
   content: string;
   status?: 'streaming' | 'error' | string;
   attachments?: Attachment[];
@@ -28,6 +28,10 @@ type Message = {
   // 临时通知（不持久化到 DB，回显时不显示）
   // 例如模型切换通知 "已自动切换至备用模型: xxx"
   notifications?: string[];
+  // 工具调用相关字段（仅 role: 'tool' 消息用）
+  toolName?: string;
+  toolCallId?: string;
+  arguments?: any;
 };
 
 // 思考块渲染器（默认折叠）
@@ -221,7 +225,11 @@ export function ChatDetailPage({ projectId, chatId, onMinimize }: { projectId: s
     const title = chat?.title || '对话记录';
     let md = `# ${title}\n\n> 导出时间: ${new Date().toLocaleString('zh-CN')}\n\n---\n\n`;
     for (const m of messages) {
-      md += `## ${m.role === 'user' ? '👤 用户' : '🤖 助手'}\n\n${m.content}\n\n---\n\n`;
+      if (m.role === 'tool') {
+        md += `### 🔧 [${m.toolName || '工具'}] 执行结果\n\n${m.content}\n\n---\n\n`;
+      } else {
+        md += `## ${m.role === 'user' ? '👤 用户' : '🤖 助手'}\n\n${m.content}\n\n---\n\n`;
+      }
     }
     const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -261,7 +269,40 @@ export function ChatDetailPage({ projectId, chatId, onMinimize }: { projectId: s
         setModels(mData);
         setChat(cData);
         setNewTitle(cData.title);
-        setMessages(cData.messages || []);
+        setMessages((cData.messages || []).map((m: any) => {
+          // 格式化 DB 里 role: 'tool' 的 content（JSON 字符串 → 可读格式）
+          let content = m.content;
+          if (m.role === 'tool' && typeof content === 'string' && content.startsWith('{')) {
+            try {
+              const parsed = JSON.parse(content);
+              const lines: string[] = [];
+              if (parsed.error) lines.push(`❌ 错误: ${parsed.error}`);
+              if (parsed.message) lines.push(parsed.message);
+              if (parsed.stdout) lines.push('```\n' + String(parsed.stdout).trim() + '\n```');
+              if (parsed.stderr && parsed.stderr.trim()) lines.push('```\n' + String(parsed.stderr).trim() + '\n```');
+              if (parsed.path) lines.push(`📁 ${parsed.path}`);
+              if (lines.length > 0) content = lines.join('\n');
+            } catch {}
+          }
+
+          // 给 reload 的 tool 消息补 toolName：从前一条 assistant 的 tool_calls 查
+          if (m.role === 'tool' && m.tool_call_id && !m.toolName) {
+            const idx = (cData.messages || []).indexOf(m);
+            for (let i = idx - 1; i >= 0; i--) {
+              const prev = cData.messages[i];
+              if (prev.role === 'assistant' && prev.tool_calls) {
+                const tc = prev.tool_calls.find((t: any) => t.id === m.tool_call_id);
+                if (tc) {
+                  return { ...m, content, toolName: tc.function?.name, toolCallId: m.tool_call_id };
+                }
+              }
+            }
+            return { ...m, content, toolCallId: m.tool_call_id };
+          }
+          return { ...m, content };
+        })
+        // 隐藏内部空 assistant 消息（只有 tool_calls 没有 content 的）— 与 live streaming 视觉一致
+        .filter((m: any) => !(m.role === 'assistant' && !m.content?.trim() && m.tool_calls?.length)));
       } catch (err) { console.error(err); }
     }
     init();
@@ -337,8 +378,11 @@ export function ChatDetailPage({ projectId, chatId, onMinimize }: { projectId: s
     if (!text && (!userMsg.attachments || userMsg.attachments.length === 0)) return;
     
     // 生成新的助手消息ID
-    const assistantMsgId = (Date.now() + 1).toString();
-    const assistantMsg: Message = { id: assistantMsgId, role: 'assistant', content: '', status: 'streaming' };
+    // currentAssistantId 是当前正在增长的 assistant 消息 ID
+    // tool 边界处会切到新 ID（让 tool 气泡在视觉上出现在正确位置）
+    let currentAssistantId = (Date.now() + 1).toString();
+    let toolSegIdx = 0;
+    const assistantMsg: Message = { id: currentAssistantId, role: 'assistant', content: '', status: 'streaming' };
     
     // 移除用户消息之后的所有消息（包括失败的助手响应）
     setMessages(prev => {
@@ -392,40 +436,39 @@ export function ChatDetailPage({ projectId, chatId, onMinimize }: { projectId: s
             const data = JSON.parse(dataStr);
             if (data.chunk) {
               fullContent += data.chunk;
-              setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: fullContent } : m));
+              setMessages(prev => prev.map(m => m.id === currentAssistantId ? { ...m, content: fullContent } : m));
             }
             if (data.info) {
               // 模型切换等通知：放进 notifications 字段（不写入 content，避免回显时不一致）
-              setMessages(prev => prev.map(m => m.id === assistantMsgId ? {
+              setMessages(prev => prev.map(m => m.id === currentAssistantId ? {
                 ...m,
                 notifications: [...(m.notifications || []), data.info]
               } : m));
             }
             if (data.status) {
-              setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, status: data.status } : m));
+              setMessages(prev => prev.map(m => m.id === currentAssistantId ? { ...m, status: data.status } : m));
             }
             // 处理代理事件 — 装饰性进度，放进 agentEvents 字段（不写入 content）
             if (data.type === 'agent_start') {
-              setMessages(prev => prev.map(m => m.id === assistantMsgId ? {
+              setMessages(prev => prev.map(m => m.id === currentAssistantId ? {
                 ...m,
                 agentEvents: [...(m.agentEvents || []), { type: 'start', agentName: data.agentName, task: data.task }]
               } : m));
             }
             if (data.type === 'agent_end' || data.type === 'agent_result') {
-              setMessages(prev => prev.map(m => m.id === assistantMsgId ? {
+              setMessages(prev => prev.map(m => m.id === currentAssistantId ? {
                 ...m,
                 agentEvents: [...(m.agentEvents || []), { type: 'end', agentName: data.agentName }]
               } : m));
             }
             if (data.type === 'agent_error') {
-              setMessages(prev => prev.map(m => m.id === assistantMsgId ? {
+              setMessages(prev => prev.map(m => m.id === currentAssistantId ? {
                 ...m,
                 agentEvents: [...(m.agentEvents || []), { type: 'end', agentName: data.agentName, task: `❌ 执行失败: ${data.error}` }]
               } : m));
             }
             // 处理工具执行结果
             if (data.type === 'tool_result') {
-              const tr = data.result;
               // 1. 清理 LLM 在工具执行期间生成的中间状态文字
               const inProgressPatterns = [
                 // 中文进度类: 执行中...、正在...、处理中...
@@ -443,34 +486,53 @@ export function ChatDetailPage({ projectId, chatId, onMinimize }: { projectId: s
               }
               // 压缩多余的空行
               cleanedContent = cleanedContent.replace(/\n{3,}/g, '\n\n').trim();
-              fullContent = cleanedContent;
 
-              // 2. 追加工具结果
-              let resultText = '';
-              if (tr?.error) {
-                resultText = `\n\n❌ **工具执行失败**: ${tr.error}`;
-              } else {
-                const lines: string[] = [];
-                if (tr?.message) lines.push(tr.message);
-                if (tr?.stdout) lines.push('```\n' + tr.stdout.trim() + '\n```');
-                if (tr?.path) lines.push(`📁 ${tr.path}`);
-                if (lines.length > 0) {
-                  resultText = `\n\n🔧 **[${data.toolName}]** 执行结果:\n\n` + lines.join('\n');
-                } else {
-                  resultText = `\n\n✅ **[${data.toolName}]** 执行完成`;
-                }
-              }
-              fullContent += resultText;
-              setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: fullContent } : m));
+              // 2. "冻结"当前 assistant 消息（取消 streaming 状态、清空 content 缓冲）
+              setMessages(prev => prev.map(m => m.id === currentAssistantId ? { ...m, content: cleanedContent, status: undefined } : m));
+              fullContent = '';
+
+              // 3. 把工具结果作为独立 role: 'tool' 消息加入消息列表
+              // 这样 reload 时和 live 显示一致（DB 已有 role: 'tool' 消息）
+              const tr = data.result;
+              const toolResultContent = typeof tr === 'string'
+                ? tr
+                : (tr?.error
+                    ? `❌ 工具执行失败: ${tr.error}`
+                    : (() => {
+                        const lines: string[] = [];
+                        if (tr?.message) lines.push(tr.message);
+                        if (tr?.stdout) lines.push('```\n' + tr.stdout.trim() + '\n```');
+                        if (tr?.path) lines.push(`📁 ${tr.path}`);
+                        return lines.length > 0 ? lines.join('\n') : '✅ 执行完成';
+                      })());
+              const toolMsg: Message = {
+                id: `tool_${data.toolCallId}_${Date.now()}`,
+                role: 'tool',
+                content: toolResultContent,
+                toolName: data.toolName,
+                toolCallId: data.toolCallId,
+                arguments: data.arguments
+              };
+              setMessages(prev => [...prev, toolMsg]);
+
+              // 4. 创建新的 assistant 消息（让后续 LLM 文本流到新气泡，视觉上出现在 tool 之后）
+              toolSegIdx++;
+              currentAssistantId = `asst_${Date.now()}_seg${toolSegIdx}`;
+              setMessages(prev => [...prev, { id: currentAssistantId, role: 'assistant', content: '', status: 'streaming' }]);
             }
           } catch (e) {}
         }
       }
     } catch (err: any) {
-      setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: `错误: ${err.message}`, status: 'error' } : m));
+      setMessages(prev => prev.map(m => m.id === currentAssistantId ? { ...m, content: `错误: ${err.message}`, status: 'error' } : m));
     } finally {
       setIsTyping(false);
-      setMessages(prev => prev.map(m => m.id === assistantMsgId && m.status !== 'error' ? { ...m, status: undefined } : m));
+      setMessages(prev => {
+        // 清理：移除仍为空的 assistant 消息（LLM 在 tool 后没说话就不该有气泡）
+        const filtered = prev.filter(m => m.id === currentAssistantId ? m.content.trim() !== '' || m.status === 'error' : true);
+        // 清除最后一段的 streaming 状态
+        return filtered.map(m => m.id === currentAssistantId && m.status !== 'error' ? { ...m, status: undefined } : m);
+      });
     }
   };
 
@@ -497,10 +559,13 @@ export function ChatDetailPage({ projectId, chatId, onMinimize }: { projectId: s
     if (isTyping) return;
 
     const userMsgId = Date.now().toString();
-    const assistantMsgId = (Date.now() + 1).toString();
+    // currentAssistantId 是当前正在增长的 assistant 消息 ID
+    // tool 边界处会切到新 ID（让 tool 气泡在视觉上出现在正确位置）
+    let currentAssistantId = (Date.now() + 1).toString();
+    let toolSegIdx = 0;
     const userAttachments = [...attachments];
     const userMsg: Message = { id: userMsgId, role: 'user', content: text, attachments: userAttachments };
-    const assistantMsg: Message = { id: assistantMsgId, role: 'assistant', content: '', status: 'streaming' };
+    const assistantMsg: Message = { id: currentAssistantId, role: 'assistant', content: '', status: 'streaming' };
 
     setMessages(prev => [...prev, userMsg, assistantMsg]);
     setInput('');
@@ -545,41 +610,40 @@ export function ChatDetailPage({ projectId, chatId, onMinimize }: { projectId: s
             const data = JSON.parse(dataStr);
             if (data.chunk) {
               fullContent += data.chunk;
-              setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: fullContent } : m));
+              setMessages(prev => prev.map(m => m.id === currentAssistantId ? { ...m, content: fullContent } : m));
             }
             if (data.info) {
               // 模型切换等通知：放进 notifications 字段（不写入 content，避免回显时不一致）
-              setMessages(prev => prev.map(m => m.id === assistantMsgId ? {
+              setMessages(prev => prev.map(m => m.id === currentAssistantId ? {
                 ...m,
                 notifications: [...(m.notifications || []), data.info]
               } : m));
             }
             if (data.status) {
               // 显示状态信息
-              setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, status: data.status } : m));
+              setMessages(prev => prev.map(m => m.id === currentAssistantId ? { ...m, status: data.status } : m));
             }
             // 处理代理事件 — 装饰性进度，放进 agentEvents 字段（不写入 content）
             if (data.type === 'agent_start') {
-              setMessages(prev => prev.map(m => m.id === assistantMsgId ? {
+              setMessages(prev => prev.map(m => m.id === currentAssistantId ? {
                 ...m,
                 agentEvents: [...(m.agentEvents || []), { type: 'start', agentName: data.agentName, task: data.task }]
               } : m));
             }
             if (data.type === 'agent_end' || data.type === 'agent_result') {
-              setMessages(prev => prev.map(m => m.id === assistantMsgId ? {
+              setMessages(prev => prev.map(m => m.id === currentAssistantId ? {
                 ...m,
                 agentEvents: [...(m.agentEvents || []), { type: 'end', agentName: data.agentName }]
               } : m));
             }
             if (data.type === 'agent_error') {
-              setMessages(prev => prev.map(m => m.id === assistantMsgId ? {
+              setMessages(prev => prev.map(m => m.id === currentAssistantId ? {
                 ...m,
                 agentEvents: [...(m.agentEvents || []), { type: 'end', agentName: data.agentName, task: `❌ 执行失败: ${data.error}` }]
               } : m));
             }
             // 处理工具执行结果
             if (data.type === 'tool_result') {
-              const tr = data.result;
               // 1. 清理 LLM 在工具执行期间生成的中间状态文字
               const inProgressPatterns = [
                 // 中文进度类: 执行中...、正在...、处理中...
@@ -597,34 +661,53 @@ export function ChatDetailPage({ projectId, chatId, onMinimize }: { projectId: s
               }
               // 压缩多余的空行
               cleanedContent = cleanedContent.replace(/\n{3,}/g, '\n\n').trim();
-              fullContent = cleanedContent;
 
-              // 2. 追加工具结果
-              let resultText = '';
-              if (tr?.error) {
-                resultText = `\n\n❌ **工具执行失败**: ${tr.error}`;
-              } else {
-                const lines: string[] = [];
-                if (tr?.message) lines.push(tr.message);
-                if (tr?.stdout) lines.push('```\n' + tr.stdout.trim() + '\n```');
-                if (tr?.path) lines.push(`📁 ${tr.path}`);
-                if (lines.length > 0) {
-                  resultText = `\n\n🔧 **[${data.toolName}]** 执行结果:\n\n` + lines.join('\n');
-                } else {
-                  resultText = `\n\n✅ **[${data.toolName}]** 执行完成`;
-                }
-              }
-              fullContent += resultText;
-              setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: fullContent } : m));
+              // 2. "冻结"当前 assistant 消息（取消 streaming 状态、清空 content 缓冲）
+              setMessages(prev => prev.map(m => m.id === currentAssistantId ? { ...m, content: cleanedContent, status: undefined } : m));
+              fullContent = '';
+
+              // 3. 把工具结果作为独立 role: 'tool' 消息加入消息列表
+              // 这样 reload 时和 live 显示一致（DB 已有 role: 'tool' 消息）
+              const tr = data.result;
+              const toolResultContent = typeof tr === 'string'
+                ? tr
+                : (tr?.error
+                    ? `❌ 工具执行失败: ${tr.error}`
+                    : (() => {
+                        const lines: string[] = [];
+                        if (tr?.message) lines.push(tr.message);
+                        if (tr?.stdout) lines.push('```\n' + tr.stdout.trim() + '\n```');
+                        if (tr?.path) lines.push(`📁 ${tr.path}`);
+                        return lines.length > 0 ? lines.join('\n') : '✅ 执行完成';
+                      })());
+              const toolMsg: Message = {
+                id: `tool_${data.toolCallId}_${Date.now()}`,
+                role: 'tool',
+                content: toolResultContent,
+                toolName: data.toolName,
+                toolCallId: data.toolCallId,
+                arguments: data.arguments
+              };
+              setMessages(prev => [...prev, toolMsg]);
+
+              // 4. 创建新的 assistant 消息（让后续 LLM 文本流到新气泡，视觉上出现在 tool 之后）
+              toolSegIdx++;
+              currentAssistantId = `asst_${Date.now()}_seg${toolSegIdx}`;
+              setMessages(prev => [...prev, { id: currentAssistantId, role: 'assistant', content: '', status: 'streaming' }]);
             }
           } catch (e) {}
         }
       }
     } catch (err: any) {
-      setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: `错误: ${err.message}`, status: 'error' } : m));
+      setMessages(prev => prev.map(m => m.id === currentAssistantId ? { ...m, content: `错误: ${err.message}`, status: 'error' } : m));
     } finally {
       setIsTyping(false);
-      setMessages(prev => prev.map(m => m.id === assistantMsgId && m.status !== 'error' ? { ...m, status: undefined } : m));
+      setMessages(prev => {
+        // 清理：移除仍为空的 assistant 消息（LLM 在 tool 后没说话就不该有气泡）
+        const filtered = prev.filter(m => m.id === currentAssistantId ? m.content.trim() !== '' || m.status === 'error' : true);
+        // 清除最后一段的 streaming 状态
+        return filtered.map(m => m.id === currentAssistantId && m.status !== 'error' ? { ...m, status: undefined } : m);
+      });
     }
   };
 
@@ -883,7 +966,26 @@ export function ChatDetailPage({ projectId, chatId, onMinimize }: { projectId: s
               </div>
             ) : (
               <div className="space-y-6 max-w-4xl mx-auto">
-                {messages.map((m) => (
+                {messages.map((m) => {
+                  // 工具结果消息：单独的内嵌气泡样式，缩进靠左、灰底
+                  if (m.role === 'tool') {
+                    return (
+                      <div key={m.id} className="flex w-full justify-start pl-14">
+                        <div className="max-w-[80%] w-full">
+                          <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs text-slate-600">
+                            <div className="flex items-center gap-2 mb-1.5 font-semibold text-slate-500">
+                              <Wrench className="h-3.5 w-3.5" />
+                              <span>工具: {m.toolName || 'unknown'}</span>
+                            </div>
+                            <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-slate-700 max-h-60 overflow-y-auto">
+                              {m.content}
+                            </pre>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }
+                  return (
                   <div key={m.id} className={`flex w-full animate-in fade-in slide-in-from-bottom-2 duration-300 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                     <div className={`flex gap-4 max-w-[80%] ${m.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
                       {/* 头像 */}
@@ -985,10 +1087,8 @@ export function ChatDetailPage({ projectId, chatId, onMinimize }: { projectId: s
                               .replace(/&lt;invoke\s+[^<]*&gt;[\s\S]*?&lt;\/invoke&gt;/gi, '')
                               .replace(/\n{3,}/g, '\n\n')
                               .trim();
-                            // 过滤工具结果行和 XML
+                            // 过滤 LLM 输出的工具调用 XML（前端不应显示 raw XML）
                             const cleanBody = rawBody
-                              .replace(/\n\n✅ \*\*[^\*]+\*\* 执行成功[^\n]*\n[^\n]*\n\n/g, '\n')
-                              .replace(/\n\n❌ \*\*[^\*]+\*\* 执行失败[^\n]*\n[^\n]*\n\n/g, '\n')
                               .replace(/minimax:\w+\s*<invoke\s+[^<]*>[\s\S]*?<\/invoke>/gi, '')
                               .replace(/minimax:\w+\s*&lt;invoke\s+[^<]*&gt;[\s\S]*?&lt;\/invoke&gt;/gi, '')
                               .replace(/<invoke\s+[^<]*>[\s\S]*?<\/invoke>/gi, '')
@@ -1026,39 +1126,39 @@ export function ChatDetailPage({ projectId, chatId, onMinimize }: { projectId: s
                           )}
                         </div>
                         
-                                        {/* 重发和删除按钮 - 每个用户消息 */}
-                {m.role === 'user' && (() => {
-                  const msgIndex = messages.findIndex(msg => msg.id === m.id);
-                  const nextMsg = messages[msgIndex + 1];
-                  return (
-                    <div className="mt-2 flex gap-2">
-                      <button
-                        onClick={() => handleResend(m)}
-                        disabled={isTyping}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 text-xs font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        <RefreshCw className="h-3.5 w-3.5" />
-                        重发
-                      </button>
-                      <button
-                        onClick={() => handleDelete(m)}
-                        disabled={isTyping}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-600 text-xs font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                        删除
-                      </button>
-                    </div>
-                  );
-                })()}
-{/* 发送者标签 */}
+                        {/* 发送者标签 */}
                         <span className="mt-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider px-1">
                           {m.role === 'user' ? '你' : (currentAgent?.name || '助手')}
                         </span>
+
+                        {/* 重发和删除按钮 - 每个用户消息 */}
+                        {m.role === 'user' && (() => {
+                          return (
+                            <div className="mt-2 flex gap-2">
+                              <button
+                                onClick={() => handleResend(m)}
+                                disabled={isTyping}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 text-xs font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                <RefreshCw className="h-3.5 w-3.5" />
+                                重发
+                              </button>
+                              <button
+                                onClick={() => handleDelete(m)}
+                                disabled={isTyping}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-600 text-xs font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                                删除
+                              </button>
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
