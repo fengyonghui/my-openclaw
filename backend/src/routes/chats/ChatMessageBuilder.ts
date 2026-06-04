@@ -158,10 +158,26 @@ Use these commands for shell_exec tool. DO NOT guess commands.
 **CRITICAL — Windows text search gotchas:**
 - \`findstr\` 的 \`|\` 是字面字符，**"或"匹配必须加 \`/R\` 标志**（regex 模式），例如：
   \`findstr /R /N "主表\\|辅助表\\|isPrimary" file.tsx\`
-  缺 \`/R\` 时 \`\\|\` 被当字面字符串，文件里没这个 → 退出码 1 → "无匹配"（不是真错）
+  缺 \`/R\` 时 \\|\| 被当字面字符串，文件里没这个 → 退出码 1 → "无匹配"（不是真错）
 - **优先使用 PowerShell \`Select-String\`**：原生支持 Unicode（中英文都行）、\`-Pattern\` 直接支持 \`|\` 语法
   \`powershell -NoProfile -Command "Get-Content -Path 'file.tsx' | Select-String -Pattern 'isPrimary|主表'"\`
 - 退出码 1 + 空输出通常是"无匹配"，不是命令错误
+
+**CRITICAL — Windows shell syntax gotchas (shell_exec 工具):**
+- **Windows 上 shell_exec 默认是 cmd.exe，bash 风格语法在 cmd.exe 下会失败**。最稳的做法是用 PowerShell 包裹：
+  \`powershell -NoProfile -Command "cd backend; mvn -q -DskipTests compile 2>&1 | Select-String -Pattern 'ERROR|BUILD' | Select-Object -First 30"\`
+- 常见 bash 习惯错误 → cmd.exe 失败案例：
+  - \`cd dir && command\` — cmd.exe 中 \`&&\` 可用但语义稍异，**最稳是把 cd 去掉（executor 已自动设 cwd）**
+  - \`cd dir & command\` — cmd.exe 的 \`&\` 是"异步"，**绝对不要用** → 整个命令失败
+  - \`command 2>&1 | tail\` — cmd.exe 不识别 \`2>&1\`（bash 语法），PowerShell 支持
+  - \`$VAR\` — cmd.exe 不展开变量，PowerShell 支持
+  - \`$(command)\` — bash 命令替换，cmd.exe 用 \`%VAR%\` 或 PowerShell 用 \`$(command)\`
+- **简化规则**：Windows 上执行复杂 shell 命令，**优先用 powershell -NoProfile -Command 包裹**（已自动处理 \\\$ 转义、2>&1、路径等）
+- **绝对不要在 Windows shell_exec 里写 \`cd xxx && ...\`**（即使 PowerShell 也是）—— executor 已自动设置 cwd 到项目根目录，加 cd 反而容易失败
+
+**IMPORTANT - Tool usage tips:**
+- **read_file 不能读目录**（会报"目标不是文件"）。想看目录内容请用 \`list_files\` 工具
+- 多次 read_file 同一文件的不同段落时，传 \`offset\` + \`limit\` 比多次 read 完整文件更高效
 
 **IMPORTANT - Creating/Writing Files:**
 - For multi-line content (HTML, JSON, code, etc.): **USE write_file tool** (NOT shell_exec with cat/echo)
