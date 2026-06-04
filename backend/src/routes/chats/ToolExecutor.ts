@@ -652,19 +652,52 @@ export async function executeAgentDelegation(
     content: `请完成以下任务：\n\n${task}\n\n${context ? `上下文信息：\n${context}` : ''}`
   };
 
+  // 诊断：记录 prompt 大小
+  const taskSize = task?.length || 0;
+  const contextSize = context?.length || 0;
+  const systemSize = agentSystemMessage.content?.length || 0;
+  console.log(`[Delegation] Prompt size: system=${systemSize} task=${taskSize} context=${contextSize} (total ~${systemSize + taskSize + contextSize} chars)`);
+
   // 模型 cascade 队列：agent 默认模型 + 后续 fallback（与 /send 策略一致）
   // 原因：之前只跑 agent 配置的 defaultModelId，如果它 codex 类（503 auth_unavailable）
   //       就必败。改为 cascade 8 个：agent default + 7 个 fallback，能覆盖到 gemini-2.5-pro
   //       （排第 7）这种已知可用的模型。
   //       限制 8 避免 agent 委派被 199 模型拖垮（agent 频繁调用，每次都跑 199 个会卡死）。
   //       性能：auth_unavailable 立即返回，8 个模型 < 5s；真正的 fetch 走完也 ~30s。
+  //
+  // 优先列表：db.json 顺序前 N 个都是 codex/gemini-cli（这些 provider 现在 503 auth_unavailable），
+  //       minimax/mx27/glm5/claude 等"用户账号下"的模型排在 50-200 位，永远到不了。
+  //       显式把这些 model id 放 cascade 前面先试。
+  const PREFERRED_MODEL_IDS = [
+    'gemini-2.5-pro',         // 已验证 work（用户账号直连）
+    'MiniMax-M3',             // minimax 自家 M3
+    'minimaxai/minimax-m2.5', // minimax 自家
+    'mx27', 'mx27-h',         // minimax 系统
+    'z-ai/glm5',              // z-ai 自家
+    'claude-sonnet-4-6',      // claude sonnet
+    'claude-opus-4-6-thinking', // claude opus thinking
+    'gpt-4o', 'o3', 'o3-mini', 'o4-mini', // openai
+  ];
   const AGENT_FALLBACK_LIMIT = 7;
   const triedModelIds = new Set<string>();
+
+  // 构造 cascade 顺序：
+  //   1. agent 默认模型
+  //   2. PREFERRED_MODEL_IDS 中未尝试的（用户账号下的模型）
+  //   3. allModels 顺序前 N 个未尝试的（兜底，可能仍是 503，但覆盖未知场景）
+  const preferredQueue = PREFERRED_MODEL_IDS
+    .map((id) => allModels.find((m: any) => m.id === id))
+    .filter((m: any) => m && m.id !== finalModel.id && !triedModelIds.has(m.id))
+    .slice(0, AGENT_FALLBACK_LIMIT);
+  preferredQueue.forEach((m: any) => triedModelIds.add(m.id));
+
   const fallbackQueue = allModels
     .filter((m: any) => m.id !== finalModel.id && !triedModelIds.has(m.id))
-    .slice(0, AGENT_FALLBACK_LIMIT);
-  const modelsToTry = [finalModel, ...fallbackQueue];
+    .slice(0, AGENT_FALLBACK_LIMIT - preferredQueue.length);
+  const modelsToTry = [finalModel, ...preferredQueue, ...fallbackQueue];
   triedModelIds.add(finalModel.id);
+
+  console.log(`[Delegation] Cascade order (${modelsToTry.length} models): ${modelsToTry.map((m: any) => m.id).join(' → ')}`);
 
   let lastError = '';
   for (let i = 0; i < modelsToTry.length; i++) {
@@ -685,12 +718,20 @@ export async function executeAgentDelegation(
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${tryModel.apiKey}`
+          'Authorization': `Bearer ${tryModel.apiKey}`,
+          // 强制关闭 keep-alive：避免 AbortController abort 后 Node.js undici 复用僵尸 TCP 连接。
+          // 直接 curl 是单次连接，cascade fetch 复用 keep-alive pool — 僵尸连接导致 30s timeout。
+          'Connection': 'close'
         },
         body: JSON.stringify(reqBody)
       }, {
-        maxAttempts: 3,
-        timeoutMs: 60000,
+        // Agent cascade 模式：1 次尝试 + 30s timeout
+        // 原因：cascade 已经在 8 个模型间跳，单模型重试 3×60s=180s 会阻塞整个流程。
+        // 临时网络故障由 cascade 中的下一个模型兜底（不靠单模型重试）。
+        // quota 限流（429）：30s 内必然返回，不需要重试。
+        // 持续 60s 以上的慢响应：quota/限流信号，跳过更快。
+        maxAttempts: 1,
+        timeoutMs: 30000,
         contextLabel: `delegate_to_agent(${targetAgent.name}→${tryModel.name})`
       });
 
@@ -730,14 +771,17 @@ export async function executeAgentDelegation(
       // auth_unavailable / 404 / 403: 立即换下一个模型（重试同模型无意义）
       // 429: 也换下一个（避免长 retry wait 阻塞）
       // 5xx 其他: 取决于 fetchWithRetry 内部是否已重试 3 次 — 反正到这里就 cascade
-      const isPermanentError = /auth_unavailable|invalid_api_key|unauthorized|not_found|forbidden|quota/i.test(errText);
+      const isPermanentError = /auth_unavailable|invalid_api_key|unauthorized|not_found|forbidden|quota|cooling down/i.test(errText);
       if (isPermanentError && i < modelsToTry.length - 1) {
         console.log(`[Delegation] ⏭️  Permanent error on ${tryModel.name}, cascading to next model...`);
+        // 给 localhost:8080 上游代理 1s 清理连接（避免 cascade 时连接池被僵尸连接占满）
+        await new Promise(r => setTimeout(r, 1000));
         continue;
       }
       // 其他错误（5xx 已重试 3 次还失败）也 cascade
       if (i < modelsToTry.length - 1) {
         console.log(`[Delegation] ⏭️  Cascading to next model after ${tryModel.name}...`);
+        await new Promise(r => setTimeout(r, 1000));
         continue;
       }
     } catch (err: any) {
@@ -745,6 +789,7 @@ export async function executeAgentDelegation(
       console.error(`[Delegation] ❌ Model ${tryModel.name} threw: ${err.message}`);
       if (i < modelsToTry.length - 1) {
         console.log(`[Delegation] ⏭️  Cascading to next model after exception...`);
+        await new Promise(r => setTimeout(r, 1000));
         continue;
       }
     }
