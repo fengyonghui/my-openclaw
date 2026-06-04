@@ -116,6 +116,7 @@ export class FileToolService {
 
     await walk(absolutePath, 0);
     return {
+      success: true,  // 统一 schema：所有 tool result 都带 success 字段
       path: path.relative(workspaceRoot, absolutePath).replace(/\\/g, '/') || '.',
       maxDepth,
       entries: results
@@ -138,7 +139,7 @@ export class FileToolService {
     
     const stat = await fs.stat(absolutePath).catch(() => null as any);
     if (!stat) throw new Error('文件不存在');
-    if (!stat.isFile()) throw new Error('目标不是文件');
+    if (!stat.isFile()) throw new Error('目标不是文件（是目录）。如果想列出目录内容，请改用 list_files 工具。');
 
     const content = await fs.readFile(absolutePath, 'utf-8');
     const lines = content.split(/\r?\n/);
@@ -155,6 +156,7 @@ export class FileToolService {
     }
 
     return {
+      success: true,  // 统一 schema：所有 tool result 都带 success 字段
       path: relativePath.replace(/\\/g, '/'),
       offset: safeOffset,
       limit: safeLimit,
