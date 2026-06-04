@@ -261,7 +261,7 @@ export const COMMAND_MAPPINGS: CommandMapping[] = [
   {
     name: 'readFile',
     description: '读取文件内容',
-    windows: 'type "文件路径"',
+    windows: 'Get-Content -Path "文件路径" -Encoding UTF8',  // PowerShell 等价 cmd.exe 'type'
     linux: 'cat "文件路径"',
     mac: 'cat "文件路径"'
   },
@@ -296,7 +296,7 @@ export const COMMAND_MAPPINGS: CommandMapping[] = [
   {
     name: 'createFile',
     description: '创建空文件',
-    windows: 'echo. > "文件路径"',
+    windows: '$null | Set-Content -Path "文件路径" -Encoding UTF8',  // PowerShell 等价 echo. > file
     linux: 'touch "文件路径"',
     mac: 'touch "文件路径"'
   },
@@ -353,14 +353,14 @@ export const COMMAND_MAPPINGS: CommandMapping[] = [
   {
     name: 'findFiles',
     description: '查找文件',
-    windows: 'dir /s /b *关键词*',
+    windows: 'Get-ChildItem -Recurse -Filter "*关键词*" | Select-Object -ExpandProperty FullName',  // PowerShell 等价 dir /s /b
     linux: 'find . -name "*关键词*"',
     mac: 'find . -name "*关键词*"'
   },
   {
     name: 'findFilesByName',
     description: '按名称查找文件',
-    windows: 'where /r . *关键词*',
+    windows: 'Get-ChildItem -Recurse -Filter "*关键词*" | Select-Object -ExpandProperty FullName',  // PowerShell 等价 where /r
     linux: 'find . -name "*关键词*"',
     mac: 'find . -name "*关键词*"'
   },
