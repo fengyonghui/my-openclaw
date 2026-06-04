@@ -584,10 +584,16 @@ export async function ChatRoutes(fastify: FastifyInstance) {
         finalMessages = finalCombined;
       }
 
-      // 构建模型队列
+      // 构建模型队列：primary + 8 个 fallback（按 db.json 顺序，覆盖常用 provider）
+      // - 之前 .slice(0, 2) 太少：gemini-2.5-pro（实测唯一可工作）排第 7，到不了
+      // - 全部 199 个太多：每次请求 600+ 秒（199×3 retry + rate-limit wait）
+      // - 8 个平衡：能覆盖到 gemini-2.5-pro，总耗时 < 90s
+      // 注：/resend 用另一套去重逻辑（chat.modelId + defaultModel + all），结果也是 199 个，
+      //     但 send 比 resend 频率高得多，必须限制
+      const FALLBACK_LIMIT = 8;
       const activeModelId = chat?.modelId || targetProject?.defaultModel;
       const primaryModel = allModels.find(m => m.id === activeModelId) || allModels[0];
-      const fallbackModels = allModels.filter(m => m.id !== primaryModel.id).slice(0, 2);
+      const fallbackModels = allModels.filter(m => m.id !== primaryModel.id).slice(0, FALLBACK_LIMIT);
       const modelsToTry = [primaryModel, ...fallbackModels];
 
       let success = false;
