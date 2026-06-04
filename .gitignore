@@ -21,3 +21,8 @@ package-lock.json
 
 # 用户聊天数据（隐私 + 体积大，不应进入仓库）
 data/chats/
+
+# 后端 runtime 数据：用户会话事件 + 数据库
+# 这些是运行期持续累积的状态，不应进入版本控制
+backend/data/db.json
+backend/data/session-events.jsonl
