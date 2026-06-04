@@ -424,6 +424,76 @@ function truncateToolContent(msg: Message, maxChars = 4000): Message {
   return { ...msg, content: safe + '\n\n[内容过长，已截断]' };
 }
 
+/**
+ * 检测 assistant tool_call 的 arguments 是否为合法 JSON。
+ * 用于识别"历史中残留的坏 tool_call"（如 LLM 之前轮次撞 max_tokens 截断）。
+ */
+function isToolCallArgsBroken(args: any): boolean {
+  if (args == null) return false;  // 缺省不算坏（LLM 有时会不传）
+  if (typeof args !== 'string') return false;  // object 形式不算坏
+  try {
+    JSON.parse(args);
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * 从消息数组中移除"破损的 tool_call"及其对应的 tool result。
+ *
+ * 触发场景：LLM 之前轮次生成 write_file 等大参数调用时撞 max_tokens，
+ * 留下不闭合的 JSON（如 14002 chars 的 HTML 在中间截断）。
+ * 之前用 safeArgumentsJson 兜底 `{}`，但 MiniMax 严格校验
+ * `tool_call(args) + tool_result(content)` 一致性，空 args + JSON 解析
+ * 失败的 result 会被 proxy 拒绝（"tool call result does not follow tool call"）。
+ *
+ * 策略：识别坏 tool_call id → 同时移除坏 tool_call 本身 + 对应 tool result
+ *       + 移除全空 assistant 消息（无 content 无 tool_calls）。
+ * 这样 LLM 完全看不到坏调用，请求顺利通过。
+ */
+function removeBrokenToolCalls(messages: Message[]): Message[] {
+  // Step 1: 找出所有坏 tool_call 的 id
+  const brokenTcIds = new Set<string>();
+  for (const m of messages) {
+    if (m.role === 'assistant' && Array.isArray((m as any).tool_calls)) {
+      for (const tc of (m as any).tool_calls) {
+        if (tc?.id && isToolCallArgsBroken(tc.function?.arguments)) {
+          brokenTcIds.add(tc.id);
+        }
+      }
+    }
+  }
+  if (brokenTcIds.size === 0) return messages;
+
+  console.warn(`[Sanitize] Removing ${brokenTcIds.size} broken tool_call(s) and their results: ${Array.from(brokenTcIds).slice(0, 3).join(', ')}${brokenTcIds.size > 3 ? '...' : ''}`);
+
+  // Step 2: 过滤消息
+  return messages.filter(m => {
+    // 移除坏 tool_call 对应的 tool result
+    if (m.role === 'tool' && m.tool_call_id && brokenTcIds.has(m.tool_call_id)) {
+      return false;
+    }
+    return true;
+  }).map(m => {
+    // 从 assistant 消息中移除坏 tool_calls
+    if (m.role === 'assistant' && Array.isArray((m as any).tool_calls)) {
+      const cleanTc = (m as any).tool_calls.filter((tc: any) => !brokenTcIds.has(tc.id));
+      if (cleanTc.length === 0) {
+        // 移除全部 tool_calls
+        const { tool_calls, ...rest } = m as any;
+        if (!rest.content || (typeof rest.content === 'string' && rest.content.trim() === '')) {
+          // 整个消息全空，移除
+          return null as any;
+        }
+        return rest as Message;
+      }
+      return { ...m, tool_calls: cleanTc };
+    }
+    return m;
+  }).filter(m => m !== null) as Message[];
+}
+
 // ============================================================
 // 核心：构建对话历史消息（滑动窗口，无中间丢失）
 // ============================================================
@@ -452,15 +522,27 @@ export function buildHistoryMessages(
     return [];
   }
 
-  // Step 1: 全部转换、规范化（只做一次）
-  const transformed: Message[] = historyMessages.map(m =>
-    truncateToolContent(normalizeMessageToolIds(transformMessage(m)))
-  );
+  // Step 1: 全部转换（只做 content 还原，args 保持原样）
+  // 注意：normalizeMessageToolIds 里的 safeArgumentsJson 会把坏 args 改成 "{}"，
+  //       所以 removeBrokenToolCalls 必须在它之前跑，否则检测不到原坏 args。
+  const transformed: Message[] = historyMessages.map(m => transformMessage(m));
   console.log(`[buildHistoryMessages] transformed.length=${transformed.length}, first few roles: ${transformed.slice(0,5).map(m=>m?.role).join(',')}`);
+
+  // Step 1.5: 移除"破损的 tool_call"及其对应 tool result
+  // （LLM 之前轮次撞 max_tokens 留下的坏 args，会让 MiniMax 拒绝整条请求）
+  const cleaned = removeBrokenToolCalls(transformed);
+  if (cleaned.length !== transformed.length) {
+    console.log(`[buildHistoryMessages] removeBrokenToolCalls: ${transformed.length} → ${cleaned.length}`);
+  }
+
+  // Step 1.7: 剩下的 tool_call 都是好的，做 id 规范化 + safeArgumentsJson（防御性）+ 截断
+  const normalized: Message[] = cleaned.map(m =>
+    truncateToolContent(normalizeMessageToolIds(m))
+  );
 
   // Step 2: 收集有效 tool_call_ids（用于孤儿过滤）
   const validToolCallIds = new Set<string>();
-  for (const m of transformed) {
+  for (const m of normalized) {
     if (m.role === 'assistant' && m.tool_calls) {
       for (const tc of m.tool_calls) {
         if (tc.id) validToolCallIds.add(tc.id);
@@ -471,7 +553,7 @@ export function buildHistoryMessages(
 
   // Step 3: 过滤孤儿 tool 消息
   const filtered: Message[] = [];
-  for (const m of transformed) {
+  for (const m of normalized) {
     if (m.role === 'tool') {
       if (validToolCallIds.has(m.tool_call_id || '')) {
         filtered.push(m);
