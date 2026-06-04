@@ -638,7 +638,7 @@ export async function executeAgentDelegation(
     return { error: `Agent "${targetAgent.name}" 没有配置模型` };
   }
 
-  console.log(`[Delegation] Agent: ${targetAgent.name}, Model: ${finalModel.name}`);
+  console.log(`[Delegation] Agent: ${targetAgent.name}, Initial Model: ${finalModel.name}`);
 
   // 构建 Agent 系统消息
   const agentSystemMessage = {
@@ -652,73 +652,110 @@ export async function executeAgentDelegation(
     content: `请完成以下任务：\n\n${task}\n\n${context ? `上下文信息：\n${context}` : ''}`
   };
 
-  // 调用模型 API
-  const apiUrl = `${finalModel.baseUrl.replace(/\/\/+$/, '')}/chat/completions`;
-  const reqBody = {
-    model: finalModel.modelId,
-    messages: [agentSystemMessage, delegationMessage],
-    stream: false,
-    max_tokens: finalModel.maxTokens || 16384,
-    temperature: finalModel.temperature || 0.7
-  };
+  // 模型 cascade 队列：agent 默认模型 + 后续 fallback（与 /send 策略一致）
+  // 原因：之前只跑 agent 配置的 defaultModelId，如果它 codex 类（503 auth_unavailable）
+  //       就必败。改为 cascade 8 个：agent default + 7 个 fallback，能覆盖到 gemini-2.5-pro
+  //       （排第 7）这种已知可用的模型。
+  //       限制 8 避免 agent 委派被 199 模型拖垮（agent 频繁调用，每次都跑 199 个会卡死）。
+  //       性能：auth_unavailable 立即返回，8 个模型 < 5s；真正的 fetch 走完也 ~30s。
+  const AGENT_FALLBACK_LIMIT = 7;
+  const triedModelIds = new Set<string>();
+  const fallbackQueue = allModels
+    .filter((m: any) => m.id !== finalModel.id && !triedModelIds.has(m.id))
+    .slice(0, AGENT_FALLBACK_LIMIT);
+  const modelsToTry = [finalModel, ...fallbackQueue];
+  triedModelIds.add(finalModel.id);
 
-  console.log(`[Delegation] Calling model API: ${apiUrl}`);
+  let lastError = '';
+  for (let i = 0; i < modelsToTry.length; i++) {
+    const tryModel = modelsToTry[i];
+    const apiUrl = `${tryModel.baseUrl.replace(/\/+$/, '')}/chat/completions`;
+    const reqBody = {
+      model: tryModel.modelId,
+      messages: [agentSystemMessage, delegationMessage],
+      stream: false,
+      max_tokens: tryModel.maxTokens || 16384,
+      temperature: tryModel.temperature || 0.7
+    };
 
-  try {
-    const { response: res, attempt, totalAttempts } = await fetchWithRetry(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${finalModel.apiKey}`
-      },
-      body: JSON.stringify(reqBody)
-    }, {
-      maxAttempts: 3,
-      timeoutMs: 60000,
-      contextLabel: `delegate_to_agent(${targetAgent.name})`
-    });
+    console.log(`[Delegation] [${i + 1}/${modelsToTry.length}] Trying model: ${tryModel.name} (${tryModel.modelId})`);
 
-    if (!res.ok) {
+    try {
+      const { response: res, attempt, totalAttempts } = await fetchWithRetry(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${tryModel.apiKey}`
+        },
+        body: JSON.stringify(reqBody)
+      }, {
+        maxAttempts: 3,
+        timeoutMs: 60000,
+        contextLabel: `delegate_to_agent(${targetAgent.name}→${tryModel.name})`
+      });
+
+      if (res.ok) {
+        const data: any = await res.json();
+        const agentResponse = data.choices?.[0]?.message?.content || '';
+
+        console.log(`[Delegation] ✅ Model ${tryModel.name} succeeded (${agentResponse.length} chars, attempt ${attempt}/${totalAttempts})`);
+        console.log(`[Delegation] Response preview: ${agentResponse.slice(0, 200)}...`);
+
+        // 发送委托完成消息到前端
+        if (reply?.raw?.write) {
+          try {
+            reply.raw.write(`data: ${JSON.stringify({ type: 'agent_result', agentName: targetAgent.name, result: agentResponse })}\n\n`);
+          } catch {}
+        }
+
+        console.log('');
+        console.log('═'.repeat(60));
+        console.log(`【${targetAgent.name}】 DELEGATION END (via ${tryModel.name})`);
+        console.log('═'.repeat(60));
+        console.log('');
+
+        return { success: true, agent: targetAgent.name, model: tryModel.name, task: task, result: agentResponse };
+      }
+
+      // 失败：提取上游错误，决定是否 cascade
       const errText = await res.text();
-      // 提取上游真实错误信息（OpenAI 风格: {error: {message: ..., type: ...}}）
       let upstreamMsg = errText.slice(0, 500);
       try {
         const parsed = JSON.parse(errText);
         upstreamMsg = parsed.error?.message || parsed.message || upstreamMsg;
       } catch {}
-      console.error(`[Delegation] API Error: ${res.status} - ${errText.slice(0, 200)}`);
-      return {
-        error: `Agent ${targetAgent.name} 调用失败: HTTP ${res.status}${upstreamMsg ? ` - ${upstreamMsg}` : ''}`,
-        status: res.status,
-        upstream: upstreamMsg,
-        attempts: totalAttempts
-      };
+      lastError = `HTTP ${res.status}${upstreamMsg ? ` - ${upstreamMsg}` : ''}`;
+      console.error(`[Delegation] ❌ Model ${tryModel.name} failed: ${lastError}`);
+
+      // auth_unavailable / 404 / 403: 立即换下一个模型（重试同模型无意义）
+      // 429: 也换下一个（避免长 retry wait 阻塞）
+      // 5xx 其他: 取决于 fetchWithRetry 内部是否已重试 3 次 — 反正到这里就 cascade
+      const isPermanentError = /auth_unavailable|invalid_api_key|unauthorized|not_found|forbidden|quota/i.test(errText);
+      if (isPermanentError && i < modelsToTry.length - 1) {
+        console.log(`[Delegation] ⏭️  Permanent error on ${tryModel.name}, cascading to next model...`);
+        continue;
+      }
+      // 其他错误（5xx 已重试 3 次还失败）也 cascade
+      if (i < modelsToTry.length - 1) {
+        console.log(`[Delegation] ⏭️  Cascading to next model after ${tryModel.name}...`);
+        continue;
+      }
+    } catch (err: any) {
+      lastError = err.message;
+      console.error(`[Delegation] ❌ Model ${tryModel.name} threw: ${err.message}`);
+      if (i < modelsToTry.length - 1) {
+        console.log(`[Delegation] ⏭️  Cascading to next model after exception...`);
+        continue;
+      }
     }
-
-    const data: any = await res.json();
-    const agentResponse = data.choices?.[0]?.message?.content || '';
-
-    console.log(`[Delegation] Response length: ${agentResponse.length} chars`);
-    console.log(`[Delegation] Response preview: ${agentResponse.slice(0, 200)}...`);
-
-    // 发送委托完成消息到前端
-    if (reply?.raw?.write) {
-      try {
-        reply.raw.write(`data: ${JSON.stringify({ type: 'agent_result', agentName: targetAgent.name, result: agentResponse })}\n\n`);
-      } catch {}
-    }
-
-    console.log('');
-    console.log('═'.repeat(60));
-    console.log(`【${targetAgent.name}】 DELEGATION END`);
-    console.log('═'.repeat(60));
-    console.log('');
-
-    return { success: true, agent: targetAgent.name, task: task, result: agentResponse };
-  } catch (err: any) {
-    console.error(`[Delegation] Error: ${err.message}`);
-    return { error: `Agent ${targetAgent.name} 执行失败: ${err.message}` };
   }
+
+  // 所有模型都失败
+  console.error(`[Delegation] All ${modelsToTry.length} models failed for agent ${targetAgent.name}. Last error: ${lastError}`);
+  return {
+    error: `Agent ${targetAgent.name} 调用失败：尝试 ${modelsToTry.length} 个模型均不可用。最后错误: ${lastError}`,
+    attempts: modelsToTry.length
+  };
 }
 
 export default {
