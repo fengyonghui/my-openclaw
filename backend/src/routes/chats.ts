@@ -54,21 +54,75 @@ function safeToolContent(result: any): string {
  *
  * 修复：在用户表达委派意图时，第一轮 LLM 调用强制 tool_choice: required，
  * 不让 LLM 跳过工具调用。
+ *
+ * 模式集合：覆盖中文 + 英文、显式（让/请/委派）+ 隐式（X 们/分别）、
+ * 单 agent + 多 agent（X 和/与/、Y）。
  */
 function detectDelegationIntent(messages: any[]): boolean {
   const lastUser = [...messages].reverse().find(m => m.role === 'user');
   if (!lastUser) return false;
   const content = typeof lastUser.content === 'string' ? lastUser.content : '';
-  // 匹配模式：明确要求把任务给某 agent 去做
-  const patterns = [
-    /委派\s*[\w\u4e00-\u9fa5]+/i,           // 委派 UX/委派backend...
-    /让\s*[\w\u4e00-\u9fa5]+\s*(去做|去开发|去写|去改|去调研|帮忙|处理|完成|看一下)/i,  // 让UX去做
-    /请\s*[\w\u4e00-\u9fa5]+\s*(帮忙|做|写|改|开发|处理)/i,  // 请UX帮忙
-    /delegate\s*to/i,                                          // English
-    /assign\s*to/i,                                            // English
-    /让\s*[\w\u4e00-\u9fa5]+\s*来\s*(做|处理|开发)/i,          // 让XX来做
+  if (!content) return false;
+
+  // 委派动作词（包含「汇报/报告/跟进」等 LLM 容易 hallucinate 的动作）
+  const ACTIONS = '汇报|报告|做|写|改|处理|看看|查|检查|实现|开发|设计|测试|跑|调研|跟进|解释|帮忙|完成|弄|搞|审|评估|优化|重构|部署|研究|核对|确认|梳理|排查|修复|解决|收尾|收口|投产|发布|读一下|看一下|写一下|改一下|处理一下|做一下|确认一下|查一下|核对一下|排查一下|跟进一下|协助|帮|调|调用|启动|开始';
+  // 多 agent 连接符
+  const CONNECTORS = '和|与|及|跟|、|，|,';
+  // 集体/分布词（暗示多 agent 各自处理）。注：不含「们」以避免「我们/他们」误报
+  const COLLECTIVE = '分别|一起|各自|同时|并行';
+  // 代词白名单：这些出现在 agent 位置时不视为真实委派
+  const PRONOUNS = new Set(['我', '你', '他', '她', '它', '我们', '你们', '他们', '她们', '它们', '自己', '自己们']);
+
+  // 每个 pattern 必须 capture group 包含「被委派的 agent 名」；
+  // 如果该名字是代词（我们/你/他/...），则跳过这次匹配。
+  const patterns: Array<{ re: RegExp; groups: number[] }> = [
+    // 委派 X / 委派给 X
+    { re: new RegExp(`委派\\s*(?:给\\s*)?([\\w\\u4e00-\\u9fa5]+)`, 'i'), groups: [1] },
+    // delegate to X / assign to X
+    { re: /delegate\s*to\s+([\w\u4e00-\u9fa5]+)/i, groups: [1] },
+    { re: /assign\s*(?:to|task\s*to)\s+([\w\u4e00-\u9fa5]+)/i, groups: [1] },
+    { re: /ask\s+([\w\u4e00-\u9fa5]+)\s+to/i, groups: [1] },
+    { re: /have\s+([\w\u4e00-\u9fa5]+)\s+(?:do|write|check|test|implement|develop|run|fix|review)/i, groups: [1] },
+    { re: /get\s+([\w\u4e00-\u9fa5]+)\s+to/i, groups: [1] },
+    // 让/请/叫/找 X 动作
+    { re: new RegExp(`(?:让|请|叫|找)\\s*([\\w\\u4e00-\\u9fa5]+)\\s*(?:${ACTIONS})`, 'i'), groups: [1] },
+    // 让/请 X 和/与/、 Y (capture both)
+    { re: new RegExp(`(?:让|请|叫|找)\\s*([\\w\\u4e00-\\u9fa5]+)\\s*[${CONNECTORS}]\\s*([\\w\\u4e00-\\u9fa5]+)`, 'i'), groups: [1, 2] },
+    // 让/请 X 集体 (分别/一起/各自/同时/并行)
+    { re: new RegExp(`(?:让|请|叫|找)\\s*([\\w\\u4e00-\\u9fa5]+)\\s*(?:${COLLECTIVE})`, 'i'), groups: [1] },
+    // 让 X 们 (多 agent 显式集体) - "前端们"/"后端们" — 排除"我们"/"他们"等
+    { re: /(?:让|请|叫|找)\s*([\w\u4e00-\u9fa5]{2,})们(?![们我你他她它])/i, groups: [1] },
+    // 让 X 去/来 + 动作
+    { re: new RegExp(`让\\s*([\\w\\u4e00-\\u9fa5]+)\\s*(?:去|来)\\s*(?:${ACTIONS})`, 'i'), groups: [1] },
+    // 注：原 "X 去 Y" (X + 去 + 动作) 模式删除 — 误报率高（如"让他们去做"会把"让"也吃进 capture）
   ];
-  return patterns.some(p => p.test(content));
+
+  for (const { re, groups } of patterns) {
+    const m = content.match(re);
+    if (!m) continue;
+    // 检查所有 capture group：如果任一名字是代词（原始/剔尾后/任一前缀），跳过这次匹配
+    let isReal = true;
+    for (const g of groups) {
+      let captured = m[g];
+      if (!captured) continue;
+      // Greedy [\w\u4e00-\u9fa5]+ 可能把"去/来/和/们/的/帮"等连词吃进 capture。
+      // 检查任一前缀是否是代词，能更稳妥处理"你帮我" → "你" 是代词的场景。
+      let hasPronoun = false;
+      for (let i = 1; i <= captured.length; i++) {
+        const prefix = captured.slice(0, i);
+        if (PRONOUNS.has(prefix)) { hasPronoun = true; break; }
+      }
+      // 同时也做末尾剔尾后检查
+      const stripped = captured.replace(/(?:去|来|和|与|及|跟|们|的|都|也|帮)+$/, '');
+      if (!hasPronoun && PRONOUNS.has(stripped)) hasPronoun = true;
+      if (hasPronoun) {
+        isReal = false;
+        break;
+      }
+    }
+    if (isReal) return true;
+  }
+  return false;
 }
 
 /**
@@ -80,6 +134,7 @@ function detectDelegationIntent(messages: any[]): boolean {
 function detectPromiseResponse(content: string): boolean {
   if (!content || content.length < 10) return false;
   const patterns = [
+    // ===== 原有「承诺跟进」模式 =====
     /我[会將将]\s*(持续|继续|会|在)/i,           // 我会持续/我将继续
     /接下来\s*[\w\u4e00-\u9fa5]*\s*(将|会|开始)/i, // 接下来他将开始
     /等他?\s*(完成|结束后|完成后再)/i,             // 等他完成
@@ -88,6 +143,22 @@ function detectPromiseResponse(content: string): boolean {
     /我会\s*(持续)?跟进/i,                          // 我会跟进
     /在他完成.*汇报/i,                                // 在他完成后向您汇报
     /等他\s*完成/i,                                  // 等他完成
+
+    // ===== 新增：幻觉「虚假进度报告」模式（防 LLM 编造整个汇报）=====
+    /已[经]?\s*(分别|成功)?\s*(?:向|让|请|给)?\s*[\w\u4e00-\u9fa5]+.*(?:汇报|委派|派发|完成|处理)/i,  // 已经分别向后端和前端委派
+    /并为您\s*(汇总|总结|整理|汇报|呈现)/i,       // 并为您汇总
+    /汇报\s*(?:任务|如下|结果|为|：|:)/i,        // 汇报任务/汇报如下
+    /[📝📊📈🎯⏰✅❌🔧]\s*(?:项目)?\s*进度/i,        // 📝 项目进度
+    /[📝📊📈🎯].*(?:汇报|报告|进度)/i,
+    /\*\*核心结论\*\*/i,                              // **核心结论**
+    /\*\*核心产出\*\*/i,                              // **核心产出**
+    /\*\*完成状态\*\*/i,                              // **完成状态**
+    /\*\*(?:后端|前端|UX|UI|测试|运维|Backend|Frontend).*进度/i,  // **后端进度 / **前端进度
+    /\*\*(?:后端|前端|UX|UI|测试|运维|Backend|Frontend).*汇报/i,  // **后端汇报
+    /完成\s*状态\s*[:：]?\s*(?:✅|✔|完成|进行中|未完成)/i,        // 完成状态: ✅ 已完成
+    /✅\s*(?:已完成|完成|通过|上线|实现|搞定)/i,                  // ✅ 已完成
+    /由\s*[@＠]\s*[\w\u4e00-\u9fa5]+\s*(?:汇报|报告|完成)/i,    // 由 @后端工程师 汇报
+    /@\s*[\w\u4e00-\u9fa5]+\s*(?:工程师|开发|designer|engineer)\s*汇报/i,  // @XX工程师 汇报
   ];
   return patterns.some(p => p.test(content));
 }
