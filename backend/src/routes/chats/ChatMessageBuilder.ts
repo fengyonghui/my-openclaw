@@ -299,10 +299,47 @@ function normalizeMessageToolIds(m: any): Message {
       tool_calls: m.tool_calls.map((tc: any) => ({
         ...tc,
         id: normalizeToolCallId(tc.id),
+        function: tc.function
+          ? { ...tc.function, arguments: safeArgumentsJson(tc.function.arguments) }
+          : tc.function,
       })),
     };
   }
   return m as Message;
+}
+
+/**
+ * 安全处理 tool_call 的 arguments JSON 字符串。
+ * 关键场景：LLM 之前轮次生成 tool_call 时撞 max_tokens 被截断，arguments 是不闭合的 JSON。
+ * 上游 LLM API 会拒绝整条请求："invalid function arguments json string"。
+ *
+ * 策略：
+ * 1. 如果是合法 JSON → 原样返回
+ * 2. 如果是 object → 序列化
+ * 3. 如果不合法（被截断/损坏）→ 移除控制字符后再试一次
+ * 4. 还不行 → 替换为 `{}`（保留 tc_id 链路，避免 tool result 变孤儿）
+ */
+function safeArgumentsJson(args: any): string {
+  if (args == null) return '{}';
+  if (typeof args !== 'string') {
+    try { return JSON.stringify(args); } catch { return '{}'; }
+  }
+  // 尝试解析
+  try {
+    JSON.parse(args);
+    return args;  // 有效 JSON，原样
+  } catch {
+    // 移除控制字符再试
+    const cleaned = args.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+    try {
+      JSON.parse(cleaned);
+      return cleaned;
+    } catch {
+      // 还不行：用空对象兜底（保留 tc_id）
+      console.warn(`[Sanitize] Invalid tool_call arguments JSON, replaced with {}: ${args.slice(0, 80)}...`);
+      return '{}';
+    }
+  }
 }
 
 /** 转换单条消息格式（支持多模态） */
@@ -370,6 +407,20 @@ function truncateToolContent(msg: Message, maxChars = 4000): Message {
   if (content.length <= maxChars) return msg;
 
   const safe = content.slice(0, maxChars).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+  // 关键防御：如果 content 原本是 JSON 字符串（tool result 必须是合法 JSON），
+  // 截断后会破坏 JSON 结构。上游 LLM API 拒绝整条请求。
+  // 解决：包裹在 envelope 中，保留预览但保证输出仍是合法 JSON。
+  const trimmed = safe.trim();
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    return {
+      ...msg,
+      content: JSON.stringify({
+        _truncated: true,
+        _originalLength: content.length,
+        _preview: safe,
+      }),
+    };
+  }
   return { ...msg, content: safe + '\n\n[内容过长，已截断]' };
 }
 
