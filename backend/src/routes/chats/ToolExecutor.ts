@@ -16,6 +16,60 @@ import { getBuiltinShellSkill, getBuiltinFileIOSkill } from '../../services/Buil
 import { DbService } from '../../services/DbService.js';
 import { getSystemInfo } from '../../services/SystemCommands.js';
 import { toWSLPath, toWindowsPath, getProjectWorkspacePath } from '../../services/PathService.js';
+import { extractToolCalls } from './ModelRequestor.js';
+import { buildToolList } from '../../services/ToolDefinitions.js';
+
+/**
+ * 安全地将工具结果序列化为 JSON 字符串（与 chats.ts 同源，避免 chats.ts 内部工具导出）。
+ * 逻辑：先 stringify，再 parse 验证；失败则剥离控制字符重试。
+ */
+function safeToolContent(result: any): string {
+  try {
+    const str = JSON.stringify(result);
+    JSON.parse(str);
+    return str;
+  } catch {
+    try {
+      const safe = JSON.stringify(String(result));
+      JSON.parse(safe);
+      return safe;
+    } catch {
+      const obj = typeof result === 'object' && result !== null ? result : { value: String(result) };
+      const cleaned = JSON.parse(JSON.stringify(obj).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, ''));
+      return JSON.stringify(cleaned);
+    }
+  }
+}
+
+/**
+ * 剥离 messages 中所有可能损坏上游 LLM 的不可序列化/损坏字段。
+ * 实施策略：深拷贝 + 移除控制字符 + 验证 JSON 双向。失败则降级到 String()。
+ */
+function sanitizeMessages(messages: any[]): any[] {
+  return messages.map((m: any) => {
+    const copy: any = { ...m };
+    if (typeof copy.content === 'string') {
+      copy.content = copy.content.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+    }
+    if (copy.tool_calls && Array.isArray(copy.tool_calls)) {
+      copy.tool_calls = copy.tool_calls.map((tc: any) => {
+        const tcCopy: any = { ...tc };
+        if (tcCopy.function && typeof tcCopy.function.arguments === 'string') {
+          try {
+            // 验证 arguments JSON 有效
+            JSON.parse(tcCopy.function.arguments);
+          } catch {
+            // 损坏的 arguments → 替换为空对象
+            console.warn(`[Sanitize] Broken tool_call arguments, replacing with {}: ${tcCopy.function.arguments.slice(0, 80)}`);
+            tcCopy.function.arguments = '{}';
+          }
+        }
+        return tcCopy;
+      });
+    }
+    return copy;
+  });
+}
 
 export type ToolCall = {
   id?: string;
@@ -583,7 +637,318 @@ export async function executeFileIO(
 }
 
 /**
+ * 成员 Agent 完整循环（同步等待成员真正完成工作）。
+ *
+ * 关键改进 vs 旧 executeAgentDelegation（单次 LLM fetch + 立刻返回）：
+ * 旧实现：成员 agent 只是个 LLM 一次性回答，不调工具不迭代思考，
+ *       协调员拿到的 result 是 LLM 仓促回复的文本，不是成员真正完成任务的成果。
+ * 新实现：成员 agent 跑完整循环：
+ *   1. 调 LLM（cascade 8 个模型 + PREFERRED list）
+ *   2. 如果返回 tool_calls → 执行工具 → push tool result → 重新调 LLM（最多 8 轮）
+ *   3. 如果没 tool_calls → finalContent = 完整 content → 持久化 → break
+ * 协调员在 executeAgentDelegation 中 await 这个函数，**真正等成员完成所有工作**才返回。
+ *
+ * 工具集 = buildToolList（用成员自己当 coordinatorAgentId）后 **filter 掉 delegate_to_agent**。
+ * 原因：防止成员委派给别的成员形成递归，或更糟的循环（成员A → 成员B → 成员A ...）。
+ * 成员只该用 read/write/edit/shell/list_files 这些"动手做"的工具。
+ *
+ * 持久化：v1 暂不持久化成员 agent 的中间过程（避免侵入 project chat 结构）。
+ *         跑完 finalContent 直接作为 result 返回给协调员。日志输出详细。
+ *         v2 后续：给成员 agent 自己的 chat 文件（如 .agent-chats/agent-{name}-{ts}.json）。
+ */
+async function runMemberAgentLoop(
+  project: any,
+  targetAgent: any,
+  task: string,
+  context: string | undefined,
+  allProjectAgents: any[],
+  allEnabledSkills: any[],
+  reply: any
+): Promise<{ success: boolean; finalContent: string; iterations: number; toolCallCount: number; error?: string; model?: string }> {
+  // 构造成员 agent 工具集：与协调员一致，但排除 delegate_to_agent（防递归）
+  const allTools = buildToolList(project, allProjectAgents, targetAgent.id, allEnabledSkills);
+  const memberTools = allTools.filter((t: any) => {
+    const name = t.function?.name || t.name;
+    return name !== 'delegate_to_agent';
+  });
+  console.log(`[MemberLoop] ${targetAgent.name} toolset: ${memberTools.length} tools (excluded delegate_to_agent) → ${memberTools.map((t: any) => t.function?.name || t.name).join(', ')}`);
+
+  // 构造 system + initial user
+  const agentSystemMessage = {
+    role: 'system',
+    content: targetAgent.systemPrompt || `你是 ${targetAgent.name}，一个专业的 AI Agent。${targetAgent.description || ''}`
+  };
+  const delegationMessage = {
+    role: 'user',
+    content: `请完成以下任务：\n\n${task}\n\n${context ? `上下文信息：\n${context}` : ''}\n\n请用中文汇报你的工作成果，包括关键发现、改动、文件路径等。`
+  };
+
+  let messages: any[] = [agentSystemMessage, delegationMessage];
+
+  // 选模型 + cascade
+  const allModels = await DbService.getModels();
+  const agentModelId = targetAgent.defaultModelId || targetAgent.modelId;
+  const agentModel = allModels.find((m: any) => m.id === agentModelId);
+  const finalModel = agentModel || allModels[0];
+  if (!finalModel) {
+    return { success: false, finalContent: '', iterations: 0, toolCallCount: 0, error: `Agent "${targetAgent.name}" 没有配置可用模型` };
+  }
+
+  const PREFERRED_MODEL_IDS = [
+    'gemini-2.5-pro', 'MiniMax-M3', 'minimaxai/minimax-m2.5',
+    'mx27', 'mx27-h', 'z-ai/glm5',
+    'claude-sonnet-4-6', 'claude-opus-4-6-thinking',
+    'gpt-4o', 'o3', 'o3-mini', 'o4-mini',
+  ];
+  const MEMBER_FALLBACK_LIMIT = 7;
+  const triedModelIds = new Set<string>();
+  const preferredQueue = PREFERRED_MODEL_IDS
+    .map((id) => allModels.find((m: any) => m.id === id))
+    .filter((m: any) => m && m.id !== finalModel.id && !triedModelIds.has(m.id))
+    .slice(0, MEMBER_FALLBACK_LIMIT);
+  preferredQueue.forEach((m: any) => triedModelIds.add(m.id));
+  const fallbackQueue = allModels
+    .filter((m: any) => m.id !== finalModel.id && !triedModelIds.has(m.id))
+    .slice(0, MEMBER_FALLBACK_LIMIT - preferredQueue.length);
+  const modelsToTry = [finalModel, ...preferredQueue, ...fallbackQueue];
+  triedModelIds.add(finalModel.id);
+  console.log(`[MemberLoop] ${targetAgent.name} cascade (${modelsToTry.length} models): ${modelsToTry.map((m: any) => m.id).join(' → ')}`);
+
+  // Agent loop
+  const MAX_ITERATIONS = 8;
+  let lastToolCallSignature = '';
+  let repeatCallCount = 0;
+  let toolCallCount = 0;
+  let finalContent = '';
+  let lastIteration = 0;  // 实际跑了几轮（用于 return 时报告准确 iterations）
+  let pickedModel: any = null;
+
+  for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+    console.log('');
+    console.log('─'.repeat(60));
+    console.log(`【${targetAgent.name}】 ITERATION ${iteration + 1}/${MAX_ITERATIONS}`);
+    console.log('─'.repeat(60));
+
+    // 跑 model cascade，单次成功即用，失败则换下一个
+    let llmSuccess = false;
+    let choice: any = null;
+    let lastError = '';
+    for (let mi = 0; mi < modelsToTry.length; mi++) {
+      const tryModel = modelsToTry[mi];
+      const apiUrl = `${tryModel.baseUrl.replace(/\/+$/, '')}/chat/completions`;
+      const reqBody: any = {
+        model: tryModel.modelId,
+        messages: sanitizeMessages(messages),
+        stream: false,
+        max_tokens: tryModel.maxTokens || 16384,
+        temperature: tryModel.temperature || 0.7
+      };
+      if (memberTools.length > 0) {
+        reqBody.tools = memberTools;
+        reqBody.tool_choice = 'auto';
+      }
+      console.log(`[MemberLoop] [${iteration + 1}.${mi + 1}] Trying model: ${tryModel.name} (${tryModel.modelId}), msgs=${messages.length}, tools=${memberTools.length}`);
+
+      try {
+        const { response: res } = await fetchWithRetry(apiUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${tryModel.apiKey}`,
+            'Connection': 'close'
+          },
+          body: JSON.stringify(reqBody)
+        }, {
+          maxAttempts: 1,
+          timeoutMs: 60000,
+          contextLabel: `member-${targetAgent.name}→${tryModel.name}`
+        });
+
+        if (res.ok) {
+          const data: any = await res.json();
+          choice = data.choices?.[0];
+          pickedModel = tryModel;
+          llmSuccess = true;
+          console.log(`[MemberLoop] ✅ Model ${tryModel.name} responded (choice finish_reason=${choice?.finish_reason})`);
+          break;
+        }
+
+        // 失败
+        const errText = await res.text();
+        const isPermanent = /auth_unavailable|invalid_api_key|unauthorized|not_found|forbidden|quota|cooling down/i.test(errText);
+        lastError = `HTTP ${res.status} - ${errText.slice(0, 200)}`;
+        console.warn(`[MemberLoop] ❌ Model ${tryModel.name} failed: ${lastError}`);
+        if (isPermanent) {
+          await new Promise(r => setTimeout(r, 500));
+          continue;
+        }
+        if (mi < modelsToTry.length - 1) {
+          await new Promise(r => setTimeout(r, 1000));
+          continue;
+        }
+      } catch (err: any) {
+        lastError = err.message;
+        console.warn(`[MemberLoop] ❌ Model ${tryModel.name} threw: ${err.message}`);
+        if (mi < modelsToTry.length - 1) {
+          await new Promise(r => setTimeout(r, 1000));
+          continue;
+        }
+      }
+    }
+
+    if (!llmSuccess || !choice) {
+      return { success: false, finalContent: '', iterations: iteration + 1, toolCallCount, error: `成员 Agent ${targetAgent.name} LLM cascade 全部失败: ${lastError}`, model: pickedModel?.name };
+    }
+
+    const assistantMessage = choice?.message || {};
+    const rawToolCalls = extractToolCalls(choice);
+    const assistantContent = assistantMessage.content || '';
+
+    if (rawToolCalls.length > 0) {
+      // 重复检测
+      const sig = rawToolCalls.map((tc: any) =>
+        (tc.function?.name || '') + ':' + JSON.stringify(tc.function?.arguments || '').slice(0, 100)
+      ).join('|');
+      if (sig === lastToolCallSignature) {
+        repeatCallCount++;
+        console.log(`[MemberLoop] ⚠️  Repeated tool signature (${repeatCallCount}/3)`);
+        if (repeatCallCount >= 3) {
+          console.log(`[MemberLoop] 🛑 Breaking loop after 3 repeated tool calls`);
+          // 把最后一次 assistant message 推入 messages，强制 LLM 下次给文本
+          messages.push({ role: 'assistant', content: '', tool_calls: rawToolCalls });
+          // 给个引导性 user message 让它总结
+          messages.push({ role: 'user', content: '请停止重复调用，直接用文字汇报当前成果即可。' });
+          continue;
+        }
+      } else {
+        repeatCallCount = 1;
+      }
+      lastToolCallSignature = sig;
+
+      // 规范化 tool_call id
+      const normalizedToolCalls = rawToolCalls.map((tc: any) => {
+        let id = tc.id || '';
+        if (!id.startsWith('call_')) {
+          id = `call_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        }
+        return { ...tc, id };
+      });
+
+      console.log(`[MemberLoop] 🔧 ${normalizedToolCalls.length} tool call(s) from ${pickedModel.name}:`);
+      for (const tc of normalizedToolCalls) {
+        console.log(`[MemberLoop]    - ${tc.function?.name} (${(tc.function?.arguments || '').slice(0, 80)}...)`);
+      }
+
+      // 推送 assistant message（带 tool_calls）
+      messages.push({
+        role: 'assistant',
+        content: normalizedToolCalls.length > 0 ? '' : assistantContent,
+        tool_calls: normalizedToolCalls
+      });
+
+      // 通知前端：成员 agent 在调工具
+      if (reply?.raw?.write) {
+        try {
+          reply.raw.write(`data: ${JSON.stringify({
+            type: 'agent_tool_call',
+            agentName: targetAgent.name,
+            toolCalls: normalizedToolCalls.map((tc: any) => ({
+              id: tc.id,
+              name: tc.function?.name,
+              arguments: tc.function?.arguments
+            }))
+          })}\n\n`);
+        } catch {}
+      }
+
+      // 执行每个 tool call（用 project context 而非成员 agent 自己的）
+      for (const tc of normalizedToolCalls) {
+        let toolResult: any;
+        try {
+          // 注意：执行工具时**不**把 reply 传过去，避免工具的内部 SSE 写到协调员的 chat 流
+          // 工具结果通过 messages.push(role:tool) 在下一轮 LLM 看到即可
+          toolResult = await executeToolCall(project, tc, allProjectAgents, allEnabledSkills, undefined);
+          console.log(`[MemberLoop] ✅ Tool ${tc.function?.name} executed (result ${JSON.stringify(toolResult).length} chars)`);
+        } catch (err: any) {
+          toolResult = { error: err.message };
+          console.error(`[MemberLoop] ❌ Tool ${tc.function?.name} threw: ${err.message}`);
+        }
+        // 计数放在 try 外 — 不管成功失败都算一次成员 agent 工具调用尝试
+        toolCallCount++;
+
+        // 通知前端：成员 agent 工具结果
+        if (reply?.raw?.write) {
+          try {
+            reply.raw.write(`data: ${JSON.stringify({
+              type: 'agent_tool_result',
+              agentName: targetAgent.name,
+              toolCallId: tc.id,
+              toolName: tc.function?.name,
+              result: toolResult
+            })}\n\n`);
+          } catch {}
+        }
+
+        messages.push({
+          role: 'tool',
+          tool_call_id: tc.id,
+          content: safeToolContent(toolResult)
+        });
+      }
+      continue;
+    }
+
+    // 没有 tool_calls → 视为最终响应
+    finalContent = assistantContent;
+    lastIteration = iteration;  // 记录本轮为最后成功轮次
+    console.log(`[MemberLoop] ✅ ${targetAgent.name} 完成，finalContent=${finalContent.length} chars`);
+    console.log(`[MemberLoop] 📊 Stats: iterations=${iteration + 1}, toolCalls=${toolCallCount}, model=${pickedModel.name}`);
+
+    // 通知前端：成员 agent 完成
+    if (reply?.raw?.write) {
+      try {
+        reply.raw.write(`data: ${JSON.stringify({
+          type: 'agent_result',
+          agentName: targetAgent.name,
+          result: finalContent,
+          iterations: iteration + 1,
+          toolCallCount,
+          model: pickedModel.name
+        })}\n\n`);
+      } catch {}
+    }
+    break;
+  }
+
+  if (!finalContent) {
+    return {
+      success: false,
+      finalContent: '',
+      iterations: MAX_ITERATIONS,
+      toolCallCount,
+      error: `成员 Agent ${targetAgent.name} 跑完 ${MAX_ITERATIONS} 轮迭代未产出最终响应`,
+      model: pickedModel?.name
+    };
+  }
+
+  // 剥掉 DeepSeek 风格的 <think>...</think> 思考块（避免给协调员一堆内部推理）
+  const cleanedFinalContent = finalContent.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+
+  return {
+    success: true,
+    finalContent: cleanedFinalContent,
+    iterations: lastIteration + 1,
+    toolCallCount,
+    model: pickedModel?.name
+  };
+}
+
+/**
  * 执行 Agent 委托
+ *
+ * 旧实现：单次 LLM fetch + 立即返回（成员 agent 不会真正执行工具/思考）。
+ * 新实现：调 runMemberAgentLoop，**真正同步等待成员跑完完整 agent 循环**（think → tool → 反思 → 总结），
+ *        把成员最终汇报作为 result 返回。协调员拿到这个 result 时，成员已经完成了所有实际工作。
  */
 export async function executeAgentDelegation(
   project: any,
@@ -608,198 +973,58 @@ export async function executeAgentDelegation(
 
   console.log('');
   console.log('═'.repeat(60));
-  console.log(`【${targetAgent.name}】 DELEGATION START`);
+  console.log(`【${targetAgent.name}】 DELEGATION START (synchronous — wait for member to finish)`);
   console.log('═'.repeat(60));
 
   // 发送委托开始消息到前端
   if (reply?.raw?.write) {
     try {
-      reply.raw.write(`data: ${JSON.stringify({ type: 'agent_start', agentName: targetAgent.name, task })}\n\n`);
+      reply.raw.write(`data: ${JSON.stringify({
+        type: 'agent_start',
+        agentName: targetAgent.name,
+        task
+      })}\n\n`);
     } catch {}
   }
 
-  // 获取 Agent 配置的模型
-  const agentModelId = targetAgent.defaultModelId || targetAgent.modelId;
-  console.log(`[Delegation] DEBUG: targetAgent.defaultModelId = "${targetAgent.defaultModelId}"`);
-  console.log(`[Delegation] DEBUG: targetAgent.modelId = "${targetAgent.modelId}"`);
-  console.log(`[Delegation] DEBUG: targetAgent keys: ${Object.keys(targetAgent).join(', ')}`);
-  
-  const allModels = await DbService.getModels();
-  console.log(`[Delegation] DEBUG: allModels count = ${allModels.length}`);
-  console.log(`[Delegation] DEBUG: allModels names: ${allModels.map((m: any) => `${m.name} (id=${m.id})`).join(', ')}`);
-  
-  const agentModel = allModels.find((m: any) => m.id === agentModelId);
-  console.log(`[Delegation] DEBUG: model found by ID: ${agentModel?.name || 'NOT FOUND'}`);
-  
-  const finalModel = agentModel || allModels[0];
-  console.log(`[Delegation] DEBUG: using model: ${finalModel.name} (id=${finalModel.id})`);
+  // 🔧 关键：同步等待成员 agent 跑完整循环
+  // runMemberAgentLoop 内部：调 LLM → 解析 tool_calls → 执行工具 → 重新调 LLM → 直到没 tool_calls → 返回 finalContent
+  // 这就是用户要的"主协调员等待成员反馈成果后返回"
+  const result = await runMemberAgentLoop(
+    project,
+    targetAgent,
+    task,
+    context,
+    allProjectAgents,
+    allEnabledSkills,
+    reply
+  );
 
-  if (!finalModel) {
-    return { error: `Agent "${targetAgent.name}" 没有配置模型` };
+  console.log('');
+  console.log('═'.repeat(60));
+  if (result.success) {
+    console.log(`【${targetAgent.name}】 DELEGATION END (via ${result.model}, ${result.iterations} iter, ${result.toolCallCount} tool calls, ${result.finalContent.length} chars)`);
+  } else {
+    console.error(`【${targetAgent.name}】 DELEGATION FAILED: ${result.error}`);
   }
+  console.log('═'.repeat(60));
+  console.log('');
 
-  console.log(`[Delegation] Agent: ${targetAgent.name}, Initial Model: ${finalModel.name}`);
-
-  // 构建 Agent 系统消息
-  const agentSystemMessage = {
-    role: 'system',
-    content: targetAgent.systemPrompt || `你是 ${targetAgent.name}，一个专业的 AI Agent。${targetAgent.description || ''}`
-  };
-
-  // 构建委托消息
-  const delegationMessage = {
-    role: 'user',
-    content: `请完成以下任务：\n\n${task}\n\n${context ? `上下文信息：\n${context}` : ''}`
-  };
-
-  // 诊断：记录 prompt 大小
-  const taskSize = task?.length || 0;
-  const contextSize = context?.length || 0;
-  const systemSize = agentSystemMessage.content?.length || 0;
-  console.log(`[Delegation] Prompt size: system=${systemSize} task=${taskSize} context=${contextSize} (total ~${systemSize + taskSize + contextSize} chars)`);
-
-  // 模型 cascade 队列：agent 默认模型 + 后续 fallback（与 /send 策略一致）
-  // 原因：之前只跑 agent 配置的 defaultModelId，如果它 codex 类（503 auth_unavailable）
-  //       就必败。改为 cascade 8 个：agent default + 7 个 fallback，能覆盖到 gemini-2.5-pro
-  //       （排第 7）这种已知可用的模型。
-  //       限制 8 避免 agent 委派被 199 模型拖垮（agent 频繁调用，每次都跑 199 个会卡死）。
-  //       性能：auth_unavailable 立即返回，8 个模型 < 5s；真正的 fetch 走完也 ~30s。
-  //
-  // 优先列表：db.json 顺序前 N 个都是 codex/gemini-cli（这些 provider 现在 503 auth_unavailable），
-  //       minimax/mx27/glm5/claude 等"用户账号下"的模型排在 50-200 位，永远到不了。
-  //       显式把这些 model id 放 cascade 前面先试。
-  const PREFERRED_MODEL_IDS = [
-    'gemini-2.5-pro',         // 已验证 work（用户账号直连）
-    'MiniMax-M3',             // minimax 自家 M3
-    'minimaxai/minimax-m2.5', // minimax 自家
-    'mx27', 'mx27-h',         // minimax 系统
-    'z-ai/glm5',              // z-ai 自家
-    'claude-sonnet-4-6',      // claude sonnet
-    'claude-opus-4-6-thinking', // claude opus thinking
-    'gpt-4o', 'o3', 'o3-mini', 'o4-mini', // openai
-  ];
-  const AGENT_FALLBACK_LIMIT = 7;
-  const triedModelIds = new Set<string>();
-
-  // 构造 cascade 顺序：
-  //   1. agent 默认模型
-  //   2. PREFERRED_MODEL_IDS 中未尝试的（用户账号下的模型）
-  //   3. allModels 顺序前 N 个未尝试的（兜底，可能仍是 503，但覆盖未知场景）
-  const preferredQueue = PREFERRED_MODEL_IDS
-    .map((id) => allModels.find((m: any) => m.id === id))
-    .filter((m: any) => m && m.id !== finalModel.id && !triedModelIds.has(m.id))
-    .slice(0, AGENT_FALLBACK_LIMIT);
-  preferredQueue.forEach((m: any) => triedModelIds.add(m.id));
-
-  const fallbackQueue = allModels
-    .filter((m: any) => m.id !== finalModel.id && !triedModelIds.has(m.id))
-    .slice(0, AGENT_FALLBACK_LIMIT - preferredQueue.length);
-  const modelsToTry = [finalModel, ...preferredQueue, ...fallbackQueue];
-  triedModelIds.add(finalModel.id);
-
-  console.log(`[Delegation] Cascade order (${modelsToTry.length} models): ${modelsToTry.map((m: any) => m.id).join(' → ')}`);
-
-  let lastError = '';
-  for (let i = 0; i < modelsToTry.length; i++) {
-    const tryModel = modelsToTry[i];
-    const apiUrl = `${tryModel.baseUrl.replace(/\/+$/, '')}/chat/completions`;
-    const reqBody = {
-      model: tryModel.modelId,
-      messages: [agentSystemMessage, delegationMessage],
-      stream: false,
-      max_tokens: tryModel.maxTokens || 16384,
-      temperature: tryModel.temperature || 0.7
+  if (result.success) {
+    return {
+      success: true,
+      agent: targetAgent.name,
+      model: result.model,
+      task,
+      iterations: result.iterations,
+      toolCallCount: result.toolCallCount,
+      result: result.finalContent
     };
-
-    console.log(`[Delegation] [${i + 1}/${modelsToTry.length}] Trying model: ${tryModel.name} (${tryModel.modelId})`);
-
-    try {
-      const { response: res, attempt, totalAttempts } = await fetchWithRetry(apiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${tryModel.apiKey}`,
-          // 强制关闭 keep-alive：避免 AbortController abort 后 Node.js undici 复用僵尸 TCP 连接。
-          // 直接 curl 是单次连接，cascade fetch 复用 keep-alive pool — 僵尸连接导致 30s timeout。
-          'Connection': 'close'
-        },
-        body: JSON.stringify(reqBody)
-      }, {
-        // Agent cascade 模式：1 次尝试 + 30s timeout
-        // 原因：cascade 已经在 8 个模型间跳，单模型重试 3×60s=180s 会阻塞整个流程。
-        // 临时网络故障由 cascade 中的下一个模型兜底（不靠单模型重试）。
-        // quota 限流（429）：30s 内必然返回，不需要重试。
-        // 持续 60s 以上的慢响应：quota/限流信号，跳过更快。
-        maxAttempts: 1,
-        timeoutMs: 30000,
-        contextLabel: `delegate_to_agent(${targetAgent.name}→${tryModel.name})`
-      });
-
-      if (res.ok) {
-        const data: any = await res.json();
-        const agentResponse = data.choices?.[0]?.message?.content || '';
-
-        console.log(`[Delegation] ✅ Model ${tryModel.name} succeeded (${agentResponse.length} chars, attempt ${attempt}/${totalAttempts})`);
-        console.log(`[Delegation] Response preview: ${agentResponse.slice(0, 200)}...`);
-
-        // 发送委托完成消息到前端
-        if (reply?.raw?.write) {
-          try {
-            reply.raw.write(`data: ${JSON.stringify({ type: 'agent_result', agentName: targetAgent.name, result: agentResponse })}\n\n`);
-          } catch {}
-        }
-
-        console.log('');
-        console.log('═'.repeat(60));
-        console.log(`【${targetAgent.name}】 DELEGATION END (via ${tryModel.name})`);
-        console.log('═'.repeat(60));
-        console.log('');
-
-        return { success: true, agent: targetAgent.name, model: tryModel.name, task: task, result: agentResponse };
-      }
-
-      // 失败：提取上游错误，决定是否 cascade
-      const errText = await res.text();
-      let upstreamMsg = errText.slice(0, 500);
-      try {
-        const parsed = JSON.parse(errText);
-        upstreamMsg = parsed.error?.message || parsed.message || upstreamMsg;
-      } catch {}
-      lastError = `HTTP ${res.status}${upstreamMsg ? ` - ${upstreamMsg}` : ''}`;
-      console.error(`[Delegation] ❌ Model ${tryModel.name} failed: ${lastError}`);
-
-      // auth_unavailable / 404 / 403: 立即换下一个模型（重试同模型无意义）
-      // 429: 也换下一个（避免长 retry wait 阻塞）
-      // 5xx 其他: 取决于 fetchWithRetry 内部是否已重试 3 次 — 反正到这里就 cascade
-      const isPermanentError = /auth_unavailable|invalid_api_key|unauthorized|not_found|forbidden|quota|cooling down/i.test(errText);
-      if (isPermanentError && i < modelsToTry.length - 1) {
-        console.log(`[Delegation] ⏭️  Permanent error on ${tryModel.name}, cascading to next model...`);
-        // 给 localhost:8080 上游代理 1s 清理连接（避免 cascade 时连接池被僵尸连接占满）
-        await new Promise(r => setTimeout(r, 1000));
-        continue;
-      }
-      // 其他错误（5xx 已重试 3 次还失败）也 cascade
-      if (i < modelsToTry.length - 1) {
-        console.log(`[Delegation] ⏭️  Cascading to next model after ${tryModel.name}...`);
-        await new Promise(r => setTimeout(r, 1000));
-        continue;
-      }
-    } catch (err: any) {
-      lastError = err.message;
-      console.error(`[Delegation] ❌ Model ${tryModel.name} threw: ${err.message}`);
-      if (i < modelsToTry.length - 1) {
-        console.log(`[Delegation] ⏭️  Cascading to next model after exception...`);
-        await new Promise(r => setTimeout(r, 1000));
-        continue;
-      }
-    }
   }
 
-  // 所有模型都失败
-  console.error(`[Delegation] All ${modelsToTry.length} models failed for agent ${targetAgent.name}. Last error: ${lastError}`);
   return {
-    error: `Agent ${targetAgent.name} 调用失败：尝试 ${modelsToTry.length} 个模型均不可用。最后错误: ${lastError}`,
-    attempts: modelsToTry.length
+    error: `Agent ${targetAgent.name} 调用失败: ${result.error}`,
+    attempts: result.iterations
   };
 }
 
