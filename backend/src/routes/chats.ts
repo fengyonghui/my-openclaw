@@ -958,9 +958,9 @@ export async function ChatRoutes(fastify: FastifyInstance) {
                   content: fullAssistantContent
                 });
                 // 推一个强指令，让 LLM 知道必须调工具
-                // 从 finalMessages 找最后一条 user 消息的原始内容（避免 LLM 从对话历史里挖错的 task）
-                const lastUserMsg = [...finalMessages].reverse().find(m => m.role === 'user' && !String(m.content).startsWith('[系统提示]'));
-                const originalTask = lastUserMsg ? String(lastUserMsg.content).slice(0, 500) : '（未找到原始任务）';
+                // 用闭包捕获的 `content`（当前 user message，**不被对话历史污染**）。
+                // 之前从 finalMessages 挖可能被旧 task 干扰（"改写 ux-test3.txt" 等）。
+                const originalTask = (typeof content === 'string' ? content : '（未找到原始任务）').slice(0, 500);
                 finalMessages.push({
                   role: 'user',
                   content: '[系统提示] 你刚才的回复"承诺跟进"是无效的——你并没有真的调用 delegate_to_agent 工具。\n' +
