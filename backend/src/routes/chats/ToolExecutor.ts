@@ -354,9 +354,20 @@ async function executePowerShellCommand(command: string, cwd: string): Promise<T
 async function executeWindowsCommand(command: string, cwd: string): Promise<ToolResult> {
   return new Promise((resolve) => {
     const MAX_OUTPUT = 500 * 1024;
-    exec(command, {
+
+    // 预处理：PowerShell 5.1 不支持 `&&` / `||` 管道链操作符
+    // LLM 经常写 `cd dir && mvn ...`，在 PS 5.1 中会报"无法将'&'识别为 cmdlet"
+    // 转换 `cmd1 && cmd2` → `cmd1 ; cmd2`（始终执行 cmd2，忽略 cmd1 失败）
+    // 转换 `cmd1 || cmd2` → `cmd1 ; cmd2`（同样简化，对 LLM 生成的命令足够）
+    // 注意：strip `cd xxx && ` 已在 executeShellCommand 提前完成
+    let psCmd = command;
+    // 用占位符避免在转换中相互影响
+    psCmd = psCmd.replace(/(\s|^)&&(\s|$)/g, '$1;$2');
+    psCmd = psCmd.replace(/(\s|^)\|\|(\s|$)/g, '$1;$2');
+
+    exec(psCmd, {
       cwd,
-      shell: 'cmd.exe',
+      shell: 'powershell.exe',  // 默认 PowerShell 5.1（已自动设 cwd 到项目根）
       timeout: 60000,
       maxBuffer: MAX_OUTPUT
     }, (err, stdout, stderr) => {
