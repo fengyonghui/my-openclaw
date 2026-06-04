@@ -958,12 +958,17 @@ export async function ChatRoutes(fastify: FastifyInstance) {
                   content: fullAssistantContent
                 });
                 // 推一个强指令，让 LLM 知道必须调工具
+                // 从 finalMessages 找最后一条 user 消息的原始内容（避免 LLM 从对话历史里挖错的 task）
+                const lastUserMsg = [...finalMessages].reverse().find(m => m.role === 'user' && !String(m.content).startsWith('[系统提示]'));
+                const originalTask = lastUserMsg ? String(lastUserMsg.content).slice(0, 500) : '（未找到原始任务）';
                 finalMessages.push({
                   role: 'user',
                   content: '[系统提示] 你刚才的回复"承诺跟进"是无效的——你并没有真的调用 delegate_to_agent 工具。\n' +
-                    'UX agent **必须**通过工具调用才能工作。\n' +
-                    '请立即调用 delegate_to_agent 工具，传入 agent="UX"（或对应 agent 名称）、task="<用户原始任务>"。\n' +
-                    '这次是必须调工具，不允许跳过。'
+                    '**UX agent / Backend agent / Frontend agent 等所有成员 agent 都必须通过 `delegate_to_agent` 工具调用才能工作。**\n' +
+                    '请立即调用 `delegate_to_agent` 工具，根据用户的原始任务选择合适的 agent（如 Backend / Frontend / UX 等），\n' +
+                    '并将原始用户任务原文传入 `task` 参数：\n\n' +
+                    `**用户原始任务**：\n${originalTask}\n\n` +
+                    '这次是必须调工具，不允许跳过或编造结果。'
                 });
                 // 不发送敷衍 chunk 给前端（避免用户看到"我已委派"假话）
                 // continue 进下一轮迭代，reqBody.tool_choice 会被 detectDelegationIntent 触发设为 required
