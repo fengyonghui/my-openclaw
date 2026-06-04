@@ -46,6 +46,53 @@ function safeToolContent(result: any): string {
 }
 
 /**
+ * 检测用户最新消息是否表达「委派/指派」意图。
+ *
+ * 背景：之前 LLM 在收到「请帮我委派 UX 做 X」这种消息时，
+ * 会**编造一个承诺式回复**（「他将开始...我会持续跟进...」）
+ * 而不真的调 delegate_to_agent 工具。这是个 hallucination bug。
+ *
+ * 修复：在用户表达委派意图时，第一轮 LLM 调用强制 tool_choice: required，
+ * 不让 LLM 跳过工具调用。
+ */
+function detectDelegationIntent(messages: any[]): boolean {
+  const lastUser = [...messages].reverse().find(m => m.role === 'user');
+  if (!lastUser) return false;
+  const content = typeof lastUser.content === 'string' ? lastUser.content : '';
+  // 匹配模式：明确要求把任务给某 agent 去做
+  const patterns = [
+    /委派\s*[\w\u4e00-\u9fa5]+/i,           // 委派 UX/委派backend...
+    /让\s*[\w\u4e00-\u9fa5]+\s*(去做|去开发|去写|去改|去调研|帮忙|处理|完成|看一下)/i,  // 让UX去做
+    /请\s*[\w\u4e00-\u9fa5]+\s*(帮忙|做|写|改|开发|处理)/i,  // 请UX帮忙
+    /delegate\s*to/i,                                          // English
+    /assign\s*to/i,                                            // English
+    /让\s*[\w\u4e00-\u9fa5]+\s*来\s*(做|处理|开发)/i,          // 让XX来做
+  ];
+  return patterns.some(p => p.test(content));
+}
+
+/**
+ * 检测 LLM 响应是否是「承诺式敷衍」（没真调工具但声称会跟进）。
+ *
+ * 用法：agent loop 退出后若发现 LLM 没调过任何工具，但响应包含这些模式，
+ * 说明 LLM 在 hallucinating，需要重试一次并强制 tool_choice: required。
+ */
+function detectPromiseResponse(content: string): boolean {
+  if (!content || content.length < 10) return false;
+  const patterns = [
+    /我[会將将]\s*(持续|继续|会|在)/i,           // 我会持续/我将继续
+    /接下来\s*[\w\u4e00-\u9fa5]*\s*(将|会|开始)/i, // 接下来他将开始
+    /等他?\s*(完成|结束后|完成后再)/i,             // 等他完成
+    /他[已经]\s*(开始|接到|收到)/i,                // 他已经开始
+    /他\s*(将|会)\s*(开始|进行|着手)/i,           // 他将开始
+    /我会\s*(持续)?跟进/i,                          // 我会跟进
+    /在他完成.*汇报/i,                                // 在他完成后向您汇报
+    /等他\s*完成/i,                                  // 等他完成
+  ];
+  return patterns.some(p => p.test(content));
+}
+
+/**
  * 验证一个字符串是否为合法的 JSON（object 或 array）。
  */
 function isValidJson(str: string): boolean {
@@ -615,6 +662,9 @@ export async function ChatRoutes(fastify: FastifyInstance) {
             let guard = 0;
 			let lastToolCallSignature = '';
 			let repeatCallCount = 0;
+            let anyToolCalled = false;  // 追踪本轮 agent loop 是否真调过工具（防 LLM 敷衍）
+            let delegateRetryCount = 0;  // 委派重试次数（防无限循环）
+            const MAX_DELEGATE_RETRY = 1;
             while (guard++ < 8) {
               const reqBody: any = {
                 model: modelCfg.modelId,
@@ -626,8 +676,18 @@ export async function ChatRoutes(fastify: FastifyInstance) {
 
               if (tools.length > 0) {
                 reqBody.tools = tools;
-                reqBody.tool_choice = 'auto';
-                console.log(`[Request] tools count: ${tools.length}, tool_choice: auto`);
+                // 检测用户是否表达委派意图：是则强制 tool_choice: required，
+                // 防止 LLM hallucinate 出「我会跟进」式回复而不真调 delegate_to_agent。
+                const wantsDelegate = detectDelegationIntent(finalMessages);
+                const hasDelegateTool = tools.some((t: any) =>
+                  (t.function?.name || t.name) === 'delegate_to_agent'
+                );
+                // DEBUG: 看 last user message
+                const lastUser = [...finalMessages].reverse().find((m: any) => m.role === 'user');
+                const lastUserContent = typeof lastUser?.content === 'string' ? lastUser.content.slice(0, 200) : '(no user msg)';
+                reqBody.tool_choice = (wantsDelegate && hasDelegateTool) ? 'required' : 'auto';
+                console.log(`[Request] tools count: ${tools.length}, tool_choice: ${reqBody.tool_choice} (delegate-intent=${wantsDelegate}, has-delegate-tool=${hasDelegateTool})`);
+                console.log(`[Request] last user msg (first 200 chars): ${lastUserContent}`);
               } else {
                 console.log(`[Request] No tools available!`);
               }
@@ -714,6 +774,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
               });
 
               if (normalizedToolCalls.length > 0) {
+                anyToolCalled = true;  // 标记本轮调过工具（用于安全网检测）
                 console.log(`[DEBUG] Processing ${normalizedToolCalls.length} tool call(s)`);
                 for (const tc of normalizedToolCalls) {
                   console.log(`[DEBUG]   tool_call id=${tc.id}, name=${tc.function?.name}`);
@@ -807,10 +868,37 @@ export async function ChatRoutes(fastify: FastifyInstance) {
                 continue;
               }
 
-              // 没有 tool_calls → 视为最终响应（stream: false 一次返回完整内容）
-              // ⚠️ 修复：原本此分支先流式发送再 continue，导致同一个问题被重复发给 LLM 最多 8 次，
-              //    用户看到 8 份相同/近似的回答。改为一次性发送并 break，与 /resend 端点保持一致。
+              // 没有 tool_calls → 视为最终响应
+              // 安全网：若 LLM 没调过任何工具且响应是「承诺式敷衍」+ 用户要委派，
+              //       不 break，继续循环并强制下一轮 tool_choice: required。
               fullAssistantContent = choice?.message?.content || '';
+              if (
+                !anyToolCalled &&
+                detectPromiseResponse(fullAssistantContent) &&
+                detectDelegationIntent(finalMessages) &&
+                delegateRetryCount < MAX_DELEGATE_RETRY
+              ) {
+                delegateRetryCount++;
+                console.warn(`[Coord] ⚠️ LLM 没真调工具且回复是敷衍式承诺。强制重试 #${delegateRetryCount}。`);
+                console.warn(`[Coord] 敷衍文本: ${fullAssistantContent.slice(0, 200)}`);
+                // 把敷衍回复 push 进 messages
+                finalMessages.push({
+                  role: 'assistant',
+                  content: fullAssistantContent
+                });
+                // 推一个强指令，让 LLM 知道必须调工具
+                finalMessages.push({
+                  role: 'user',
+                  content: '[系统提示] 你刚才的回复"承诺跟进"是无效的——你并没有真的调用 delegate_to_agent 工具。\n' +
+                    'UX agent **必须**通过工具调用才能工作。\n' +
+                    '请立即调用 delegate_to_agent 工具，传入 agent="UX"（或对应 agent 名称）、task="<用户原始任务>"。\n' +
+                    '这次是必须调工具，不允许跳过。'
+                });
+                // 不发送敷衍 chunk 给前端（避免用户看到"我已委派"假话）
+                // continue 进下一轮迭代，reqBody.tool_choice 会被 detectDelegationIntent 触发设为 required
+                continue;
+              }
+
               if (fullAssistantContent) {
                 reply.raw.write(`data: ${JSON.stringify({ chunk: fullAssistantContent })}\n\n`);
               }
@@ -1146,9 +1234,14 @@ export async function ChatRoutes(fastify: FastifyInstance) {
 
             if (tools.length > 0) {
               reqBody.tools = tools;
-              reqBody.tool_choice = 'auto';
+              // /resend 端点也用相同的委派意图检测（虽然通常不需要，但保持一致性）
+              const wantsDelegate = detectDelegationIntent(finalMessages);
+              const hasDelegateTool = tools.some((t: any) =>
+                (t.function?.name || t.name) === 'delegate_to_agent'
+              );
+              reqBody.tool_choice = (wantsDelegate && hasDelegateTool) ? 'required' : 'auto';
               console.log(`[Resend Request] tools count: ${tools.length}, names: ${tools.map((t: any) => t.function?.name).join(', ')}`);
-              console.log(`[Resend Request] tool_choice: auto, messages count: ${finalMessages.length}`);
+              console.log(`[Resend Request] tool_choice: ${reqBody.tool_choice} (delegate-intent=${wantsDelegate}), messages count: ${finalMessages.length}`);
             } else {
               console.log(`[Resend Request] ⚠️ NO TOOLS AVAILABLE! tools.length=0`);
             }
