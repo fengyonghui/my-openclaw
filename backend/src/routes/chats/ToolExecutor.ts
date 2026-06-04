@@ -36,6 +36,87 @@ export interface ToolResult {
 }
 
 /**
+ * 带重试 + 超时的 fetch。
+ *
+ * - 5xx 且非 auth 错误：重试（默认 3 次，1s/2s/4s 退避）
+ * - 503 auth_unavailable：立即返回（重试无意义）
+ * - 4xx：立即返回（客户端错误，重试也是同样错）
+ * - 网络错误 / 超时：重试
+ */
+async function fetchWithRetry(
+  url: string,
+  options: any,
+  config: { maxAttempts?: number; timeoutMs?: number; contextLabel?: string } = {}
+): Promise<{ response: Response; attempt: number; totalAttempts: number }> {
+  const maxAttempts = config.maxAttempts ?? 3;
+  const timeoutMs = config.timeoutMs ?? 60000;
+  const label = config.contextLabel ?? 'fetch';
+  const delays = [1000, 2000, 4000];
+  let lastError: any = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, { ...options, signal: controller.signal });
+      clearTimeout(timeoutId);
+
+      if (res.ok) {
+        if (attempt > 1) {
+          console.log(`[${label}] ✅ Succeeded on attempt ${attempt}/${maxAttempts}`);
+        }
+        return { response: res, attempt, totalAttempts: attempt };
+      }
+
+      // 4xx 客户端错误：不重试
+      if (res.status >= 400 && res.status < 500) {
+        return { response: res, attempt, totalAttempts: attempt };
+      }
+
+      // 5xx：先看 body 判定是否是永久错误
+      const errText = await res.text();
+      const isAuthError = /auth_unavailable|invalid_api_key|unauthorized|authentication/i.test(errText);
+
+      if (isAuthError) {
+        console.error(`[${label}] ❌ Auth error on attempt ${attempt}, skip retry: ${errText.slice(0, 150)}`);
+        // 把 body 重新放回（res.text() 只能消费一次）
+        return {
+          response: new Response(errText, { status: res.status, statusText: res.statusText, headers: res.headers }),
+          attempt,
+          totalAttempts: attempt
+        };
+      }
+
+      // 瞬时 5xx：还有重试机会就重试
+      if (attempt < maxAttempts) {
+        console.warn(`[${label}] ⚠️  HTTP ${res.status} on attempt ${attempt}/${maxAttempts}, retrying in ${delays[attempt - 1]}ms`);
+        lastError = { status: res.status, errText };
+        await new Promise(r => setTimeout(r, delays[attempt - 1]));
+        continue;
+      }
+      // 重试用尽
+      return {
+        response: new Response(errText, { status: res.status, statusText: res.statusText, headers: res.headers }),
+        attempt,
+        totalAttempts: attempt
+      };
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+      // 网络错误 / 超时
+      const isLast = attempt >= maxAttempts;
+      const reason = err.name === 'AbortError' ? `timeout (${timeoutMs}ms)` : err.message;
+      if (isLast) {
+        throw new Error(`[${label}] Network error after ${attempt}/${maxAttempts} attempts: ${reason}`);
+      }
+      console.warn(`[${label}] ⚠️  ${reason} on attempt ${attempt}/${maxAttempts}, retrying in ${delays[attempt - 1]}ms`);
+      lastError = err;
+      await new Promise(r => setTimeout(r, delays[attempt - 1]));
+    }
+  }
+  throw lastError;
+}
+
+/**
  * 规范化 child_process.exec 错误。
  *
  * Node.js 默认对"进程退出码非 0"产生 err.message 形如
@@ -584,19 +665,34 @@ export async function executeAgentDelegation(
   console.log(`[Delegation] Calling model API: ${apiUrl}`);
 
   try {
-    const res = await fetch(apiUrl, {
+    const { response: res, attempt, totalAttempts } = await fetchWithRetry(apiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${finalModel.apiKey}`
       },
       body: JSON.stringify(reqBody)
+    }, {
+      maxAttempts: 3,
+      timeoutMs: 60000,
+      contextLabel: `delegate_to_agent(${targetAgent.name})`
     });
 
     if (!res.ok) {
       const errText = await res.text();
+      // 提取上游真实错误信息（OpenAI 风格: {error: {message: ..., type: ...}}）
+      let upstreamMsg = errText.slice(0, 500);
+      try {
+        const parsed = JSON.parse(errText);
+        upstreamMsg = parsed.error?.message || parsed.message || upstreamMsg;
+      } catch {}
       console.error(`[Delegation] API Error: ${res.status} - ${errText.slice(0, 200)}`);
-      return { error: `Agent ${targetAgent.name} 调用失败: HTTP ${res.status}` };
+      return {
+        error: `Agent ${targetAgent.name} 调用失败: HTTP ${res.status}${upstreamMsg ? ` - ${upstreamMsg}` : ''}`,
+        status: res.status,
+        upstream: upstreamMsg,
+        attempts: totalAttempts
+      };
     }
 
     const data: any = await res.json();
