@@ -1059,6 +1059,47 @@ export async function ChatRoutes(fastify: FastifyInstance) {
                 continue;
               }
 
+              // ========== 安全网 Case D：调过工具 + 工具失败 + LLM 给空/极短 final (沉默式失败) ==========
+              // 场景: LLM 调了 shell_exec mvn compile 失败, 但 final response 是空字符串 (silence),
+              //       SSE 自然 break, 用户看到"工具调了但 LLM 没说话"就停在那。
+              //       Case A/B/C 全部因 content.length < 10 早返 false, 永远不触发。
+              // 修复: 检查最近 3 条 tool message 含 "error"/"Command failed"/"失败", 强制 LLM 继续
+              //       (要求 LLM 分析错误 + 修复 + 再验证)
+              if (
+                anyToolCalled &&
+                (!fullAssistantContent || fullAssistantContent.length < 10) &&
+                delegateRetryCount < MAX_DELEGATE_RETRY
+              ) {
+                // 检查最近 3 条 tool message 是否含 error
+                const recentToolMsgs = finalMessages.filter((m: any) => m.role === 'tool').slice(-3);
+                const lastToolHasError = recentToolMsgs.some((m: any) => {
+                  const c = typeof m.content === 'string' ? m.content : '';
+                  return /"error"\s*:|"Command failed"|失败|错误|exit=1|COMPIATION ERROR/i.test(c);
+                });
+                if (lastToolHasError) {
+                  delegateRetryCount++;
+                  caseBInProgress = false;  // Case D 要 tool_choice: required (强制 LLM 调工具真做)
+                  console.warn(`[Coord] ⚠️ LLM 调了工具但 final 是空 + 工具结果含 error (Case D)。强制重试 #${delegateRetryCount}。`);
+                  const lastToolPreview = (recentToolMsgs[recentToolMsgs.length-1]?.content || '').toString().slice(0, 400);
+                  console.warn(`[Coord] 最近 tool 结果: ${lastToolPreview}`);
+                  const originalTask = (typeof content === 'string' ? content : '（未找到原始任务）').slice(0, 500);
+                  finalMessages.push({
+                    role: 'user',
+                    content: '[系统提示] 你刚才调了工具，但工具**失败了**（exit code 非 0 / 编译错误 / 命令报错），' +
+                      '而且你**没有**给用户任何文字回应就直接结束了。\n' +
+                      '**重要**：\n' +
+                      '1. **不要**沉默。工具失败时必须**明确告诉用户**当前状态。\n' +
+                      '2. **分析错误**（最近的 tool result 里能看到完整 stderr/stdout）。\n' +
+                      '3. **立即**用工具修复（例如 edit_file / write_file 改错的代码、shell_exec 验证修复结果）。\n' +
+                      '4. 修复后**重新跑**验证命令确认成功，再给用户最终总结。\n\\n' +
+                      `**用户原始任务**：\\n${originalTask}\\n\\n` +
+                      '请立即分析错误并修复，不要沉默。'
+                  });
+                  // 不发送空 chunk 给前端
+                  continue;
+                }
+              }
+
               if (fullAssistantContent) {
                 reply.raw.write(`data: ${JSON.stringify({ chunk: fullAssistantContent })}\n\n`);
               }
