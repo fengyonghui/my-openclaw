@@ -330,10 +330,20 @@ async function handleWriteFile(project: any, args: any): Promise<ToolResult> {
   }
 
   const result = await FileToolService.writeFile(project.workspace, args.path, args.content || '');
+
+  // 关键：返回绝对路径 + 用户的相对路径 + workspace 根
+  // 防止 LLM 看到 success 就自顾自总结"写到了 ue/xxx.txt" 而不告诉用户实际位置
+  const absPath = path.resolve(project.workspace, result.path);
   return {
     success: true,
-    message: `✅ 文件已成功写入: ${result.path} (${result.bytes} bytes)`,
-    ...result
+    message: `✅ 文件已成功写入`,
+    workspace: project.workspace,
+    relativePath: result.path,
+    absolutePath: absPath.replace(/\\/g, '/'),
+    bytes: result.bytes,
+    updatedAt: result.updatedAt,
+    // 强制让 LLM 在最终回复中报出实际位置
+    _must_report: `请在回复中告知用户文件实际写入的完整绝对路径: ${absPath.replace(/\\/g, '/')}`
   };
 }
 
