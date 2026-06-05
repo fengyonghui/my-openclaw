@@ -157,8 +157,16 @@ function detectPromiseResponse(content: string): boolean {
     /\*\*(?:后端|前端|UX|UI|测试|运维|Backend|Frontend).*汇报/i,  // **后端汇报
     /完成\s*状态\s*[:：]?\s*(?:✅|✔|完成|进行中|未完成)/i,        // 完成状态: ✅ 已完成
     /✅\s*(?:已完成|完成|通过|上线|实现|搞定)/i,                  // ✅ 已完成
-    /由\s*[@＠]\s*[\w\u4e00-\u9fa5]+\s*(?:汇报|报告|完成)/i,    // 由 @后端工程师 汇报
-    /@\s*[\w\u4e00-\u9fa5]+\s*(?:工程师|开发|designer|engineer)\s*汇报/i,  // @XX工程师 汇报
+    /由\s*[@＠]\s*[\w一-鿿]+\s*(?:汇报|报告|完成)/i,    // 由 @后端工程师 汇报
+    /@\s*[\w一-鿿]+\s*(?:工程师|开发|designer|engineer)\s*汇报/i,  // @XX工程师 汇报
+
+    // ===== 新增 Case C：调过工具后 final 报告"操作步骤" / "接下来我将..." 模式 =====
+    // 场景: LLM 调了 edit_file 后回 '我将立即亲自操作... 我的操作步骤：1. 引入依赖 2. 渲染 ...' 却没真调
+    /我\s*的?\s*(?:操作|执行)?\s*步骤\s*[:：]?/i,        // 我的操作步骤 / 我的执行步骤
+    /\d+\s*[\.、。]\s*\*\*[^*]+\*\*\s*[:：]?/m,            // 1. **引入依赖** (LLM 在列计划)
+    /步骤\s*[:：]?\s*\d/i,                                // 步骤：1 / 步骤 1
+    /我\s*将?\s*(?:立即|马上|稍后|接下来|现在)\s*(?:亲自)?\s*(?:操作|修改|开始|添加|继续|进行|着手)\b/i,  // 我将立即亲自操作
+    /(?:接下来|下面|然后)\s*[，,]?\s*我\s*(?:会|将|会开始|将开始)\s*\w/i,  // 接下来，我会 / 接下来我将
   ];
   return patterns.some(p => p.test(content));
 }
@@ -1012,6 +1020,39 @@ export async function ChatRoutes(fastify: FastifyInstance) {
                     '请直接输出完整最终结论。'
                 });
                 // 不发送承诺 chunk 给前端（避免用户看到"我会跟进"假承诺）
+                continue;
+              }
+
+              // ========== 安全网 Case C：调过工具但 final 报告"操作步骤/计划" 模式 ==========
+              // 场景: LLM 调了 edit_file 后回 '我将立即亲自操作... 我的操作步骤：1. 引入依赖 2. 渲染 ...' 却没真调
+              // 修复: 不需要委派意图（普通 fix bug 任务也会触发），强制 LLM 继续用工具真做
+              if (
+                anyToolCalled &&
+                detectPromiseResponse(fullAssistantContent) &&
+                delegateRetryCount < MAX_DELEGATE_RETRY
+              ) {
+                delegateRetryCount++;
+                caseBInProgress = false;  // Case C 重试要 tool_choice: required (强制 LLM 调工具真做)
+                console.warn(`[Coord] ⚠️ LLM 调了工具但 final 报告操作步骤/计划 (Case C)。强制重试 #${delegateRetryCount}。`);
+                console.warn(`[Coord] 报告计划文本: ${fullAssistantContent.slice(0, 200)}`);
+                finalMessages.push({
+                  role: 'assistant',
+                  content: fullAssistantContent
+                });
+                const originalTask = (typeof content === 'string' ? content : '（未找到原始任务）').slice(0, 500);
+                finalMessages.push({
+                  role: 'user',
+                  content: '[系统提示] 你刚才的最终回复是"报告操作步骤/计划"（包含"我的操作步骤"、"接下来，我将..."、' +
+                    '"我将立即亲自操作"、"1. **引入依赖** 2. **渲染**"等模式）。\\n' +
+                    '**重要**：\\n' +
+                    '1. **禁止**报告操作步骤/计划。**所有修改必须用工具实际执行**。\\n' +
+                    '2. **立即**用 edit_file / write_file / shell_exec 等工具**真做**，不要再说"我接下来将..."、"我的步骤是 1...2..."。\\n' +
+                    '3. 如果是"修复某 bug / 添加某功能"任务，**直接调用工具修改文件**，然后告诉用户改了什么。\\n' +
+                    '4. 如果工具已经调过且结果正确，直接总结最终结果并**告诉用户改了什么文件**。\\n\\n' +
+                    `**用户原始任务**：\\n${originalTask}\\n\\n` +
+                    '请立即用工具真做，不要再报告计划。'
+                });
+                // 不发送 chunk 给前端（避免用户看到"我的操作步骤"假计划）
                 continue;
               }
 
