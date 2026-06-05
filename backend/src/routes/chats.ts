@@ -735,6 +735,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
 			let repeatCallCount = 0;
             let anyToolCalled = false;  // 追踪本轮 agent loop 是否真调过工具（防 LLM 敷衍）
             let delegateRetryCount = 0;  // 委派重试次数（防无限循环）
+            let caseBInProgress = false;  // 安全网 Case B 重试中：tool_choice 不再 required（让 LLM 给 final）
             const MAX_DELEGATE_RETRY = 1;
             while (guard++ < 8) {
               const reqBody: any = {
@@ -756,8 +757,8 @@ export async function ChatRoutes(fastify: FastifyInstance) {
                 // DEBUG: 看 last user message
                 const lastUser = [...finalMessages].reverse().find((m: any) => m.role === 'user');
                 const lastUserContent = typeof lastUser?.content === 'string' ? lastUser.content.slice(0, 200) : '(no user msg)';
-                reqBody.tool_choice = (wantsDelegate && hasDelegateTool) ? 'required' : 'auto';
-                console.log(`[Request] tools count: ${tools.length}, tool_choice: ${reqBody.tool_choice} (delegate-intent=${wantsDelegate}, has-delegate-tool=${hasDelegateTool})`);
+                reqBody.tool_choice = (wantsDelegate && hasDelegateTool && !caseBInProgress) ? 'required' : 'auto';
+                console.log(`[Request] tools count: ${tools.length}, tool_choice: ${reqBody.tool_choice} (delegate-intent=${wantsDelegate}, has-delegate-tool=${hasDelegateTool}, caseB=${caseBInProgress})`);
                 console.log(`[Request] last user msg (first 200 chars): ${lastUserContent}`);
               } else {
                 console.log(`[Request] No tools available!`);
@@ -940,7 +941,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
               }
 
               // 没有 tool_calls → 视为最终响应
-              // 安全网：若 LLM 没调过任何工具且响应是「承诺式敷衍」+ 用户要委派，
+              // 安全网 Case A：若 LLM 没调过任何工具且响应是「承诺式敷衍」+ 用户要委派，
               //       不 break，继续循环并强制下一轮 tool_choice: required。
               fullAssistantContent = choice?.message?.content || '';
               if (
@@ -972,6 +973,45 @@ export async function ChatRoutes(fastify: FastifyInstance) {
                 });
                 // 不发送敷衍 chunk 给前端（避免用户看到"我已委派"假话）
                 // continue 进下一轮迭代，reqBody.tool_choice 会被 detectDelegationIntent 触发设为 required
+                continue;
+              }
+
+              // 安全网 Case B：LLM 调过工具，但 final reply 仍是"承诺跟进"型
+              //   （例：调了 delegate_to_agent 让后端+UX 汇报，两 agent 都跑完了，
+              //    协调员收到结果后输出"整体结论... 我会继续跟进并在完成后向您汇报" 就 break）
+              //   这种情况任何ToolCalled=true，Case A 不会触发。LLM 把承诺当最终回复，
+              //   用户等不到"最终集成结果"。修复：注入 nudge 强制 LLM 重新生成真正 final。
+              if (
+                anyToolCalled &&
+                detectPromiseResponse(fullAssistantContent) &&
+                detectDelegationIntent(finalMessages) &&
+                delegateRetryCount < MAX_DELEGATE_RETRY
+              ) {
+                delegateRetryCount++;
+                caseBInProgress = true;  // 重试时 tool_choice 改为 auto（让 LLM 给 final 而非再调工具）
+                console.warn(`[Coord] ⚠️ LLM 调了工具但 final reply 仍是承诺式。强制重试 #${delegateRetryCount}。`);
+                console.warn(`[Coord] 承诺文本: ${fullAssistantContent.slice(0, 200)}`);
+                // 把承诺式 final push 进 messages
+                finalMessages.push({
+                  role: 'assistant',
+                  content: fullAssistantContent
+                });
+                // 推一个强指令，让 LLM 知道：所有工具结果已经在 messages 里，
+                // 不要再承诺"会跟进/完成后汇报"等 — 直接给最终结论
+                const originalTask = (typeof content === 'string' ? content : '（未找到原始任务）').slice(0, 500);
+                finalMessages.push({
+                  role: 'user',
+                  content: '[系统提示] 你刚才的最终回复包含"我会继续跟进/完成后向您汇报"等承诺式语言，' +
+                    '但你已经调过工具了（成员 agent 的真实结果已经在 messages 里的 tool 角色消息中）。\n' +
+                    '**重要**：\n' +
+                    '1. 你不需要再调任何工具。所有必要信息已经在 tool 结果里。\n' +
+                    '2. 请直接基于已有工具结果给出**完整、明确、可执行的最终结论**。\n' +
+                    '3. **禁止**使用"我会继续跟进"、"等他完成后再汇报"、"完成后向您汇报"等承诺式语言。\n' +
+                    '4. 如果用户的任务涉及"最终集成结果"等尚未发生的事，明确告诉用户当前阶段是 X、还差 Y，而不是承诺将来。\n\n' +
+                    `**用户原始任务**：\n${originalTask}\n\n` +
+                    '请直接输出完整最终结论。'
+                });
+                // 不发送承诺 chunk 给前端（避免用户看到"我会跟进"假承诺）
                 continue;
               }
 
