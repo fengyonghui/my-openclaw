@@ -236,6 +236,13 @@ ${sysInfo.isWindows ? `- createFile command (empty file only): ${cmds.createFile
     `${memoryPrompt}` +
     `${platformSection}` +
     `## TOOL CALLING RULES
+- **CRITICAL — Build verification after code changes**:
+  改完任何**影响构建**的文件（*.java / pom.xml / package.json / yarn.lock / tsconfig.json / *.gradle 等）后，**必须**调 shell_exec 跑对应命令验证，**禁止**只改代码就报告"我已修复"。
+  - Java/Maven 项目 → \`powershell -NoProfile -Command "cd backend; mvn -q -DskipTests compile 2>&1 | Select-String -Pattern 'ERROR|BUILD FAILURE|BUILD SUCCESS' | Select-Object -First 30"\`
+  - Node/npm 项目 → \`npm install --no-audit --no-fund 2>&1 | Select-String -Pattern 'error|warn|added|removed' | Select-Object -First 30\`
+  - Node/yarn 项目 → \`yarn install --ignore-scripts 2>&1 | Select-String -Pattern 'error|Done in' | Select-Object -First 30\`
+  - 必须**看**实际 stdout/stderr，**有** error → **必须**继续修，**不能**报"我已修复"完事
+  - **报告"我已修复"前必跑构建**。跳过验证 = Case C bug
 - **CRITICAL**: When the user asks you to modify, edit, change, update, implement, create, write, or do ANY task: **CALL THE APPROPRIATE TOOL IMMEDIATELY, do not respond with only text descriptions**
 - Specifically for "帮我修改" / "修改" / "edit" / "implement": use read_file first to understand the file, then use edit_file or write_file
 - Specifically for "帮我写" / "create" / "implement": use write_file immediately with the complete file content
