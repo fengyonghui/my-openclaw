@@ -747,7 +747,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
             let anyToolCalled = false;  // 追踪本轮 agent loop 是否真调过工具（防 LLM 敷衍）
             let delegateRetryCount = 0;  // 委派重试次数（防无限循环）
             let caseBInProgress = false;  // 安全网 Case B 重试中：tool_choice 不再 required（让 LLM 给 final）
-            const MAX_DELEGATE_RETRY = 1;
+            const MAX_DELEGATE_RETRY = 3;  // 允许 3 次安全网重试 (Case A/B/C), 1 次太严: LLM 改完一个文件后报"接下来改下一个" 又被吞 (2026-06-05 实测)
             while (guard++ < 8) {
               const reqBody: any = {
                 model: modelCfg.modelId,
