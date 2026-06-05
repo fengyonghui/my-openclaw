@@ -135,13 +135,13 @@ export const BUILTIN_TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'write_file',
-    description: 'Create a new file or overwrite an existing file. MUST include the complete file content.',
+    description: 'Create a new file or overwrite an existing file. MUST include the complete file content. CRITICAL: Use the EXACT file path the user specified in their request. Do NOT invent or add subdirectory prefixes (e.g. "ue/", "ux/", "docs/", "src/") based on assumed conventions — the user will be confused if the file appears somewhere they did not ask for. If unsure about path, ask the user before calling.',
     parameters: {
       type: 'object',
       properties: {
         path: {
           type: 'string',
-          description: 'File path to write (e.g., "src/utils/helper.ts")'
+          description: 'File path to write, relative to the project workspace root. Use the EXACT filename/path the user gave — do NOT add directory prefixes on your own initiative (e.g. "ux-test3.txt" not "ue/ux-test3.txt").'
         },
         content: {
           type: 'string',
