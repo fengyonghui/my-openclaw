@@ -357,6 +357,7 @@ async function handleWriteFile(project: any, args: any): Promise<ToolResult> {
  */
 export async function executeShellCommand(project: any, args: any): Promise<ToolResult> {
   const command = args.command || args.cmd || args.exec;
+  const cwdArg = args.cwd || args.dir || args.workdir;  // 允许模型指定子目录 (相对 workspace) — 修复 cwd 被忽略的 bug
   if (!command) {
     return { error: '缺少参数: command/cmd/exec' };
   }
@@ -365,6 +366,7 @@ export async function executeShellCommand(project: any, args: any): Promise<Tool
   // 调试：输出平台检测结果
   console.log(`[Shell] Detected: platform=${sys.platform}, isWSL=${sys.isWSL}, isWindows=${sys.isWindows}, isLinux=${sys.isLinux}, wslDistro=${sys.wslDistro}`);
   console.log(`[Shell] Workspace (raw): ${project.workspace}`);
+  console.log(`[Shell] cwd arg: "${cwdArg || '(none)'}"`);
 
   // ── 预处理：剥离命令开头的 cd xxx && ──────────────────────
   // 后端已通过 cwd 参数设置了正确的工作目录，模型生成的 cd 是多余的。
@@ -422,7 +424,13 @@ export async function executeShellCommand(project: any, args: any): Promise<Tool
     const windowsWorkspace = sys.isWSL
       ? toWindowsPath(project.workspace)  // WSL 后端访问 Windows 文件
       : project.workspace;                 // 原生 Windows
-    const cwd = windowsWorkspace;
+    // cwd 解析: 如果模型提供 cwdArg (相对路径), 拼接到 workspace
+    const cwd = cwdArg
+      ? path.win32.isAbsolute(cwdArg)
+        ? cwdArg
+        : path.posix.join(windowsWorkspace.replace(/\\/g, '/'), cwdArg).replace(/\//g, '\\')
+      : windowsWorkspace;
+    console.log(`[Shell] Resolved cwd: ${cwd} (cwdArg=${cwdArg || 'none'})`);
     const isPowerShellCmd = /^(Test-|Remove-|Write-|Get-|New-|Set-)/i.test(trimmedCmd) ||
                              trimmedCmd.startsWith('if ');
     if (isPowerShellCmd) {
@@ -435,12 +443,24 @@ export async function executeShellCommand(project: any, args: any): Promise<Tool
     // ── WSL 环境执行 ──
     // 所有路径统一转为 /mnt/d/... 格式，通过 wsl.exe 执行
     const wslWorkspace = toWSLPath(project.workspace);
-    return executeLinuxCommand(`wsl.exe ${effectiveCommand}`, wslWorkspace);
+    const cwd = cwdArg
+      ? path.posix.isAbsolute(cwdArg) || cwdArg.startsWith('/mnt/')
+        ? cwdArg
+        : path.posix.join(wslWorkspace, cwdArg)
+      : wslWorkspace;
+    console.log(`[Shell] Resolved cwd: ${cwd} (cwdArg=${cwdArg || 'none'})`);
+    return executeLinuxCommand(`wsl.exe ${effectiveCommand}`, cwd);
   }
 
   // ── 原生 Linux/macOS 执行 ──
   const localWorkspace = getProjectWorkspacePath(project.workspace);
-  return executeLinuxCommand(effectiveCommand, localWorkspace);
+  const cwd = cwdArg
+    ? path.posix.isAbsolute(cwdArg) || cwdArg.startsWith('/')
+      ? cwdArg
+      : path.posix.join(localWorkspace, cwdArg)
+    : localWorkspace;
+  console.log(`[Shell] Resolved cwd: ${cwd} (cwdArg=${cwdArg || 'none'})`);
+  return executeLinuxCommand(effectiveCommand, cwd);
 }
 
 /**
