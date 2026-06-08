@@ -207,3 +207,15 @@
 - [项目信息] 测试脚本保存在 `pm/test-nonexistent.ps1` 中。（来源: 助手在消息[2]中的回复）
 - [技术决策] 使用 PowerShell 的 try-catch 结构请求接口，成功时用 ConvertTo-Json 输出，失败时打印错误。（来源: 用户在消息[1]中的请求）
 - [用户偏好] 偏好使用 shell_exec 工具直接运行编写的脚本。（来源: 用户在消息[1]中的请求）
+
+
+## 2026-06-07 自动提取
+**摘要**: 从项目中移除 Gemini 3 Pro 模型并切换为 Gemini 3.1 Pro，已修改 ModelsPage.tsx 文件。
+
+- [技术决策] 移除 Gemini 3 Pro 模型，并在 Antigravity 最新版本中切换为 Gemini 3.1 Pro。（来源: 用户在消息[1]中提出）
+- [项目信息] 已对 ModelsPage.tsx 文件进行修改以确认移除 Gemini 3 Pro 模型。（来源: 助手在消息[2]中确认）
+**摘要**: 确认系统中 Gemini 3 Pro 模型的清理情况，排查了相关组件文件中的引用。
+
+- [项目信息] 项目正在进行 OpenClaw 项目化改造，引入 Project 作用域。（来源: 系统项目信息）
+- [项目信息] 曾进行过移除 "Gemini 3 Pro" 模型并切换至 "Gemini 3.1 Pro" 的修改。（来源: 助手回复[8]）
+- [项目信息] 经排查确认 ui/src/components/model/AddModelDialog.tsx 中不包含 "gemini" 引用。（来源: 助手回复[10]）
