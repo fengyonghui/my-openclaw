@@ -690,7 +690,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
         }
       }
 
-      let finalMessages = [systemMessage, ...prunedMessagesFixed];
+      let finalMessages = [...prunedMessagesFixed];
 
       // Step 5: 两层验证 — 对 [system + history] 做总 token 统计
       const combinedTokens = sysPromptTokens + Math.round((prunedMessagesFixed.reduce((s: number, m: any) => s + (m.content?.length || 0), 0)) / 4);
@@ -751,6 +751,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
             while (guard++ < 8) {
               const reqBody: any = {
                 model: modelCfg.modelId,
+                system: systemMessage.content,
                 messages: finalMessages,
                 stream: false,
                 max_tokens: modelCfg.maxTokens || 32768,
@@ -1395,7 +1396,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
             }
           }
 
-          let finalMessages = [systemMessage, ...prunedMessagesFixed];
+          let finalMessages = [...prunedMessagesFixed];
 
           // Step 5: 两层验证
           const combinedTokens = sysPromptTokens + Math.round((prunedMessagesFixed.reduce((s: number, m: any) => s + (m.content?.length || 0), 0)) / 4);
@@ -1424,14 +1425,20 @@ export async function ChatRoutes(fastify: FastifyInstance) {
           let guard = 0;
           const MAX_GUARDS = 8;
 
+          // 判断 system message 是否已在 finalMessages[0]（compaction 分支会放入）
+          const hasSystemInMessages = finalMessages.length > 0 && finalMessages[0]?.role === 'system';
           while (guard++ < MAX_GUARDS) {
             const reqBody: any = {
               model: modelCfg.modelId,
               messages: finalMessages,
               stream: false,
-              max_tokens: modelCfg.maxTokens || 32768,
+              max_tokens: Math.max(modelCfg.maxTokens || 32768, 16384),
               temperature: modelCfg.temperature || 0.7
             };
+            // 只有 system message 不在 messages 里时才用 system 字段（兼容旧格式）
+            if (!hasSystemInMessages) {
+              reqBody.system = systemMessage.content;
+            }
 
             if (tools.length > 0) {
               reqBody.tools = tools;
@@ -1614,6 +1621,13 @@ export async function ChatRoutes(fastify: FastifyInstance) {
                   content: safeToolContent(displayResult)
                 });
               }
+              continue;
+            }
+
+            // 空响应检测：模型返回 200 但既无内容也无工具调用（可能是 content filter 或格式问题）
+            if (!message.content && toolCalls.length === 0) {
+              console.warn(`[Resend] ⚠️ 模型 ${model.name} 返回空响应 (contentLen=0, tcCount=0) — 视为失败，尝试下一个模型`);
+              lastError = `空响应: finish=${rawChoice?.finish_reason}, prompt_tokens=${data.usage?.prompt_tokens}, completion_tokens=${data.usage?.completion_tokens}`;
               continue;
             }
 

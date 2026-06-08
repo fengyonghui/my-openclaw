@@ -426,7 +426,7 @@ function BatchImportDialog({ onClose, onSuccess }: { onClose: () => void; onSucc
     if (lower.includes('openai')) return 'openai';
     if (lower.includes('anthropic')) return 'anthropic';
     if (lower.includes('deepseek')) return 'deepseek';
-    if (lower.includes('google') || lower.includes('gemini')) return 'google';
+    if (lower.includes('google')) return 'google';
     return 'custom';
   };
 
