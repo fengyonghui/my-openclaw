@@ -315,9 +315,11 @@ export function ChatDetailPage({ projectId, chatId, onMinimize }: { projectId: s
   }, [messages]);
 
   const filteredModels = useMemo(() => {
+    if (!modelSearchQuery) return models;
+    const query = modelSearchQuery.toLowerCase();
     return models.filter(m =>
-      m.name.toLowerCase().includes(modelSearchQuery.toLowerCase()) ||
-      m.modelId.toLowerCase().includes(modelSearchQuery.toLowerCase())
+      (m.name || '').toLowerCase().includes(query) ||
+      (m.modelId || '').toLowerCase().includes(query)
     );
   }, [models, modelSearchQuery]);
 
