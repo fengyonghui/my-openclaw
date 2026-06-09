@@ -201,8 +201,36 @@ export class FileToolService {
     }
     
     const current = await fs.readFile(absolutePath, 'utf-8');
-    if (!current.includes(oldText)) {
-      throw new Error('未找到要替换的精确文本');
+    
+    // 标准化空白字符后再比较
+    const normalizeText = (t: string) => t.replace(/\r\n/g, '\n').replace(/[ \t]+$/gm, '');
+    const normalizedOld = normalizeText(oldText);
+    const normalizedCurrent = normalizeText(current);
+    
+    if (!normalizedCurrent.includes(normalizedOld)) {
+      // 提供更详细的调试信息
+      const lines = current.split('\n');
+      const oldLines = oldText.split('\n');
+      let bestMatch = -1;
+      let bestScore = 0;
+      
+      // 尝试模糊匹配：找最相似的行
+      for (let i = 0; i < lines.length; i++) {
+        let score = 0;
+        for (let j = 0; j < Math.min(oldLines.length, 5); j++) {
+          if (lines[i + j]?.includes(oldLines[j]?.trim())) score++;
+        }
+        if (score > bestScore) {
+          bestScore = score;
+          bestMatch = i;
+        }
+      }
+      
+      const context = bestMatch >= 0 
+        ? `\n最接近的匹配在第 ${bestMatch + 1} 行:\n${lines[bestMatch]?.slice(0, 200)}`
+        : '\n未找到相似内容';
+      
+      throw new Error(`未找到要替换的精确文本。oldText 长度: ${oldText.length} 字符, ${oldLines.length} 行。${context}`);
     }
     const updated = current.replace(oldText, newText);
     await fs.writeFile(absolutePath, updated, 'utf-8');
