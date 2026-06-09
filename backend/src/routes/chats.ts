@@ -875,10 +875,23 @@ export async function ChatRoutes(fastify: FastifyInstance) {
       
       if (currentSignature === lastToolCallSignature) {
         repeatCallCount++;
-        console.log(`[WARN] Same tool call repeated (${repeatCallCount} times)`);
+        const toolName = normalizedToolCalls[0]?.function?.name || 'unknown';
+        console.log(`[WARN] Same tool call repeated (${repeatCallCount} times): ${toolName}`);
+        
+        if (repeatCallCount === 1) {
+          console.log(`[WARN] Tool args: ${JSON.stringify(normalizedToolCalls[0]?.function?.arguments || {}).slice(0, 200)}`);
+        }
+        
         if (repeatCallCount >= 3) {
           console.log('[ERROR] Breaking loop after 3 repeated calls');
-          reply.raw.write(`data: ${JSON.stringify({ chunk: '\n\n⚠️ 检测到重复的工具调用（连续3次），已自动停止。请尝试重新描述您的需求。' })}\n\n`);
+          // 记录最后一次工具调用的结果给 LLM 参考
+          const lastToolResult = finalMessages.filter((m: any) => m.role === 'tool').pop();
+          const lastResultInfo = lastToolResult?.content ? `最后工具结果: ${lastToolResult.content.slice(0, 200)}` : '';
+          
+          reply.raw.write(`data: ${JSON.stringify({ 
+            chunk: '\n\n⚠️ 检测到重复的工具调用（连续3次），已自动停止。请尝试重新描述您的需求。',
+            suggestion: `工具 "${toolName}" 被连续调用3次但未能完成。请检查：1) 工具参数是否正确 2) 工作目录是否存在 3) 尝试用更简单的步骤分解任务。${lastResultInfo ? ' 上次执行结果: ' + lastResultInfo : ''}`
+          })}\n\n`);
           break;
         }
       } else {
@@ -956,6 +969,27 @@ export async function ChatRoutes(fastify: FastifyInstance) {
               // 安全网 Case A：若 LLM 没调过任何工具且响应是「承诺式敷衍」+ 用户要委派，
               //       不 break，继续循环并强制下一轮 tool_choice: required。
               fullAssistantContent = choice?.message?.content || '';
+              
+              // 空响应检测：模型返回内容为空或只有 thinking 标签
+              const contentTrimmed = (fullAssistantContent || '').toString().trim();
+              const isThinkingOnly = /^<\/?(?:think|thinking)[\s\S]*?>$/i.test(contentTrimmed);
+              if ((!contentTrimmed || isThinkingOnly) && !anyToolCalled) {
+                console.warn(`[Coord] ⚠️ 模型返回空响应 (contentLen=${contentTrimmed.length}, isThinking=${isThinkingOnly}) — 强制重试`);
+                if (isThinkingOnly) {
+                  console.warn(`[Coord] 检测到仅有 <thinking> 标签，无实际内容`);
+                }
+                delegateRetryCount++;
+                finalMessages.push({
+                  role: 'assistant',
+                  content: fullAssistantContent
+                });
+                finalMessages.push({
+                  role: 'user',
+                  content: '[系统提示] 模型返回了空白响应（无内容或仅有思考标签）。请重新生成响应，提供实际的工作结果或操作。'
+                });
+                continue;
+              }
+              
               if (
                 !anyToolCalled &&
                 detectPromiseResponse(fullAssistantContent) &&
@@ -1625,8 +1659,15 @@ export async function ChatRoutes(fastify: FastifyInstance) {
             }
 
             // 空响应检测：模型返回 200 但既无内容也无工具调用（可能是 content filter 或格式问题）
-            if (!message.content && toolCalls.length === 0) {
-              console.warn(`[Resend] ⚠️ 模型 ${model.name} 返回空响应 (contentLen=0, tcCount=0) — 视为失败，尝试下一个模型`);
+            const contentStr = (message.content || '').toString().trim();
+            const isEmptyContent = !contentStr || contentStr.length === 0;
+            const isThinkingOnly = /^<\/?(?:think|thinking)[\s\S]*?>$/i.test(contentStr);
+            
+            if ((isEmptyContent || isThinkingOnly) && toolCalls.length === 0) {
+              console.warn(`[Resend] ⚠️ 模型 ${model.name} 返回空响应 (contentLen=${contentStr.length}, tcCount=${toolCalls.length}, finish=${rawChoice?.finish_reason}) — 视为失败，尝试下一个模型`);
+              if (isThinkingOnly) {
+                console.warn(`[Resend] 检测到仅有 <thinking> 标签，无实际内容`);
+              }
               lastError = `空响应: finish=${rawChoice?.finish_reason}, prompt_tokens=${data.usage?.prompt_tokens}, completion_tokens=${data.usage?.completion_tokens}`;
               continue;
             }
