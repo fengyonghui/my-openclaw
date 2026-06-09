@@ -960,6 +960,47 @@ function convertCmdToPowerShell(cmd: string): string {
     return '$PSVersionTable.PSVersion.ToString()';
   }
 
+  // Get-CimInstance Win32_Process -Filter "Name='java.exe'" 需要转换
+  const cimMatch = trimmed.match(/^Get-CimInstance\s+Win32_Process\s+-Filter\s+"(.+?)"(\s*\|.*)?$/);
+  if (cimMatch) {
+    const filter = cimMatch[1];
+    const rest = cimMatch[2] || '';
+    // 提取 Name= 值
+    const nameMatch = filter.match(/Name\s*=\s*['"](.+?)['"]/);
+    if (nameMatch) {
+      const processName = nameMatch[1];
+      let ps = `Get-Process -Name "${processName}"`;
+      if (rest) {
+        // 如果原命令有 CommandLine 过滤，添加 Where-Object
+        if (filter.includes('CommandLine')) {
+          const cmdMatch = filter.match(/CommandLine\s+like\s+['"](.+?)['"]/);
+          if (cmdMatch) {
+            const pattern = cmdMatch[1].replace(/\*/g, '*');
+            ps = `Get-Process -Name "${processName}" | Where-Object { $_.CommandLine -like '${pattern}' }`;
+          }
+        } else {
+          ps = `Get-Process -Name "${processName}"${rest}`;
+        }
+      }
+      return ps;
+    }
+  }
+
+  // Get-Process 替代 ps aux / tasklist
+  const psMatch = trimmed.match(/^ps\s+(aux|ax)?\s*(.*)$/);
+  if (psMatch) {
+    const args = psMatch[2]?.trim() || '';
+    if (args.includes('java')) {
+      return 'Get-Process -Name "java" | Select-Object Id,ProcessName,CPU,WorkingSet,StartTime';
+    }
+    return 'Get-Process | Select-Object Id,ProcessName,CPU,WorkingSet,StartTime';
+  }
+
+  // tasklist 转为 Get-Process
+  if (/^tasklist\b/.test(trimmed)) {
+    return 'Get-Process | Select-Object Id,ProcessName,WorkingSet';
+  }
+
   // ── CMD 命令转换 ─────────────────────────────────────────────
   const dirRecurseMatch = trimmed.match(/^cmd\s+\/c\s+"dir\s+\/S\s+\/B\s+(.+?)"(.*)$/i);
   if (dirRecurseMatch) {
