@@ -44,8 +44,10 @@ export function ProjectDashboardPage({ projectId, onOpenChat, onProjectUpdated }
   }, [projectAgents, project]);
 
   const filteredChats = useMemo(() => {
+    if (!chatSearchQuery) return chats;
+    const query = chatSearchQuery.toLowerCase();
     return chats.filter(chat => 
-      chat.title.toLowerCase().includes(chatSearchQuery.toLowerCase())
+      (chat.title || '').toLowerCase().includes(query)
     );
   }, [chats, chatSearchQuery]);
 

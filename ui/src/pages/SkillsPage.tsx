@@ -60,9 +60,11 @@ export function SkillsPage({ projectId, onSaved }: { projectId: string; onSaved?
   }, [allGlobalSkills, enabledGlobalSkillIds, projectPrivateSkills]);
 
   const filteredGlobalSkills = useMemo(() => {
+    if (!searchQuery) return allGlobalSkills;
+    const query = searchQuery.toLowerCase();
     return allGlobalSkills.filter(s => 
-      s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      s.description.toLowerCase().includes(searchQuery.toLowerCase())
+      (s.name || '').toLowerCase().includes(query) ||
+      (s.description || '').toLowerCase().includes(query)
     );
   }, [allGlobalSkills, searchQuery]);
 
