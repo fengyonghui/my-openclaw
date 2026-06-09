@@ -260,6 +260,62 @@ function normalizeExecError(
   const cmdPreview = originalCommand.length > 200
     ? originalCommand.slice(0, 200) + '...'
     : originalCommand;
+  const sys = getSystemInfo();
+
+  // 检测 Windows 下执行 Linux 命令的错误
+  const linuxCmdPatterns = [
+    { linux: 'grep', win: 'findstr 或 Select-String' },
+    { linux: 'cat', win: 'Get-Content 或 type' },
+    { linux: 'ls', win: 'dir 或 Get-ChildItem' },
+    { linux: 'cd', win: 'Set-Location 或 cd' },
+    { linux: 'mkdir', win: 'New-Item -ItemType Directory' },
+    { linux: 'rm', win: 'Remove-Item' },
+    { linux: 'cp', win: 'Copy-Item' },
+    { linux: 'mv', win: 'Move-Item' },
+    { linux: 'touch', win: 'New-Item -ItemType File' },
+    { linux: 'chmod', win: 'icacls (权限)' },
+    { linux: 'find', win: 'Get-ChildItem -Recurse' },
+    { linux: 'head', win: 'Get-Content -TotalCount' },
+    { linux: 'tail', win: 'Get-Content -Tail' },
+    { linux: 'wc', win: '(Get-Content).Length' },
+    { linux: 'sed', win: '-replace 或 Select-String -Replace' },
+    { linux: 'awk', win: 'PowerShell 表达式' },
+    { linux: 'echo', win: 'Write-Output 或 echo' },
+    { linux: 'which', win: 'Get-Command' },
+    { linux: 'pwd', win: 'Get-Location' },
+    { linux: 'ps', win: 'Get-Process' },
+    { linux: 'kill', win: 'Stop-Process' },
+    { linux: 'curl', win: 'Invoke-WebRequest 或 curl (已安装)' },
+    { linux: 'wget', win: 'Invoke-WebRequest' },
+    { linux: 'zip', win: 'Compress-Archive' },
+    { linux: 'unzip', win: 'Expand-Archive' },
+  ];
+
+  const errMsg = (err?.message || '').toLowerCase();
+  const isLinuxCmdNotFound = errMsg.includes('not found') || errMsg.includes('不是内部或外部命令') || errMsg.includes('无法识别');
+
+  if (isLinuxCmdNotFound && sys.isWindows) {
+    // 尝试找出使用了哪个 Linux 命令
+    const firstWord = originalCommand.trim().split(/\s+/)[0].toLowerCase();
+    let suggestedCmd = '';
+    for (const pattern of linuxCmdPatterns) {
+      if (firstWord === pattern.linux) {
+        suggestedCmd = pattern.win;
+        break;
+      }
+    }
+    
+    const suggestion = suggestedCmd 
+      ? `命令 "${firstWord}" 在 Windows 上不存在。请使用: ${suggestedCmd}`
+      : '该命令在 Windows 上不可用。请使用 PowerShell 等效命令。';
+
+    return {
+      error: `命令不存在: ${cmdPreview}`,
+      _exitCode: exitCode,
+      _note: suggestion,
+      _windowsTip: 'Windows 提示: grep→findstr, cat→Get-Content, ls→dir, mkdir→New-Item, rm→Remove-Item, cp→Copy-Item'
+    };
+  }
 
   // 经典 grep/findstr "无匹配" 模式：exit=1 且输出全空
   if (exitCode === 1 && !trimmedOut && !trimmedErr) {
@@ -271,7 +327,7 @@ function normalizeExecError(
       _exitCode: 1,
       _note: 'exit=1 + 空输出通常是 grep/findstr/Select-String 的"无匹配"结果。'
            + 'Windows 上查找代码建议优先用 PowerShell Select-String（支持 Unicode），'
-           + '若用 findstr 必须加 /R 标志支持 \| 语法。',
+           + '若用 findstr 必须加 /R 标志支持 \\| 语法。',
     };
   }
 

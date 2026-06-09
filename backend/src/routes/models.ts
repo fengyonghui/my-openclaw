@@ -147,8 +147,8 @@ export async function ModelRoutes(fastify: FastifyInstance) {
       }
 
       // 保留现有模型的温度/maxTokens设置
-      const existingModels = db.availableModels || [];
-      const existingMap = new Map(existingModels.map(m => [m.modelId, m]));
+      const existingModels = (db.availableModels || []) as any[];
+      const existingMap = new Map<string, any>(existingModels.map(m => [m.modelId, m]));
 
       // 保留非目标 provider 的模型
       const targetProvider = provider || 'glue';
