@@ -982,6 +982,13 @@ function convertCmdToPowerShell(cmd: string): string {
     return '$PSVersionTable.PSVersion.ToString()';
   }
 
+  // curl 命令 → curl.exe（PowerShell 的 curl 是 Invoke-WebRequest 别名，不兼容）
+  const curlMatch = trimmed.match(/^curl(\.exe)?\s+(.+)$/i);
+  if (curlMatch) {
+    const curlArgs = curlMatch[2];
+    return `curl.exe ${curlArgs}`;
+  }
+
   // Get-CimInstance Win32_Process -Filter "Name='java.exe'" 需要转换
   const cimMatch = trimmed.match(/^Get-CimInstance\s+Win32_Process\s+-Filter\s+"(.+?)"(\s*\|.*)?$/);
   if (cimMatch) {
