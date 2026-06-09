@@ -62,9 +62,11 @@ export function ProjectListPage({ onSelectProject }: { onSelectProject: (id: str
   }, []);
 
   const filteredProjects = useMemo(() => {
+    if (!projectSearchQuery) return projects;
+    const query = projectSearchQuery.toLowerCase();
     return projects.filter(p => 
-      p.name.toLowerCase().includes(projectSearchQuery.toLowerCase()) ||
-      (p.description && p.description.toLowerCase().includes(projectSearchQuery.toLowerCase()))
+      (p.name || '').toLowerCase().includes(query) ||
+      (p.description || '').toLowerCase().includes(query)
     );
   }, [projects, projectSearchQuery]);
 
