@@ -152,6 +152,7 @@
 3. ✅ DELETE 端点缺少 `projectId` query 参数 → 已修复
 4. ✅ 新建会话时 `agentId/modelId` 未保存 → 已修复
 5. ✅ mammoth 不支持 `.doc` 二进制格式 → 已修复（MinerU + 二进制扫描）
+6. ✅ LLM 工具调用失败处理增强 (v0.3.16) → 已修复（JSON 解析、空响应检测等）
 
 ## Agent 角色
 - `architect_agent.md` - 系统架构师
@@ -219,3 +220,20 @@
 - [项目信息] 项目正在进行 OpenClaw 项目化改造，引入 Project 作用域。（来源: 系统项目信息）
 - [项目信息] 曾进行过移除 "Gemini 3 Pro" 模型并切换至 "Gemini 3.1 Pro" 的修改。（来源: 助手回复[8]）
 - [项目信息] 经排查确认 ui/src/components/model/AddModelDialog.tsx 中不包含 "gemini" 引用。（来源: 助手回复[10]）
+
+
+## 2026-06-08 自动提取
+**摘要**: 首页版本信息展示功能已完成，修改了 AppShell.tsx 组件以从 package.json 引入并展示版本号。
+
+- [项目信息] 首页版本信息展示已完成，修改了 ui/src/components/layout/AppShell.tsx 文件。（来源: 助手回复[2]）
+- [技术决策] 通过从 package.json 引入版本号，并在左侧边栏底部展示。（来源: 助手回复[2]）
+**摘要**: 完成了在项目侧边栏及未选择项目时的首页（ProjectListPage）展示版本号的功能。
+
+- [项目信息] 当没有 projectId 时，系统会渲染 ProjectListPage 且该页面不被 AppShell 包裹。（来源: 助手在消息 [10] 中对首页路由逻辑的分析）
+- [技术决策] 通过从 package.json 引入 version，在 AppShell 侧边栏和 ProjectListPage 中展示版本号。（来源: 助手在消息 [9] 和 [10] 中对版本号显示改动的说明）
+**摘要**: 实现了版本号的动态获取，通过后端 API 读取 package.json 中的版本并在前端首页展示。
+
+- [项目信息] 未选择项目时的首页是 ProjectListPage.tsx，该页面没有被 AppShell 包裹。（来源: 助手在对话 [4] 中的分析）
+- [技术决策] 版本号展示需与 release 一致，决定通过后端 GET /api/version 接口动态获取。（来源: 用户在对话 [5] 中的要求及助手在对话 [10] 中的总结）
+- [技术决策] 后端新增 GET /api/version 接口，从根目录 package.json 中读取 version 字段并返回。（来源: 工具在对话 [7]、[8] 中的操作及助手在对话 [10] 中的总结）
+- [技术决策] 前端 ProjectListPage.tsx 等页面移除了静态导入版本号，改为动态调用后端接口获取。（来源: 助手在对话 [10] 中的总结）
