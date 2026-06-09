@@ -20,24 +20,90 @@ import { extractToolCalls } from './ModelRequestor.js';
 import { buildToolList } from '../../services/ToolDefinitions.js';
 
 /**
- * 安全地将工具结果序列化为 JSON 字符串（与 chats.ts 同源，避免 chats.ts 内部工具导出）。
- * 逻辑：先 stringify，再 parse 验证；失败则剥离控制字符重试。
+ * 安全地将工具结果序列化为 JSON 字符串
+ * 逻辑：多层降级策略确保结果总是可以被 LLM 处理
+ * 
+ * 策略 1: 直接 stringify + parse 验证
+ * 策略 2: 剥离控制字符后重试
+ * 策略 3: 移除函数和 undefined 值后重试
+ * 策略 4: 限制字符串长度（防止超长输出）
+ * 策略 5: 最终降级到纯文本
  */
 function safeToolContent(result: any): string {
+  // 策略 1: 正常序列化
   try {
     const str = JSON.stringify(result);
-    JSON.parse(str);
+    JSON.parse(str); // 验证双向转换
     return str;
-  } catch {
-    try {
-      const safe = JSON.stringify(String(result));
-      JSON.parse(safe);
-      return safe;
-    } catch {
-      const obj = typeof result === 'object' && result !== null ? result : { value: String(result) };
-      const cleaned = JSON.parse(JSON.stringify(obj).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, ''));
-      return JSON.stringify(cleaned);
+  } catch (e1) {
+    console.warn(`[SafeTool] Direct stringify failed: ${(e1 as Error).message}`);
+  }
+
+  // 策略 2: 剥离控制字符
+  try {
+    const cleaned = JSON.stringify(result).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+    JSON.parse(cleaned);
+    return cleaned;
+  } catch (e2) {
+    console.warn(`[SafeTool] Control char removal failed: ${(e2 as Error).message}`);
+  }
+
+  // 策略 3: 清理不可序列化的值（函数、undefined、symbol）
+  try {
+    const cleaned = JSON.stringify(result, (key, value) => {
+      if (typeof value === 'function' || typeof value === 'undefined') {
+        return '[omitted]';
+      }
+      if (typeof value === 'symbol') {
+        return value.toString();
+      }
+      if (typeof value === 'bigint') {
+        return value.toString();
+      }
+      return value;
+    });
+    JSON.parse(cleaned);
+    return cleaned;
+  } catch (e3) {
+    console.warn(`[SafeTool] Value cleanup failed: ${(e3 as Error).message}`);
+  }
+
+  // 策略 4: 限制字符串长度（防止超长输出导致 LLM 处理失败）
+  try {
+    const str = JSON.stringify(result);
+    const MAX_LENGTH = 50000; // 50KB 限制
+    let truncated = false;
+    let content = str;
+    if (str.length > MAX_LENGTH) {
+      content = str.slice(0, MAX_LENGTH);
+      truncated = true;
     }
+    JSON.parse(content);
+    if (truncated) {
+      return JSON.stringify({
+        _truncated: true,
+        _originalLength: str.length,
+        _preview: str.slice(0, 2000),
+        message: `[输出被截断] 原始长度 ${str.length} 字符，超过 ${MAX_LENGTH} 字符限制`
+      });
+    }
+    return content;
+  } catch (e4) {
+    console.warn(`[SafeTool] Length truncation failed: ${(e4 as Error).message}`);
+  }
+
+  // 策略 5: 最终降级 - 转为纯文本
+  try {
+    const safe = JSON.stringify(String(result));
+    JSON.parse(safe);
+    return safe;
+  } catch {
+    // 最坏情况：返回占位符
+    return JSON.stringify({
+      error: '工具结果序列化失败',
+      type: typeof result,
+      preview: String(result).slice(0, 500)
+    });
   }
 }
 
@@ -250,6 +316,32 @@ export async function executeToolCall(
   console.log('═'.repeat(60));
   console.log('');
 
+  // 工作目录验证：确保 workspace 存在且有效
+  if (!project.workspace) {
+    console.error('[ERROR] Project workspace is undefined or null');
+    return {
+      error: '工作目录未设置',
+      _projectId: project.id,
+      suggestion: '项目的工作目录未配置。请检查项目设置。'
+    };
+  }
+
+  // 尝试访问 workspace，如果不存在则创建
+  try {
+    if (!fs.existsSync(project.workspace)) {
+      console.log(`[WARN] Workspace does not exist, creating: ${project.workspace}`);
+      fs.mkdirSync(project.workspace, { recursive: true });
+    }
+  } catch (fsError: any) {
+    console.error(`[ERROR] Cannot access workspace ${project.workspace}: ${fsError.message}`);
+    return {
+      error: `无法访问工作目录: ${fsError.message}`,
+      _workspace: project.workspace,
+      _projectId: project.id,
+      suggestion: `工作目录 "${project.workspace}" 不存在或无法访问。请检查项目路径是否正确。`
+    };
+  }
+
   switch (fn) {
     case 'list_files':
       return await FileToolService.listFiles(project.workspace, args.path || '.', Number(args.depth) || 3);
@@ -274,42 +366,124 @@ export async function executeToolCall(
       if (skill) {
         return { info: `技能 "${fn}" 已收到参数`, skillContent: skill.rawContent || skill.description };
       }
-      throw new Error(`未知工具: ${fn}`);
+      // 未知工具名 - 返回结构化错误而不是抛出异常
+      const knownTools = ['list_files', 'read_file', 'write_file', 'edit_file', 'delegate_to_agent', 'shell_exec', 'shell-cmd', 'inline-python-edit', 'file-io'];
+      return {
+        error: `未知工具: ${fn}`,
+        _toolName: fn,
+        _availableTools: knownTools,
+        suggestion: `可用的工具: ${knownTools.join(', ')}。请使用这些工具之一，或检查工具名拼写是否正确。`
+      };
   }
 }
 
 /**
- * 处理 JSON 解析错误
+ * 增强的 JSON 解析错误修复
+ * 支持多种错误类型的自动修复
  */
 function handleJsonParseError(rawArgs: string, parseError: Error): ToolResult {
-  console.error(`[JSON Parse Error] Raw args length: ${rawArgs.length}, first 200 chars: ${rawArgs.slice(0, 200)}`);
+  console.error(`[JSON Parse Error] Failed to parse tool arguments: ${parseError.message}`);
+  console.error(`[JSON Parse Error] Raw args length: ${rawArgs.length}, preview: ${JSON.stringify(rawArgs.slice(0, 200))}`);
 
-  // 尝试修复常见的 JSON 问题
   let fixedArgs = rawArgs;
+  let fixAttempts = 0;
+  const MAX_FIX_ATTEMPTS = 5;
+
+  // 策略 1: Unterminated string - 补全引号和括号
   if (parseError.message.includes('Unterminated string')) {
+    fixAttempts++;
+    const openQuotes = (fixedArgs.match(/"/g) || []).length;
     const openBraces = (fixedArgs.match(/{/g) || []).length;
     const closeBraces = (fixedArgs.match(/}/g) || []).length;
+    
+    // 检查 content 字段是否被截断
     const contentMatch = fixedArgs.match(/"content"\s*:\s*"/);
     if (contentMatch) {
+      // content 字段未闭合，添加结束引号和括号
       fixedArgs = fixedArgs + '"}}';
     } else {
+      // 补全缺失的括号
       const missingBraces = openBraces - closeBraces;
       for (let i = 0; i < missingBraces; i++) {
         fixedArgs += '}';
       }
     }
-    try {
-      const args = JSON.parse(fixedArgs);
-      return { success: true, args, _fixed: true };
-    } catch (retryError: any) {
-      return {
-        error: `JSON 解析失败: ${parseError.message}`,
-        _rawError: parseError.message,
-        _rawLength: rawArgs.length
-      };
+    console.log(`[JSON Fix #${fixAttempts}] Attempting to fix Unterminated string: ${fixedArgs.slice(0, 100)}...`);
+  }
+
+  // 策略 2: Unexpected end of JSON - 补全结尾
+  if (parseError.message.includes('Unexpected end of JSON')) {
+    fixAttempts++;
+    let missing = 0;
+    // 统计括号不平衡
+    const opens = (fixedArgs.match(/{/g) || []).length + (fixedArgs.match(/\[/g) || []).length;
+    const closes = (fixedArgs.match(/}/g) || []).length + (fixedArgs.match(/\]/g) || []).length;
+    missing = opens - closes;
+    for (let i = 0; i < missing; i++) fixedArgs += '}';
+    console.log(`[JSON Fix #${fixAttempts}] Added ${missing} closing brackets`);
+  }
+
+  // 策略 3: 移除控制字符和非法字符
+  if (fixAttempts === 0) {
+    fixAttempts++;
+    const cleaned = fixedArgs.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+    if (cleaned !== fixedArgs) {
+      fixedArgs = cleaned;
+      console.log(`[JSON Fix #${fixAttempts}] Removed control characters`);
     }
   }
-  return { error: `JSON 解析失败: ${parseError.message}`, _rawError: parseError.message };
+
+  // 策略 4: 修复常见的引号问题
+  if (fixAttempts === 0 || fixAttempts === 1) {
+    fixAttempts++;
+    // 修复单引号被误用为双引号
+    const singleToDouble = fixedArgs.replace(/'/g, '"');
+    if (singleToDouble !== fixedArgs) {
+      // 验证是否有效
+      try {
+        JSON.parse(singleToDouble);
+        fixedArgs = singleToDouble;
+        console.log(`[JSON Fix #${fixAttempts}] Fixed single quotes to double quotes`);
+      } catch {
+        // 单引号修复后仍失败，回退
+      }
+    }
+  }
+
+  // 策略 5: 尝试提取有效的 JSON 片段
+  if (fixAttempts <= MAX_FIX_ATTEMPTS) {
+    fixAttempts++;
+    // 尝试找到 { ... } 包裹的有效内容
+    const jsonMatch = fixedArgs.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const candidate = jsonMatch[0];
+      try {
+        JSON.parse(candidate);
+        fixedArgs = candidate;
+        console.log(`[JSON Fix #${fixAttempts}] Extracted valid JSON fragment (${candidate.length} chars)`);
+      } catch {
+        // 回退
+      }
+    }
+  }
+
+  // 最终验证
+  try {
+    const args = JSON.parse(fixedArgs);
+    console.log(`[JSON Parse] ✅ Successfully parsed after ${fixAttempts} fix attempt(s)`);
+    return { success: true, args, _fixed: true, _fixAttempts: fixAttempts };
+  } catch (retryError: any) {
+    // 所有修复都失败，返回结构化错误
+    console.error(`[JSON Parse] ❌ All ${fixAttempts} fix attempt(s) failed`);
+    return {
+      error: `JSON 解析失败: ${parseError.message}`,
+      _rawError: parseError.message,
+      _rawLength: rawArgs.length,
+      _fixAttempts: fixAttempts,
+      _rawPreview: rawArgs.slice(0, 500),
+      suggestion: '请检查 JSON 格式是否正确，确保引号和括号配对完整'
+    };
+  }
 }
 
 /**
