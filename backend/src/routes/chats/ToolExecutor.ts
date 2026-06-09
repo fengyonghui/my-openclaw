@@ -755,14 +755,18 @@ async function executeWindowsCommand(command: string, cwd: string): Promise<Tool
     // 转换 `cmd1 && cmd2` → `cmd1 ; cmd2`（始终执行 cmd2，忽略 cmd1 失败）
     // 转换 `cmd1 || cmd2` → `cmd1 ; cmd2`（同样简化，对 LLM 生成的命令足够）
     // 注意：strip `cd xxx && ` 已在 executeShellCommand 提前完成
-    let psCmd = command;
+    let cleanCmd = command;
     // 用占位符避免在转换中相互影响
-    psCmd = psCmd.replace(/(\s|^)&&(\s|$)/g, '$1;$2');
-    psCmd = psCmd.replace(/(\s|^)\|\|(\s|$)/g, '$1;$2');
+    cleanCmd = cleanCmd.replace(/(\s|^)&&(\s|$)/g, '$1;$2');
+    cleanCmd = cleanCmd.replace(/(\s|^)\|\|(\s|$)/g, '$1;$2');
 
-    exec(psCmd, {
+    // 检测是否为 cmd.exe /c 命令，如果是则使用 cmd.exe 执行（PowerShell 无法正确处理）
+    const isCmdExeCommand = /^(cmd|cmd\.exe)\s+\/c\s+/i.test(cleanCmd.trim());
+    const shell = isCmdExeCommand ? 'cmd.exe' : 'powershell.exe';
+
+    exec(cleanCmd, {
       cwd,
-      shell: 'powershell.exe',  // 默认 PowerShell 5.1（已自动设 cwd 到项目根）
+      shell,  // cmd /c 命令用 cmd.exe，其他用 PowerShell
       timeout: 60000,
       maxBuffer: MAX_OUTPUT
     }, (err, stdout, stderr) => {
