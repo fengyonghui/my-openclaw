@@ -15,6 +15,7 @@ import { SystemCommandsRoutes } from './routes/systemCommands.js';
 import { HeartbeatRoutes } from './routes/heartbeats.js';
 import { FeatureFlagsRoutes } from './routes/feature-flags.js';
 import { TableMetadataRoutes } from './routes/tableMetadata.js';
+import { VersionRoutes } from './routes/version.js';
 import { bootstrapSystemCommands } from './services/systemBootstrap.js';
 import { restoreHeartbeats } from './services/HeartbeatService.js';
 
@@ -30,6 +31,7 @@ await fastify.register(cors, {
 });
 
 // --- Routes ---
+await fastify.register(VersionRoutes, { prefix: '/api/version' });
 await fastify.register(ProjectRoutes, { prefix: '/api/v1/projects' });
 await fastify.register(AgentRoutes, { prefix: '/api/v1/agents' });
 await fastify.register(ChatRoutes, { prefix: '/api/v1/chats' });
