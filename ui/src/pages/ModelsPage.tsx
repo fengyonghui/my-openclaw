@@ -68,14 +68,13 @@ export function ModelsPage() {
   useEffect(() => { fetchModels(); setTimeout(() => setMounted(true), 100); }, [fetchModels]);
 
   const grouped = useMemo(() => {
-    if (!searchQuery.trim()) return models;
-    const query = searchQuery.toLowerCase();
-    const filtered = models.filter(m =>
-      (m.name || '').toLowerCase().includes(query) ||
-      (m.modelId || '').toLowerCase().includes(query) ||
-      (m.provider || '').toLowerCase().includes(query));
     const map = new Map<string, ModelConfig[]>();
-    for (const m of filtered) {
+    const dataToGroup = searchQuery.trim() ? models.filter(m =>
+      (m.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (m.modelId || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (m.provider || '').toLowerCase().includes(searchQuery.toLowerCase())
+    ) : models;
+    for (const m of dataToGroup) {
       const key = m.provider || 'unknown';
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(m);
