@@ -379,7 +379,9 @@ export class DbService {
     // 同时写入 backend/agents/ 目录（getAgents 优先读文件）
     try {
       const dir = this.getGlobalAgentsDir();
+      await mkdir(dir, { recursive: true });  // 确保目录存在
       await writeFile(path.join(dir, `${newAgent.id}.json`), JSON.stringify(newAgent, null, 2), 'utf-8');
+      console.log(`[addAgent] Wrote agent to ${path.join(dir, `${newAgent.id}.json`)}`);
     } catch (err) {
       console.error('[addAgent] Failed to write agent file:', err);
     }
@@ -547,14 +549,22 @@ export class DbService {
   // 根据 agentId 在 backend/agents/ 中找到对应文件名
   private static async findGlobalAgentFile(agentId: string): Promise<string | null> {
     const globalAgentsDir = path.resolve(process.cwd(), 'agents');
+    console.log(`[findGlobalAgentFile] Searching in ${globalAgentsDir} for agentId=${agentId}`);
     try {
       const files = (await readdir(globalAgentsDir)).filter(f => f.endsWith('.json'));
+      console.log(`[findGlobalAgentFile] Found ${files.length} files: ${files.join(', ')}`);
       for (const file of files) {
         const content = await readFile(path.join(globalAgentsDir, file), 'utf-8');
         const agent = JSON.parse(content);
-        if (String(agent.id) === String(agentId)) return file;
+        if (String(agent.id) === String(agentId)) {
+          console.log(`[findGlobalAgentFile] Matched: ${file} (agent.id=${agent.id})`);
+          return file;
+        }
       }
-    } catch { /* ignore */ }
+    } catch (err) {
+      console.error(`[findGlobalAgentFile] Error reading agents dir: ${(err as Error).message}`);
+    }
+    console.log(`[findGlobalAgentFile] Not found for agentId=${agentId}`);
     return null;
   }
 
