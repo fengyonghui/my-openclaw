@@ -707,6 +707,28 @@ async function executePowerShellCommand(command: string, cwd: string): Promise<T
   return new Promise((resolve) => {
     const MAX_OUTPUT = 500 * 1024;
 
+    // 特殊处理：-File 参数（执行 .ps1 脚本文件），不能包装在 -Command {} 中
+    const fileMatch = command.match(/^(powershell\s+[^\s]*\s+)?-File\s+"?([^"\s]+)"?(.*)$/i);
+    if (fileMatch) {
+      const psPrefix = fileMatch[1]?.trim() || 'powershell -NoProfile -ExecutionPolicy Bypass';
+      const scriptPath = fileMatch[2].trim();
+      const restArgs = fileMatch[3]?.trim() || '';
+      const psCmd = `${psPrefix} -File "${scriptPath}"${restArgs}`;
+      exec(psCmd, {
+        cwd,
+        shell: 'powershell.exe',
+        timeout: 60000,
+        maxBuffer: MAX_OUTPUT
+      }, (err, stdout, stderr) => {
+        if (err) {
+          resolve(normalizeExecError(err, stdout, stderr, command));
+        } else {
+          resolve({ success: true, stdout, stderr });
+        }
+      });
+      return;
+    }
+
     // 清理命令中的 shell/bash 特有语法（PowerShell 不识别）
     let cleanCmd = command
       .replace(/\s*2>\s*&1\s*$/g, '')        // 剥离 2>&1
@@ -721,7 +743,7 @@ async function executePowerShellCommand(command: string, cwd: string): Promise<T
     // 把 \$ 替换为 $（LLM 常见错误：把 bash 的 \$variable 习惯带进 PowerShell）
     // PowerShell 的转义符是反引号 `，\ 是字面字符
     // 典型 bug 场景: catch 块里写 \$_.Exception.Message → PowerShell 报 "Unexpected token"
-    // 极少数情况: LLM 想用 \$ 作为正则字面 $ (如 '[regex]"\$foo"'），破坏可接受，
+    // 极少数情况: LLM 想用 \$ 作为正则字面 $ (如 '[regex]"$foo"'），破坏可接受，
     // 因为 LLM 不会写复杂正则，且这种场景可改用 [regex]::Escape('$') 规避
     cleanCmd = cleanCmd.replace(/\\\$/g, '$');
 
