@@ -779,7 +779,151 @@ async function executeWindowsCommand(command: string, cwd: string): Promise<Tool
 function convertCmdToPowerShell(cmd: string): string {
   const trimmed = cmd.trim();
 
-  // cmd /c "dir /S /B pattern" → Get-ChildItem -Recurse -File | Select-Object FullName
+  // ── Bash/Unix 命令转换（LLM 经常生成的跨平台命令）───────────────
+
+  // ls -la / ls -l / ls -a / ls -la path / ls -l path 等
+  const lsMatch = trimmed.match(/^ls\s+(-[a-zA-Z]+)?\s*(.*)$/);
+  if (lsMatch) {
+    const flags = lsMatch[1] || '';
+    const path = lsMatch[2]?.trim() || '.';
+    const hasLongFormat = /l/.test(flags);
+    const hasAll = /a/.test(flags);
+    const hasRecurse = /R/.test(flags);
+
+    let ps = 'Get-ChildItem';
+    if (hasRecurse) ps += ' -Recurse';
+    if (hasAll) ps += ' -Force';
+    if (path && path !== '.') ps += ` -Path "${path}"`;
+
+    if (hasLongFormat) {
+      ps += ' | Format-Table Name,Length,LastWriteTime,Mode -AutoSize';
+    } else if (hasRecurse) {
+      ps += ' | Select-Object FullName,Length,LastWriteTime';
+    }
+    return ps;
+  }
+
+  // cat file / cat file1 file2
+  const catMatch = trimmed.match(/^cat\s+(.+)$/);
+  if (catMatch) {
+    const files = catMatch[1].trim();
+    return `Get-Content "${files}"`;
+  }
+
+  // grep pattern file / grep -r pattern dir
+  const grepMatch = trimmed.match(/^grep\s+(-[a-zA-Z]+)?\s*(.+?)\s+(.+)$/);
+  if (grepMatch) {
+    const flags = grepMatch[1] || '';
+    const pattern = grepMatch[2].trim();
+    const target = grepMatch[3].trim();
+    const isRecursive = /r/.test(flags);
+    const isCaseInsensitive = /i/.test(flags);
+
+    if (isRecursive) {
+      let ps = `Get-ChildItem -Recurse -File | Select-String -Pattern "${pattern}"`;
+      if (isCaseInsensitive) ps += ' -CaseSensitive:$false';
+      return ps;
+    }
+    return `Select-String -Path "${target}" -Pattern "${pattern}"${isCaseInsensitive ? ' -CaseSensitive:$false' : ''}`;
+  }
+
+  // find dir -name "*.ext" / find . -name "*.ext"
+  const findMatch = trimmed.match(/^find\s+(\S+)\s+(-[a-zA-Z]+\s+)?(-name|"[^"]+")\s+(.+)$/);
+  if (findMatch) {
+    const dir = findMatch[1];
+    const pattern = findMatch[4].replace(/^["']|["']$/g, '');
+    return `Get-ChildItem -Path "${dir}" -Recurse -Filter "${pattern}" | Select-Object -ExpandProperty FullName`;
+  }
+
+  // pwd
+  if (/^pwd\s*$/.test(trimmed)) {
+    return 'Get-Location | Select-Object -ExpandProperty Path';
+  }
+
+  // which cmd / where cmd
+  const whichMatch = trimmed.match(/^(which|where)\s+(.+)$/);
+  if (whichMatch) {
+    const cmdName = whichMatch[2].trim();
+    return `Get-Command ${cmdName} | Select-Object -ExpandProperty Source`;
+  }
+
+  // echo text
+  const echoMatch = trimmed.match(/^echo\s+(.+)$/);
+  if (echoMatch) {
+    const text = echoMatch[1].trim();
+    return `Write-Output ${text}`;
+  }
+
+  // mkdir -p dir
+  const mkdirPMatch = trimmed.match(/^mkdir\s+-p\s+(.+)$/);
+  if (mkdirPMatch) {
+    const dirs = mkdirPMatch[1].trim();
+    return `New-Item -ItemType Directory -Path "${dirs}" -Force`;
+  }
+
+  // rm -rf dir / rm -r dir / rm file
+  const rmMatch = trimmed.match(/^rm\s+(-[a-zA-Z]+)?\s+(.+)$/);
+  if (rmMatch) {
+    const flags = rmMatch[1] || '';
+    const target = rmMatch[2].trim();
+    const isRecursive = /r/.test(flags) || /f/.test(flags);
+    return `Remove-Item "${target}" -Recurse:${isRecursive} -Force`;
+  }
+
+  // cp src dest / cp -r src dest
+  const cpMatch = trimmed.match(/^cp\s+(-[a-zA-Z]+)?\s+(.+?)\s+(.+)$/);
+  if (cpMatch) {
+    const flags = cpMatch[1] || '';
+    const src = cpMatch[2].trim();
+    const dest = cpMatch[3].trim();
+    const isRecursive = /r/.test(flags);
+    return `Copy-Item "${src}" "${dest}" -Recurse:${isRecursive}`;
+  }
+
+  // mv src dest
+  const mvMatch = trimmed.match(/^mv\s+(.+?)\s+(.+)$/);
+  if (mvMatch) {
+    const src = mvMatch[1].trim();
+    const dest = mvMatch[2].trim();
+    return `Move-Item "${src}" "${dest}"`;
+  }
+
+  // touch file
+  const touchMatch = trimmed.match(/^touch\s+(.+)$/);
+  if (touchMatch) {
+    const file = touchMatch[1].trim();
+    return `New-Item -ItemType File -Path "${file}" -Force`;
+  }
+
+  // head -n N file
+  const headMatch = trimmed.match(/^head\s+(-n\s+)?(\d+)\s+(.+)$/);
+  if (headMatch) {
+    const count = headMatch[2];
+    const file = headMatch[3].trim();
+    return `Get-Content "${file}" -TotalCount ${count}`;
+  }
+
+  // tail -n N file
+  const tailMatch = trimmed.match(/^tail\s+(-n\s+)?(\d+)\s+(.+)$/);
+  if (tailMatch) {
+    const count = tailMatch[2];
+    const file = tailMatch[3].trim();
+    return `Get-Content "${file}" -Tail ${count}`;
+  }
+
+  // wc -l file
+  const wcMatch = trimmed.match(/^wc\s+-l\s+(.+)$/);
+  if (wcMatch) {
+    const file = wcMatch[1].trim();
+    return `(Get-Content "${file}").Count`;
+  }
+
+  // uname -a
+  if (/^uname\s+-a\s*$/.test(trimmed)) {
+    return '$PSVersionTable.PSVersion.ToString()';
+  }
+
+  // ── CMD 命令转换 ─────────────────────────────────────────────
   const dirRecurseMatch = trimmed.match(/^cmd\s+\/c\s+"dir\s+\/S\s+\/B\s+(.+?)"(.*)$/i);
   if (dirRecurseMatch) {
     const pattern = dirRecurseMatch[1].trim();
