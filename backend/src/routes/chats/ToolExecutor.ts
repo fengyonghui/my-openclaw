@@ -750,23 +750,17 @@ async function executeWindowsCommand(command: string, cwd: string): Promise<Tool
   return new Promise((resolve) => {
     const MAX_OUTPUT = 500 * 1024;
 
-    // 预处理：PowerShell 5.1 不支持 `&&` / `||` 管道链操作符
-    // LLM 经常写 `cd dir && mvn ...`，在 PS 5.1 中会报"无法将'&'识别为 cmdlet"
-    // 转换 `cmd1 && cmd2` → `cmd1 ; cmd2`（始终执行 cmd2，忽略 cmd1 失败）
-    // 转换 `cmd1 || cmd2` → `cmd1 ; cmd2`（同样简化，对 LLM 生成的命令足够）
-    // 注意：strip `cd xxx && ` 已在 executeShellCommand 提前完成
     let cleanCmd = command;
     // 用占位符避免在转换中相互影响
     cleanCmd = cleanCmd.replace(/(\s|^)&&(\s|$)/g, '$1;$2');
     cleanCmd = cleanCmd.replace(/(\s|^)\|\|(\s|$)/g, '$1;$2');
 
-    // 检测是否为 cmd.exe /c 命令，如果是则使用 cmd.exe 执行（PowerShell 无法正确处理）
-    const isCmdExeCommand = /^(cmd|cmd\.exe)\s+\/c\s+/i.test(cleanCmd.trim());
-    const shell = isCmdExeCommand ? 'cmd.exe' : 'powershell.exe';
+    // 统一使用 PowerShell：将 cmd.exe 命令转换为 PowerShell 等效命令
+    cleanCmd = convertCmdToPowerShell(cleanCmd);
 
     exec(cleanCmd, {
       cwd,
-      shell,  // cmd /c 命令用 cmd.exe，其他用 PowerShell
+      shell: 'powershell.exe',
       timeout: 60000,
       maxBuffer: MAX_OUTPUT
     }, (err, stdout, stderr) => {
@@ -777,6 +771,98 @@ async function executeWindowsCommand(command: string, cwd: string): Promise<Tool
       }
     });
   });
+}
+
+/**
+ * 将 CMD 命令转换为 PowerShell 等效命令
+ */
+function convertCmdToPowerShell(cmd: string): string {
+  const trimmed = cmd.trim();
+
+  // cmd /c "dir /S /B pattern" → Get-ChildItem -Recurse -File | Select-Object FullName
+  const dirRecurseMatch = trimmed.match(/^cmd\s+\/c\s+"dir\s+\/S\s+\/B\s+(.+?)"(.*)$/i);
+  if (dirRecurseMatch) {
+    const pattern = dirRecurseMatch[1].trim();
+    const extra = dirRecurseMatch[2] || '';
+    // 排除 node_modules 和 target
+    const exclude = extra.includes('findstr')
+      ? ' | Where-Object { $_ -notmatch "\\\\node_modules\\\\" -and $_ -notmatch "\\\\target\\\\" }'
+      : '';
+    // 提取文件模式（如 *.java, *.xml）
+    const extMatch = pattern.match(/\*\.(\w+)/);
+    if (extMatch) {
+      const ext = extMatch[1];
+      return `Get-ChildItem -Recurse -Include "*.${ext}" | Select-Object -ExpandProperty FullName${exclude}`;
+    }
+    return `Get-ChildItem -Recurse -Filter "${pattern}" | Select-Object -ExpandProperty FullName${exclude}`;
+  }
+
+  // cmd /c "dir pattern" → Get-ChildItem
+  const dirMatch = trimmed.match(/^cmd\s+\/c\s+"dir\s+(.+?)"(.*)$/i);
+  if (dirMatch) {
+    const pattern = dirMatch[1].trim();
+    const extMatch = pattern.match(/\*\.(\w+)/);
+    if (extMatch) {
+      const ext = extMatch[1];
+      return `Get-ChildItem -Include "*.${ext}"`;
+    }
+    return `Get-ChildItem -Filter "${pattern}"`;
+  }
+
+  // cmd /c "type file" → Get-Content
+  const typeMatch = trimmed.match(/^cmd\s+\/c\s+"type\s+(.+?)"$/i);
+  if (typeMatch) {
+    const file = typeMatch[1].trim();
+    return `Get-Content "${file}"`;
+  }
+
+  // cmd /c "del file" → Remove-Item
+  const delMatch = trimmed.match(/^cmd\s+\/c\s+"del\s+(.+?)"$/i);
+  if (delMatch) {
+    const file = delMatch[1].trim();
+    return `Remove-Item "${file}" -Force`;
+  }
+
+  // cmd /c "copy src dest" → Copy-Item
+  const copyMatch = trimmed.match(/^cmd\s+\/c\s+"copy\s+(.+?)\s+(.+?)"$/i);
+  if (copyMatch) {
+    const src = copyMatch[1].trim();
+    const dest = copyMatch[2].trim();
+    return `Copy-Item "${src}" "${dest}"`;
+  }
+
+  // cmd /c "move src dest" → Move-Item
+  const moveMatch = trimmed.match(/^cmd\s+\/c\s+"move\s+(.+?)\s+(.+?)"$/i);
+  if (moveMatch) {
+    const src = moveMatch[1].trim();
+    const dest = moveMatch[2].trim();
+    return `Move-Item "${src}" "${dest}"`;
+  }
+
+  // cmd /c "mkdir dir" → New-Item -ItemType Directory
+  const mkdirMatch = trimmed.match(/^cmd\s+\/c\s+"mkdir\s+(.+?)"$/i);
+  if (mkdirMatch) {
+    const dir = mkdirMatch[1].trim();
+    return `New-Item -ItemType Directory -Path "${dir}" -Force`;
+  }
+
+  // cmd /c "cd dir && ..." → Set-Location; ...
+  if (trimmed.startsWith('cmd /c "cd ')) {
+    const cdMatch = trimmed.match(/^cmd\s+\/c\s+"cd\s+([^"]+?)"\s*&&\s*(.+)$/i);
+    if (cdMatch) {
+      const dir = cdMatch[1].trim();
+      const rest = cdMatch[2].trim();
+      return `Set-Location "${dir}"; ${rest}`;
+    }
+  }
+
+  // 其他 cmd.exe 命令：去掉 cmd /c 前缀，保留引号内的内容（PowerShell 也能处理基本语法）
+  const genericMatch = trimmed.match(/^cmd\s+\/c\s+"(.+)"$/i);
+  if (genericMatch) {
+    return genericMatch[1].trim();
+  }
+
+  return cmd;
 }
 
 /**
