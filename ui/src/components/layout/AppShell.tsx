@@ -15,6 +15,9 @@ import {
 import type { AppView } from '../../App';
 import { useState, useEffect } from 'react';
 
+// 应用版本
+const version = '0.3.16';
+
 type NavKey = Exclude<AppView, 'dashboard'> | 'chats';
 
 type NavItem = {
@@ -175,6 +178,11 @@ export function AppShell({
                   <Home className="h-4 w-4" />
                   返回首页
                 </button>
+              </div>
+              <div className="mt-3 flex items-center justify-center gap-1.5 text-[11px] font-medium text-slate-400">
+                <span className="px-1.5 py-0.5 rounded-md bg-slate-100/80 text-slate-500 font-mono">v{version}</span>
+                <span>·</span>
+                <span>当前版本</span>
               </div>
             </div>
           </div>

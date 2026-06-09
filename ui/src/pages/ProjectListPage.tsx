@@ -1,9 +1,12 @@
-import { FolderPlus, FolderOpen, ArrowRight, Settings, Plus, Trash2, Cpu, Save, Search, Check, Square, CheckSquare, X, Globe, Puzzle, Download, FileText, ExternalLink, Edit3, Eye, EyeOff, ArrowLeft, Bot, Sparkles, Grid3X3, Layers, Star, Rocket, ChevronRight } from 'lucide-react';
+import { FolderPlus, FolderOpen, ArrowRight, Settings, Plus, Trash2, Cpu, Save, Search, Check, Square, CheckSquare, X, Globe, Puzzle, Download, FileText, ExternalLink, Edit3, Eye, EyeOff, ArrowLeft, Bot, Sparkles, Grid3X3, Layers, Star, Rocket, ChevronRight, Tag } from 'lucide-react';
 import { useState, useEffect, useMemo } from 'react';
 import { Card, Button, Badge } from '../components/ui';
 import { SkillsPage } from './SkillsPage';
 import { ModelsPage } from './ModelsPage';
 import { GlobalAgentsPage } from './GlobalAgentsPage';
+
+// 应用版本
+const apiVersion = '0.3.16';
 
 type ViewType = 'projects' | 'globalModels' | 'globalSkills' | 'globalAgents';
 
@@ -202,6 +205,13 @@ export function ProjectListPage({ onSelectProject }: { onSelectProject: (id: str
                 </span>
               </h1>
               <p className="text-sm text-slate-500 font-medium">智能协作平台</p>
+              {apiVersion && (
+                <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-100/80 shadow-sm">
+                  <Tag className="w-3 h-3 text-indigo-500" />
+                  <span className="text-[11px] font-bold text-indigo-600 font-mono">v{apiVersion}</span>
+                  <span className="text-[11px] font-medium text-slate-500">· 当前版本</span>
+                </div>
+              )}
             </div>
           </div>
 
