@@ -835,6 +835,43 @@ function convertCmdToPowerShell(cmd: string): string {
     return `Get-ChildItem -Path "${dir}" -Recurse -Filter "${pattern}" | Select-Object -ExpandProperty FullName`;
   }
 
+  // find . -name "a" -o -name "b" -o -name "c" | head -20 （多文件扩展名搜索）
+  const findMultiMatch = trimmed.match(/^find\s+(\S+)\s+(-name\s+"[^"]+"\s+-o\s+)+(-name\s+"[^"]+")(\s*\|\s*head\s+(-\d+)?\s*(\d+))?/);
+  if (findMultiMatch) {
+    const dir = findMultiMatch[1];
+    const headMatch = findMultiMatch[6];
+    const allNameParts = trimmed.match(/-name\s+"([^"]+)"/g) || [];
+    const patterns = allNameParts.map(p => {
+      const m = p.match(/-name\s+"([^"]+)"/);
+      return m ? m[1] : '';
+    }).filter(Boolean);
+
+    if (patterns.length > 0) {
+      let ps = `Get-ChildItem -Path "${dir}" -Recurse`;
+      if (patterns.some(p => p.includes('*'))) {
+        ps += ` -Include "${patterns.join(',')}"`;
+      } else {
+        ps += ` -Include "${patterns.map(p => '*' + p.replace(/^\*?\.?/, '.').replace(/\*$/, '')).join(',')}"`;
+      }
+      ps += ' | Select-Object -ExpandProperty FullName';
+      if (headMatch) {
+        ps += ` | Select-Object -First ${headMatch}`;
+      }
+      return ps;
+    }
+  }
+
+  // find + head 组合（处理 find ... | head N）
+  const findWithHead = trimmed.match(/^(find\s+[^\|]+)\s*\|\s*head\s+(-\d+)?\s*(\d+)/);
+  if (findWithHead) {
+    const findCmd = findWithHead[1];
+    const count = findWithHead[3];
+    const converted = convertCmdToPowerShell(findCmd);
+    if (converted !== findCmd) {
+      return `${converted} | Select-Object -First ${count}`;
+    }
+  }
+
   // pwd
   if (/^pwd\s*$/.test(trimmed)) {
     return 'Get-Location | Select-Object -ExpandProperty Path';
