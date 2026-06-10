@@ -248,6 +248,23 @@ async function fetchWithRetry(
  * 2. exit=1 且 stdout/stderr 都为空 → 通常是 grep/findstr/Select-String 的"无匹配"，
  *    改写为信息性错误，并附 _note 提示 LLM 改用 PowerShell Select-String 或加 /R 标志
  */
+function sanitizeArgsForLog(args: any, sensitiveKeys: string[]): any {
+  if (!args || typeof args !== 'object') return args;
+  const sanitized: any = {};
+  for (const [key, value] of Object.entries(args)) {
+    const isSensitive = sensitiveKeys.some(sk => key.toLowerCase().includes(sk.toLowerCase()));
+    if (isSensitive && typeof value === 'string') {
+      // 截断长内容，显示前 100 字符 + "..."
+      sanitized[key] = value.length > 100 ? value.slice(0, 100) + '...' : value;
+    } else if (typeof value === 'object' && value !== null) {
+      sanitized[key] = sanitizeArgsForLog(value, sensitiveKeys);
+    } else {
+      sanitized[key] = value;
+    }
+  }
+  return sanitized;
+}
+
 function normalizeExecError(
   err: any,
   stdout: string,
@@ -362,12 +379,15 @@ export async function executeToolCall(
     return handleJsonParseError(rawArgs, parseError);
   }
 
-  // 工具调用日志
+  // 工具调用日志（隐藏敏感参数）
   console.log('');
   console.log('═'.repeat(60));
   console.log('🔧 TOOL CALL: ' + fn);
   console.log('═'.repeat(60));
-  console.log(' Args: ' + rawArgs.slice(0, 300));
+  // 隐藏敏感参数内容
+  const sensitiveKeys = ['oldText', 'newText', 'content', 'old_text', 'new_text', 'code', 'script', 'data'];
+  const sanitizedArgs = sanitizeArgsForLog(args, sensitiveKeys);
+  console.log(' Args: ' + JSON.stringify(sanitizedArgs).slice(0, 500));
   console.log(' Workspace: ' + project.workspace);
   console.log('═'.repeat(60));
   console.log('');
