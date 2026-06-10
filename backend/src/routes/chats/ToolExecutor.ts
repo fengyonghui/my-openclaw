@@ -549,15 +549,23 @@ function handleJsonParseError(rawArgs: string, parseError: Error): ToolResult {
     console.log(`[JSON Parse] ✅ Successfully parsed after ${fixAttempts} fix attempt(s)`);
     return { success: true, args, _fixed: true, _fixAttempts: fixAttempts };
   } catch (retryError: any) {
-    // 所有修复都失败，返回结构化错误
+    // 所有修复都失败，返回结构化错误（隐藏原始内容以保护日志）
     console.error(`[JSON Parse] ❌ All ${fixAttempts} fix attempt(s) failed`);
+    
+    // 提取错误位置信息
+    const posMatch = parseError.message.match(/position\s+(\d+)/);
+    const errorPos = posMatch ? parseInt(posMatch[1]) : 0;
+    
     return {
       error: `JSON 解析失败: ${parseError.message}`,
       _rawError: parseError.message,
       _rawLength: rawArgs.length,
+      _errorPosition: errorPos,
       _fixAttempts: fixAttempts,
-      _rawPreview: rawArgs.slice(0, 500),
-      suggestion: '请检查 JSON 格式是否正确，确保引号和括号配对完整'
+      // 显示错误位置前后的上下文（不超过 100 字符）
+      _contextBefore: rawArgs.slice(Math.max(0, errorPos - 50), errorPos),
+      _contextAfter: rawArgs.slice(errorPos, Math.min(rawArgs.length, errorPos + 50)),
+      suggestion: 'JSON 参数格式错误，请检查：1. 引号是否成对 2. 括号是否匹配 3. 是否有未转义的特殊字符'
     };
   }
 }
