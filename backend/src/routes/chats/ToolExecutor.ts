@@ -587,12 +587,25 @@ async function handleWriteFile(project: any, args: any): Promise<ToolResult> {
  */
 export async function executeShellCommand(project: any, args: any): Promise<ToolResult> {
   const command = args.command || args.cmd || args.exec;
-  const cwdArg = args.cwd || args.dir || args.workdir;  // 允许模型指定子目录 (相对 workspace) — 修复 cwd 被忽略的 bug
+  let cwdArg = args.cwd || args.dir || args.workdir;  // 允许模型指定子目录 (相对 workspace) — 修复 cwd 被忽略的 bug
   if (!command) {
     return { error: '缺少参数: command/cmd/exec' };
   }
 
   const sys = getSystemInfo();
+
+  // 验证 cwdArg 是否是有效路径（防止 LLM 生成无效的 cwd 参数）
+  if (cwdArg) {
+    // 检查是否包含非法字符或过长（可能是 LLM 生成的错误参数）
+    const isValidPath = /^[A-Za-z]:[\\\/]|^[\/\.]|^\w:/.test(cwdArg) && 
+                        !/[\r\n<>|]/.test(cwdArg) && 
+                        cwdArg.length < 500;
+    if (!isValidPath) {
+      console.log(`[Shell] Invalid cwdArg detected, ignoring: "${cwdArg.slice(0, 100)}..."`);
+      cwdArg = undefined;
+    }
+  }
+
   // 调试：输出平台检测结果
   console.log(`[Shell] Detected: platform=${sys.platform}, isWSL=${sys.isWSL}, isWindows=${sys.isWindows}, isLinux=${sys.isLinux}, wslDistro=${sys.wslDistro}`);
   console.log(`[Shell] Workspace (raw): ${project.workspace}`);
