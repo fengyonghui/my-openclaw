@@ -792,8 +792,15 @@ async function executePowerShellCommand(command: string, cwd: string): Promise<T
     // 注意：双大括号 {{ }} 在模板字符串中是单大括号 {}
     const psCmd = `powershell -NoProfile -Command {${cleanCmd}}`;
 
+    // 关键: 必须显式指定 shell: 'powershell.exe'。
+    // child_process.exec 不传 shell 时, Windows 默认走 cmd.exe,
+    // cmd.exe 会把 -Command { ... | Select-String ... } 中的 | 当作管道运算符,
+    // 错误地把 Select-String 当成独立命令执行, 抛出
+    //   'Select-String' is not recognized as an internal or external command
+    // (即使用户写的是 PowerShell 风格命令, 错误信息仍是 cmd.exe 风格的)
     exec(psCmd, {
       cwd,
+      shell: 'powershell.exe',
       timeout: 60000,
       maxBuffer: MAX_OUTPUT
     }, (err, stdout, stderr) => {
