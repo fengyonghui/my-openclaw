@@ -1306,7 +1306,7 @@ async function runMemberAgentLoop(
   allProjectAgents: any[],
   allEnabledSkills: any[],
   reply: any
-): Promise<{ success: boolean; finalContent: string; iterations: number; toolCallCount: number; error?: string; model?: string }> {
+): Promise<{ success: boolean; finalContent: string; iterations: number; toolCallCount: number; error?: string; model?: string; forcedSummary?: boolean }> {
   // 构造成员 agent 工具集：与协调员一致，但排除 delegate_to_agent（防递归）
   const allTools = buildToolList(project, allProjectAgents, targetAgent.id, allEnabledSkills);
   const memberTools = allTools.filter((t: any) => {
@@ -1563,12 +1563,31 @@ async function runMemberAgentLoop(
   }
 
   if (!finalContent) {
+    // 走到这里意味着：LLM 跑满了 MAX_ITERATIONS 轮，每轮都只生成 tool_calls 从不收敛到文本。
+    // 常见原因：read-after-edit 验证漂移（成功改完文件后还要再 read 确认、再 edit 修饰、再 read …）。
+    // 已有 3 次完全相同 tool_call 签名检测不会触发（每次签名都不同）。
+    // 修复：再做一轮 LLM 调用，强制要求给文字总结，并禁止继续调工具。
+    console.log(`[MemberLoop] ⚠️  No final text after ${MAX_ITERATIONS} iterations — requesting forced summary (completed toolCalls=${toolCallCount})`);
+    const summaryResult = await requestForcedSummary(
+      messages, modelsToTry, pickedModel, targetAgent, reply, sanitizeMessages
+    );
+    if (summaryResult.success) {
+      return {
+        success: true,
+        finalContent: summaryResult.finalContent,
+        iterations: MAX_ITERATIONS + 1,
+        toolCallCount,
+        model: summaryResult.model || pickedModel?.name,
+        forcedSummary: true  // 标记：这是兜底摘要，告知调用方可能不完整
+      };
+    }
+    console.log(`[MemberLoop] ❌ Forced summary also failed: ${summaryResult.error}`);
     return {
       success: false,
       finalContent: '',
-      iterations: MAX_ITERATIONS,
+      iterations: MAX_ITERATIONS + 1,
       toolCallCount,
-      error: `成员 Agent ${targetAgent.name} 跑完 ${MAX_ITERATIONS} 轮迭代未产出最终响应`,
+      error: `成员 Agent ${targetAgent.name} 跑完 ${MAX_ITERATIONS} 轮迭代未产出最终响应（兜底总结也失败：${summaryResult.error}）`,
       model: pickedModel?.name
     };
   }
@@ -1583,6 +1602,94 @@ async function runMemberAgentLoop(
     toolCallCount,
     model: pickedModel?.name
   };
+}
+
+/**
+ * 强制总结兜底：当 MemberLoop 跑满 MAX_ITERATIONS 轮仍未收敛到文本时，最后做一次 LLM 调用。
+ * 关键设计：
+ *   1) 注入明确的 user message "停止调工具，直接给文字汇报" —— 解决 read-after-edit 漂移
+ *   2) 不传 tools（tool_choice: 'none' 等价：让 LLM 无法调工具）—— 物理上保证不会再有 tool_calls
+ *   3) 沿用原 cascade 模型列表（pickedModel → preferredQueue），保证至少有一个能跑
+ *   4) 返回值带 forcedSummary 标记，调用方可识别这是兜底
+ */
+async function requestForcedSummary(
+  messages: any[],
+  modelsToTry: any[],
+  pickedModel: any | null,
+  targetAgent: any,
+  reply: any,
+  sanitizeMessages: (msgs: any[]) => any[]
+): Promise<{ success: boolean; finalContent: string; error?: string; model?: string }> {
+  // 构造一个独立的"总结"消息序列：原 messages + 一条明确的 user 指令
+  // 不传 tools，让 LLM 物理上无法继续调工具
+  const summaryMessages: any[] = [
+    ...messages,
+    {
+      role: 'user',
+      content: '【系统提示】你已经使用完了分配的迭代预算。现在必须停止调用任何工具，直接用中文文字汇报你已完成的工作（关键发现、改动、文件路径、剩余问题等）。不要再发起 tool_call。'
+    }
+  ];
+
+  const tryOrder = pickedModel
+    ? [pickedModel, ...modelsToTry.filter((m: any) => m.id !== pickedModel.id)]
+    : modelsToTry;
+
+  let lastError = '';
+  for (const tryModel of tryOrder) {
+    const apiUrl = `${tryModel.baseUrl.replace(/\/+$/, '')}/chat/completions`;
+    const reqBody: any = {
+      model: tryModel.modelId,
+      messages: sanitizeMessages(summaryMessages),
+      stream: false,
+      max_tokens: tryModel.maxTokens || 4096,  // 总结不需要太多 token
+      temperature: 0.3  // 略低温度，让模型更"听话"地给总结而非继续编工具调用
+      // 不传 tools / tool_choice —— LLM 物理上无法调工具
+    };
+
+    console.log(`[MemberLoop] [forced-summary] Trying model: ${tryModel.name} (${tryModel.modelId}), msgs=${summaryMessages.length}, tools=0`);
+    try {
+      const { response: res } = await fetchWithRetry(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${tryModel.apiKey}`
+        },
+        body: JSON.stringify(reqBody)
+      }, { maxAttempts: 1, timeoutMs: 30000, contextLabel: `forced-summary→${tryModel.name}` });
+
+      if (res.ok) {
+        const data: any = await res.json();
+        const content = data.choices?.[0]?.message?.content || '';
+        const cleaned = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+        if (cleaned) {
+          console.log(`[MemberLoop] ✅ Forced summary succeeded via ${tryModel.name} (${cleaned.length} chars)`);
+          // 通知前端：成员 agent 兜底完成
+          if (reply?.raw?.write) {
+            try {
+              reply.raw.write(`data: ${JSON.stringify({
+                type: 'agent_forced_summary',
+                agentName: targetAgent.name,
+                result: cleaned,
+                model: tryModel.name
+              })}\n\n`);
+            } catch {}
+          }
+          return { success: true, finalContent: cleaned, model: tryModel.name };
+        }
+        // content 为空：模型又走了 tool_calls（不应该，因为我们没传 tools）
+        lastError = `Empty content from ${tryModel.name}`;
+        console.warn(`[MemberLoop] ⚠️  ${lastError}`);
+        continue;
+      }
+      const errText = await res.text();
+      lastError = `HTTP ${res.status} from ${tryModel.name}: ${errText.slice(0, 200)}`;
+      console.warn(`[MemberLoop] ❌ ${lastError}`);
+    } catch (err: any) {
+      lastError = `Exception on ${tryModel.name}: ${err.message}`;
+      console.warn(`[MemberLoop] ❌ ${lastError}`);
+    }
+  }
+  return { success: false, finalContent: '', error: lastError || 'No models available for forced summary' };
 }
 
 /**
@@ -1660,7 +1767,10 @@ export async function executeAgentDelegation(
       task,
       iterations: result.iterations,
       toolCallCount: result.toolCallCount,
-      result: result.finalContent
+      result: result.finalContent,
+      // 告知协调员：这是兜底总结，可能不完整（不是正常 LLM 自发的最终汇报）
+      // 协调员可以据此决定是否重试或要求用户确认
+      forcedSummary: result.forcedSummary || false
     };
   }
 
