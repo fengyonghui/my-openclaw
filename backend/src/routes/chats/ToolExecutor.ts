@@ -468,23 +468,55 @@ function handleJsonParseError(rawArgs: string, parseError: Error): ToolResult {
   // 策略 1: Unterminated string - 补全引号和括号
   if (parseError.message.includes('Unterminated string')) {
     fixAttempts++;
-    const openQuotes = (fixedArgs.match(/"/g) || []).length;
     const openBraces = (fixedArgs.match(/{/g) || []).length;
     const closeBraces = (fixedArgs.match(/}/g) || []).length;
-    
+
     // 检查 content 字段是否被截断
     const contentMatch = fixedArgs.match(/"content"\s*:\s*"/);
     if (contentMatch) {
-      // content 字段未闭合，添加结束引号和括号
-      fixedArgs = fixedArgs + '"}}';
+      // content 字段未闭合。补全结束引号。
+      //
+      // 重要: content 内部可能含有未转义的 { / } 字符 (例如 Java 代码块 `class Foo {`),
+      // 因此不能用 fixedArgs 的总 {/} 计数来推断缺失的右括号数 —— 会把内容里的 { 也算进去。
+      // 正确做法: 关闭未闭合的字符串后, 逐步尝试 1~5 个右括号, 看哪个能让 JSON.parse 成功。
+      //
+      // 历史 bug: 旧版直接 append '"}"}(3 字符), 但对
+      //   {"path": "...", "content": "...匹配 \""}
+      // 这类典型 write_file 结构, 只需要 1 个 }, 旧逻辑会多 1 个 } 导致
+      //   "Extra data: line 1 column N (char M)"
+      // 然后进入 cascade 失败循环。
+      fixedArgs = fixedArgs + '"';
+      for (let n = 1; n <= 5; n++) {
+        const candidate = fixedArgs + '}'.repeat(n);
+        try {
+          JSON.parse(candidate);
+          fixedArgs = candidate;
+          console.log(`[JSON Fix #${fixAttempts}] Closed unterminated string + ${n} brace(s) (content branch)`);
+          break;
+        } catch {
+          // 继续尝试下一个 n
+        }
+      }
     } else {
-      // 补全缺失的括号
+      // 非 content 截断 (例如 path 截断). 补全缺失的括号.
+      //
+      // 同样地, 这里的字符串也可能未闭合 (例如 {"path": "src/foo 中, "src/foo 是 value 的开头,
+      // 但 value 还没结束). 策略 1 专注于 content 字段; 非 content 情况较少见,
+      // 但也可能发生. 同样采用尝试法: 先关闭可能的字符串, 再补 0~5 个 }.
+      const openBraces = (fixedArgs.match(/{/g) || []).length;
+      const closeBraces = (fixedArgs.match(/}/g) || []).length;
       const missingBraces = openBraces - closeBraces;
-      for (let i = 0; i < missingBraces; i++) {
-        fixedArgs += '}';
+      fixedArgs = fixedArgs + '"';
+      for (let n = 0; n <= missingBraces + 3; n++) {
+        const candidate = fixedArgs + '}'.repeat(n);
+        try {
+          JSON.parse(candidate);
+          fixedArgs = candidate;
+          console.log(`[JSON Fix #${fixAttempts}] Closed string + ${n} brace(s) (generic branch)`);
+          break;
+        } catch {}
       }
     }
-    console.log(`[JSON Fix #${fixAttempts}] Attempting to fix Unterminated string: ${fixedArgs.slice(0, 100)}...`);
   }
 
   // 策略 2: Unexpected end of JSON - 补全结尾
