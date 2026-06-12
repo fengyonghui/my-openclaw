@@ -26,3 +26,9 @@ data/chats/
 # 这些是运行期持续累积的状态，不应进入版本控制
 backend/data/db.json
 backend/data/session-events.jsonl
+
+# 后端 dev log（PowerShell 重定向写入，UTF-16 LE 编码，不应进版本控制）
+backend/dev.log
+
+# yarn 错误日志（yarn install 失败时产生）
+*-error.log
