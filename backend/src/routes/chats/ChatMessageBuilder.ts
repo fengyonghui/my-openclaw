@@ -548,26 +548,66 @@ export function buildHistoryMessages(
   );
 
   // Step 2: 收集有效 tool_call_ids（用于孤儿过滤）
-  const validToolCallIds = new Set<string>();
+  // 同时记录"已经有 tool result 的 tc_id"（pairedIds）和"声明了 tc_id 的 assistant 消息"（declaredIds），
+  // 这样 Step 3 就能双向过滤：
+  //   - 孤儿 tool result（declaredIds 里没有它的 tc_id）  →  删
+  //   - 孤儿 assistant tool_call（pairedIds 里没有它的 tc_id）  →  删
+  // MiniMax-M3（glue proxy）严格校验 "tool_call(args) 后面必须紧跟 role=tool 的 result"，
+  // 缺一个就 400 "tool call result does not follow tool call (2013)"。
+  const declaredIds = new Set<string>();   // assistant 声明的 tool_call.id
+  const pairedIds = new Set<string>();     // 有匹配 tool result 的 tool_call.id
   for (const m of normalized) {
     if (m.role === 'assistant' && m.tool_calls) {
       for (const tc of m.tool_calls) {
-        if (tc.id) validToolCallIds.add(tc.id);
+        if (tc.id) declaredIds.add(tc.id);
+      }
+    } else if (m.role === 'tool' && m.tool_call_id) {
+      if (declaredIds.has(m.tool_call_id)) {
+        pairedIds.add(m.tool_call_id);
       }
     }
   }
-  console.log(`[buildHistoryMessages] validToolCallIds.size=${validToolCallIds.size}, samples: ${Array.from(validToolCallIds).slice(0,3).join(',')}`);
+  console.log(`[buildHistoryMessages] declaredIds.size=${declaredIds.size}, pairedIds.size=${pairedIds.size}, samples: ${Array.from(pairedIds).slice(0,3).join(',')}`);
 
-  // Step 3: 过滤孤儿 tool 消息
+  // Step 3: 双向过滤孤儿
+  // 3a) 工具消息：没有对应 assistant 声明的 → 删
+  // 3b) assistant 消息：tool_call 列表里有没配对的 → 删整条 assistant（带空 assistant 一起）
   const filtered: Message[] = [];
+  let droppedUnpairedAssistant = 0;
+  let droppedOrphanToolResult = 0;
   for (const m of normalized) {
     if (m.role === 'tool') {
-      if (validToolCallIds.has(m.tool_call_id || '')) {
+      if (m.tool_call_id && declaredIds.has(m.tool_call_id)) {
         filtered.push(m);
+      } else {
+        droppedOrphanToolResult++;
+      }
+    } else if (m.role === 'assistant' && Array.isArray((m as any).tool_calls) && (m as any).tool_calls.length > 0) {
+      // 过滤掉未配对的 tool_call；若过滤后为空且 content 也空，整条 assistant 删除
+      const tcs = (m as any).tool_calls as any[];
+      const survivingTcs = tcs.filter(tc => pairedIds.has(tc.id));
+      if (survivingTcs.length === tcs.length) {
+        filtered.push(m);
+      } else if (survivingTcs.length > 0) {
+        // 保留有配对的那部分
+        filtered.push({ ...m, tool_calls: survivingTcs } as Message);
+        droppedUnpairedAssistant += (tcs.length - survivingTcs.length);
+      } else {
+        // 全部未配对 → 若 content 也空，整条删除；否则保留无 tool_calls 的 assistant
+        const content = (m as any).content;
+        const contentEmpty = !content || (typeof content === 'string' && content.trim() === '');
+        if (!contentEmpty) {
+          const { tool_calls, ...rest } = m as any;
+          filtered.push(rest as Message);
+        }
+        droppedUnpairedAssistant += tcs.length;
       }
     } else {
       filtered.push(m);
     }
+  }
+  if (droppedOrphanToolResult > 0 || droppedUnpairedAssistant > 0) {
+    console.log(`[buildHistoryMessages] orphan filter: dropped ${droppedOrphanToolResult} orphan tool result(s), ${droppedUnpairedAssistant} unpaired assistant tool_call(s)`);
   }
   console.log(`[buildHistoryMessages] filtered.length=${filtered.length}`);
 
