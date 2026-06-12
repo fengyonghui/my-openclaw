@@ -348,6 +348,26 @@ function normalizeExecError(
     };
   }
 
+  // 超时杀死：child_process.exec 命中 timeoutMs 时给子进程发 SIGTERM，err.code 为 null，
+  // err.killed=true, err.signal='SIGTERM'。如果不专门识别，上层只能看到 "exit=?" 干瞪眼。
+  // 修复：明确告诉 LLM 这是被 timeout 杀掉的，并指引它用 timeout 参数或拆分任务。
+  const wasKilled = err?.killed === true || (typeof err?.signal === 'string' && err.signal.length > 0);
+  const isTimeout = wasKilled && (exitCode === undefined || exitCode === null)
+                    || /timeout|timed out|超时/i.test(err?.message || '');
+  if (isTimeout) {
+    return {
+      error: `命令执行超时被中止 [exit=?]: ${cmdPreview}`,
+      stdout,
+      stderr,
+      _exitCode: null,
+      _killed: true,
+      _signal: err?.signal || 'SIGTERM',
+      _note: 'child_process.exec 命中 timeout 阈值后 SIGTERM 了子进程。'
+           + '可通过 shell_exec 工具的 timeout 参数（秒，默认 60，最大 300）拉长，'
+           + '或把任务拆成可中断的多步短任务，或在后台轮询状态。',
+    };
+  }
+
   // 其他错误：保留原始 err.message（通常含 stderr），并附上退出码
   return {
     error: `${err?.message || 'Unknown exec error'} [exit=${exitCode ?? '?'}]`,
@@ -652,6 +672,26 @@ export async function executeShellCommand(project: any, args: any): Promise<Tool
     return { error: '缺少参数: command/cmd/exec' };
   }
 
+  // 解析 LLM 提供的 timeout（秒）。ToolDefinitions 承诺 default=60, max=300。
+  // 历史 bug：忽略 args.timeout 硬编码 60s，Start-Sleep -Seconds 100 等长任务被 SIGTERM
+  // 杀掉后 err.code=null 上报 "exit=?"。这里把 LLM 的合法 timeout 真正应用到 exec()。
+  const MIN_TIMEOUT_S = 5;
+  const MAX_TIMEOUT_S = 300;
+  const DEFAULT_TIMEOUT_S = 60;
+  const parsedTimeout = Number(args.timeout);
+  let timeoutSec: number;
+  if (!Number.isFinite(parsedTimeout) || parsedTimeout <= 0) {
+    timeoutSec = DEFAULT_TIMEOUT_S;
+  } else if (parsedTimeout < MIN_TIMEOUT_S) {
+    timeoutSec = MIN_TIMEOUT_S;
+  } else if (parsedTimeout > MAX_TIMEOUT_S) {
+    timeoutSec = MAX_TIMEOUT_S;
+  } else {
+    timeoutSec = Math.floor(parsedTimeout);
+  }
+  const timeoutMs = timeoutSec * 1000;
+  console.log(`[Shell] timeout: ${timeoutSec}s (raw args.timeout=${args.timeout})`);
+
   const sys = getSystemInfo();
 
   // 验证 cwdArg 是否是有效路径（防止 LLM 生成无效的 cwd 参数）
@@ -737,9 +777,9 @@ export async function executeShellCommand(project: any, args: any): Promise<Tool
     const isPowerShellCmd = /^(Test-|Remove-|Write-|Get-|New-|Set-)/i.test(trimmedCmd) ||
                              trimmedCmd.startsWith('if ');
     if (isPowerShellCmd) {
-      return executePowerShellCommand(effectiveCommand, cwd);
+      return executePowerShellCommand(effectiveCommand, cwd, timeoutMs);
     }
-    return executeWindowsCommand(effectiveCommand, cwd);
+    return executeWindowsCommand(effectiveCommand, cwd, timeoutMs);
   }
 
   if (sys.isWSL) {
@@ -752,7 +792,7 @@ export async function executeShellCommand(project: any, args: any): Promise<Tool
         : path.posix.join(wslWorkspace, cwdArg)
       : wslWorkspace;
     console.log(`[Shell] Resolved cwd: ${cwd} (cwdArg=${cwdArg || 'none'})`);
-    return executeLinuxCommand(`wsl.exe ${effectiveCommand}`, cwd);
+    return executeLinuxCommand(`wsl.exe ${effectiveCommand}`, cwd, timeoutMs);
   }
 
   // ── 原生 Linux/macOS 执行 ──
@@ -763,7 +803,7 @@ export async function executeShellCommand(project: any, args: any): Promise<Tool
       : path.posix.join(localWorkspace, cwdArg)
     : localWorkspace;
   console.log(`[Shell] Resolved cwd: ${cwd} (cwdArg=${cwdArg || 'none'})`);
-  return executeLinuxCommand(effectiveCommand, cwd);
+  return executeLinuxCommand(effectiveCommand, cwd, timeoutMs);
 }
 
 /**
@@ -776,7 +816,7 @@ export async function executeShellCommand(project: any, args: any): Promise<Tool
  * 4. LLM 把 bash 习惯带过来：\$ → $（PowerShell 用 ` 反引号作转义，\ 是字面字符，
  *    \$ 会被解析为字面 \$ + 后续 token，导致 "Unexpected token '\$_.Exception.Message'"）
  */
-async function executePowerShellCommand(command: string, cwd: string): Promise<ToolResult> {
+async function executePowerShellCommand(command: string, cwd: string, timeoutMs: number = 60000): Promise<ToolResult> {
   return new Promise((resolve) => {
     const MAX_OUTPUT = 500 * 1024;
 
@@ -790,7 +830,7 @@ async function executePowerShellCommand(command: string, cwd: string): Promise<T
       exec(psCmd, {
         cwd,
         shell: 'powershell.exe',
-        timeout: 60000,
+        timeout: timeoutMs,
         maxBuffer: MAX_OUTPUT
       }, (err, stdout, stderr) => {
         if (err) {
@@ -833,7 +873,7 @@ async function executePowerShellCommand(command: string, cwd: string): Promise<T
     exec(psCmd, {
       cwd,
       shell: 'powershell.exe',
-      timeout: 60000,
+      timeout: timeoutMs,
       maxBuffer: MAX_OUTPUT
     }, (err, stdout, stderr) => {
       if (err) {
@@ -848,7 +888,7 @@ async function executePowerShellCommand(command: string, cwd: string): Promise<T
 /**
  * 执行 Windows CMD 命令
  */
-async function executeWindowsCommand(command: string, cwd: string): Promise<ToolResult> {
+async function executeWindowsCommand(command: string, cwd: string, timeoutMs: number = 60000): Promise<ToolResult> {
   return new Promise((resolve) => {
     const MAX_OUTPUT = 500 * 1024;
 
@@ -863,7 +903,7 @@ async function executeWindowsCommand(command: string, cwd: string): Promise<Tool
     exec(cleanCmd, {
       cwd,
       shell: 'powershell.exe',
-      timeout: 60000,
+      timeout: timeoutMs,
       maxBuffer: MAX_OUTPUT
     }, (err, stdout, stderr) => {
       if (err) {
@@ -1199,12 +1239,12 @@ function convertCmdToPowerShell(cmd: string): string {
 /**
  * 执行 Linux 命令
  */
-async function executeLinuxCommand(command: string, cwd: string): Promise<ToolResult> {
+async function executeLinuxCommand(command: string, cwd: string, timeoutMs: number = 60000): Promise<ToolResult> {
   return new Promise((resolve) => {
     const MAX_OUTPUT = 500 * 1024;
     exec(command, {
       cwd,
-      timeout: 60000,
+      timeout: timeoutMs,
       maxBuffer: MAX_OUTPUT
     }, (err, stdout, stderr) => {
       if (err) {
