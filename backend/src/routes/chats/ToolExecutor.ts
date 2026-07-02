@@ -950,7 +950,8 @@ function convertCmdToPowerShell(cmd: string): string {
   // ── Bash/Unix 命令转换（LLM 经常生成的跨平台命令）───────────────
 
   // ls -la / ls -l / ls -a / ls -la path / ls -l path 等
-  const lsMatch = trimmed.match(/^ls\s+(-[a-zA-Z]+)?\s*(.*)$/);
+  // 注意：2>&1 和 | 管道不应被当作路径的一部分
+  const lsMatch = trimmed.match(/^ls\s+(-[a-zA-Z]+)?\s+(.+?)(?:\s*2>&1|\s*\||\s*$)/);
   if (lsMatch) {
     const flags = lsMatch[1] || '';
     const path = lsMatch[2]?.trim() || '.';
@@ -972,9 +973,9 @@ function convertCmdToPowerShell(cmd: string): string {
   }
 
   // cat file / cat file1 file2
-  const catMatch = trimmed.match(/^cat\s+(.+)$/);
+  const catMatch = trimmed.match(/^cat\s+(.+?)(?:\s*2>&1|\s*\||\s*$)/);
   if (catMatch) {
-    const files = catMatch[1].trim();
+    const files = catMatch[1]?.trim() || '.';
     return `Get-Content "${files}"`;
   }
 
@@ -1017,10 +1018,10 @@ function convertCmdToPowerShell(cmd: string): string {
   }
 
   // find dir -name "*.ext" / find . -name "*.ext"
-  const findMatch = trimmed.match(/^find\s+(\S+)\s+(-[a-zA-Z]+\s+)?(-name|"[^"]+")\s+(.+)$/);
+  const findMatch = trimmed.match(/^find\s+(\S+)\s+(-[a-zA-Z]+\s+)?(-name|"[^"]+")\s+(.+?)(?:\s*2>&1|\s*\||\s*$)/);
   if (findMatch) {
     const dir = findMatch[1];
-    const pattern = findMatch[4].replace(/^["']|["']$/g, '');
+    const pattern = findMatch[4]?.replace(/^["']|["']$/g, '') || '';
     return `Get-ChildItem -Path "${dir}" -Recurse -Filter "${pattern}" | Select-Object -ExpandProperty FullName`;
   }
 
@@ -1081,43 +1082,43 @@ function convertCmdToPowerShell(cmd: string): string {
   }
 
   // mkdir -p dir
-  const mkdirPMatch = trimmed.match(/^mkdir\s+-p\s+(.+)$/);
+  const mkdirPMatch = trimmed.match(/^mkdir\s+-p\s+(.+?)(?:\s*2>&1|\s*\||\s*$)/);
   if (mkdirPMatch) {
-    const dirs = mkdirPMatch[1].trim();
+    const dirs = mkdirPMatch[1]?.trim() || '.';
     return `New-Item -ItemType Directory -Path "${dirs}" -Force`;
   }
 
   // rm -rf dir / rm -r dir / rm file
-  const rmMatch = trimmed.match(/^rm\s+(-[a-zA-Z]+)?\s+(.+)$/);
+  const rmMatch = trimmed.match(/^rm\s+(-[a-zA-Z]+)?\s+(.+?)(?:\s*2>&1|\s*\||\s*$)/);
   if (rmMatch) {
     const flags = rmMatch[1] || '';
-    const target = rmMatch[2].trim();
+    const target = rmMatch[2]?.trim() || '.';
     const isRecursive = /r/.test(flags) || /f/.test(flags);
     return `Remove-Item "${target}" -Recurse:${isRecursive} -Force`;
   }
 
   // cp src dest / cp -r src dest
-  const cpMatch = trimmed.match(/^cp\s+(-[a-zA-Z]+)?\s+(.+?)\s+(.+)$/);
+  const cpMatch = trimmed.match(/^cp\s+(-[a-zA-Z]+)?\s+(.+?)\s+(.+?)(?:\s*2>&1|\s*\||\s*$)/);
   if (cpMatch) {
     const flags = cpMatch[1] || '';
-    const src = cpMatch[2].trim();
-    const dest = cpMatch[3].trim();
+    const src = cpMatch[2]?.trim() || '';
+    const dest = cpMatch[3]?.trim() || '';
     const isRecursive = /r/.test(flags);
     return `Copy-Item "${src}" "${dest}" -Recurse:${isRecursive}`;
   }
 
   // mv src dest
-  const mvMatch = trimmed.match(/^mv\s+(.+?)\s+(.+)$/);
+  const mvMatch = trimmed.match(/^mv\s+(.+?)\s+(.+?)(?:\s*2>&1|\s*\||\s*$)/);
   if (mvMatch) {
-    const src = mvMatch[1].trim();
-    const dest = mvMatch[2].trim();
+    const src = mvMatch[1]?.trim() || '';
+    const dest = mvMatch[2]?.trim() || '';
     return `Move-Item "${src}" "${dest}"`;
   }
 
   // touch file
-  const touchMatch = trimmed.match(/^touch\s+(.+)$/);
+  const touchMatch = trimmed.match(/^touch\s+(.+?)(?:\s*2>&1|\s*\||\s*$)/);
   if (touchMatch) {
-    const file = touchMatch[1].trim();
+    const file = touchMatch[1]?.trim() || '.';
     return `New-Item -ItemType File -Path "${file}" -Force`;
   }
 
