@@ -499,9 +499,38 @@ function handleJsonParseError(rawArgs: string, parseError: Error): ToolResult {
     // 从截断点往前找，确定我们在哪个字段里
     // 倒查最近的 "content" 或 "oldText" 或 "newText" 字段
     let lastFieldMatch: RegExpMatchArray | null = null;
+    let lastFieldValStart = -1;
     if (errorPos >= 0 && errorPos < fixedArgs.length) {
       const beforeCut = fixedArgs.slice(0, errorPos);
-      lastFieldMatch = beforeCut.match(/"(content|oldText|newText|script|code|data)"\s*:\s*"([\s\S]*)$/);
+      // 用 search 找最后一次出现的位置（match 只返回第一个）
+      const fieldNames = ['content', 'oldText', 'newText', 'script', 'code', 'data', 'path'];
+      let bestIdx = -1;
+      let bestName = '';
+      for (const name of fieldNames) {
+        // 查找 "fieldName": " 在 beforeCut 中的所有出现
+        let lastIdx = -1;
+        let searchIdx = 0;
+        const needle = '"' + name + '": "';
+        while (true) {
+          const found = beforeCut.indexOf(needle, searchIdx);
+          if (found === -1) break;
+          lastIdx = found;
+          searchIdx = found + 1;
+        }
+        if (lastIdx > bestIdx) {
+          bestIdx = lastIdx;
+          bestName = name;
+        }
+      }
+      if (bestIdx >= 0) {
+        // 找到字段名，计算字段值开始位置（": " 之后的第一个 "）
+        const snippet = beforeCut.slice(bestIdx);
+        const colonQuoteIdx = snippet.indexOf('": "');
+        if (colonQuoteIdx >= 0) {
+          lastFieldValStart = bestIdx + colonQuoteIdx + 3;
+          lastFieldMatch = { index: bestIdx, 0: snippet } as any;
+        }
+      }
 
       if (lastFieldMatch) {
         // 找到了被截断的字段
@@ -509,17 +538,12 @@ function handleJsonParseError(rawArgs: string, parseError: Error): ToolResult {
         // 问题：content 内部可能含未转义的 " 字符（LLM 生成代码/HTML 时常见），
         // 简单追加 '"' 会关闭到错误的引号位置。
         //
-        // 解决方案：定位到字段值开始的位置（"content": " 之后），
+        // 解决方案：定位到字段值开始的位置，
         // 把从那里到 errorPos 的内容替换为一个安全的截断标记字符串，
         // 然后正确闭合 JSON。
-        const fullMatch = lastFieldMatch[0]; // 例如 "content": "abc...xyz
-        // 找到字段值开始引号的位置：fullMatch 最后一个 ": " 之后
-        const colonQuoteIdx = fullMatch.lastIndexOf('": "');
-        const fieldStartInFull = lastFieldMatch.index! + colonQuoteIdx + 3; // 跳过 ": "
-        const fieldValStart = fieldStartInFull;
-
+        //
         // 构建安全版本：保留字段名，截断值替换为标记，丢弃 errorPos 之后的残片
-        const prefix = fixedArgs.slice(0, fieldValStart);
+        const prefix = fixedArgs.slice(0, lastFieldValStart);
         const safeContent = '[文件内容过长，已截断至 ' + errorPos + ' 字符]';
         const rebuilt = prefix + safeContent + '"';
 
@@ -532,7 +556,7 @@ function handleJsonParseError(rawArgs: string, parseError: Error): ToolResult {
         try {
           JSON.parse(withBraces);
           fixedArgs = withBraces;
-          console.log(`[JSON Fix #${fixAttempts}] Replaced truncated content field at pos ${errorPos}, added ${missing} closing brace(s)`);
+          console.log(`[JSON Fix #${fixAttempts}] Replaced truncated field "${bestName}" at pos ${errorPos}, added ${missing} closing brace(s)`);
         } catch {
           // 如果重建失败，尝试 ±1 个括号
           for (let n = Math.max(0, missing - 1); n <= missing + 2; n++) {
@@ -540,7 +564,7 @@ function handleJsonParseError(rawArgs: string, parseError: Error): ToolResult {
             try {
               JSON.parse(alt);
               fixedArgs = alt;
-              console.log(`[JSON Fix #${fixAttempts}] Replaced truncated content field at pos ${errorPos}, ${n} closing brace(s)`);
+              console.log(`[JSON Fix #${fixAttempts}] Replaced truncated field "${bestName}" at pos ${errorPos}, ${n} closing brace(s)`);
               break;
             } catch {}
           }
