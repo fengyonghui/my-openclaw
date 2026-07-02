@@ -895,7 +895,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
           break;
         }
       } else {
-        repeatCallCount = 1;
+        repeatCallCount = 0;
       }
       lastToolCallSignature = currentSignature;
 

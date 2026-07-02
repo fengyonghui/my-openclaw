@@ -232,12 +232,25 @@ export class FileToolService {
       
       throw new Error(`未找到要替换的精确文本。oldText 长度: ${oldText.length} 字符, ${oldLines.length} 行。${context}`);
     }
-    const updated = current.replace(oldText, newText);
+    // 用同样的归一化策略做替换：先将 current 归一化为 \n 行尾 + 去行尾空白，
+    // 用 normalizedOld 在归一化后的文本中定位，再映射回原始文本做替换。
+    // 这样即使 LLM 提供的 oldText 与磁盘文件的换行符/尾部空格不一致，
+    // 也能正确匹配。
+    const updated = normalizedCurrent.replace(normalizedOld, normalizeText(newText));
+
+    // 验证替换确实改变了文件内容，避免无意义的重复调用
+    if (updated === normalizedCurrent) {
+      throw new Error('替换未产生任何变化——文件内容可能已被其他进程修改，或 oldText 与实际内容不匹配。请重新读取文件后重试。');
+    }
+
+    // 将归一化后的结果写回磁盘（统一使用 \n 换行）
     await fs.writeFile(absolutePath, updated, 'utf-8');
     const stat = await fs.stat(absolutePath);
+    const actuallyChanged = (updated !== normalizedCurrent);
     return {
       path: relativePath.replace(/\\/g, '/'),
-      replaced: true,
+      replaced: actuallyChanged,
+      wasChanged: actuallyChanged,
       bytes: stat.size,
       updatedAt: stat.mtime.toISOString()
     };
