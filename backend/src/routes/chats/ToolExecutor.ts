@@ -504,27 +504,43 @@ function handleJsonParseError(rawArgs: string, parseError: Error): ToolResult {
       lastFieldMatch = beforeCut.match(/"(content|oldText|newText|script|code|data)"\s*:\s*"([\s\S]*)$/);
 
       if (lastFieldMatch) {
-        // 找到了被截断的字段：截断点之前的内容就是有效字段名 + 截断的字符串值
-        // 方案：取到 errorPos 为止的内容，追加 '"' 闭合字符串，再补全剩余的 }
-        const truncated = fixedArgs.slice(0, errorPos);
-        // 尝试闭合：truncated + '"' + 补齐缺少的 }
-        const openBraces = (truncated.match(/{/g) || []).length;
-        const closeBraces = (truncated.match(/}/g) || []).length;
+        // 找到了被截断的字段
+        //
+        // 问题：content 内部可能含未转义的 " 字符（LLM 生成代码/HTML 时常见），
+        // 简单追加 '"' 会关闭到错误的引号位置。
+        //
+        // 解决方案：定位到字段值开始的位置（"content": " 之后），
+        // 把从那里到 errorPos 的内容替换为一个安全的截断标记字符串，
+        // 然后正确闭合 JSON。
+        const fullMatch = lastFieldMatch[0]; // 例如 "content": "abc...xyz
+        // 找到字段值开始引号的位置：fullMatch 最后一个 ": " 之后
+        const colonQuoteIdx = fullMatch.lastIndexOf('": "');
+        const fieldStartInFull = lastFieldMatch.index! + colonQuoteIdx + 3; // 跳过 ": "
+        const fieldValStart = fieldStartInFull;
+
+        // 构建安全版本：保留字段名，截断值替换为标记，丢弃 errorPos 之后的残片
+        const prefix = fixedArgs.slice(0, fieldValStart);
+        const safeContent = '[文件内容过长，已截断至 ' + errorPos + ' 字符]';
+        const rebuilt = prefix + safeContent + '"';
+
+        // 补齐缺少的 }
+        const openBraces = (rebuilt.match(/{/g) || []).length;
+        const closeBraces = (rebuilt.match(/}/g) || []).length;
         const missing = openBraces - closeBraces;
-        const candidate = truncated + '"' + '}'.repeat(Math.max(0, missing));
+        const withBraces = rebuilt + '}'.repeat(Math.max(0, missing));
 
         try {
-          JSON.parse(candidate);
-          fixedArgs = candidate;
-          console.log(`[JSON Fix #${fixAttempts}] Truncated unterminated string at pos ${errorPos}, added ${missing} closing brace(s)`);
+          JSON.parse(withBraces);
+          fixedArgs = withBraces;
+          console.log(`[JSON Fix #${fixAttempts}] Replaced truncated content field at pos ${errorPos}, added ${missing} closing brace(s)`);
         } catch {
-          // 如果补齐括号也不行，尝试少补几个
-          for (let n = Math.max(0, missing - 2); n <= missing + 1; n++) {
-            const alt = truncated + '"' + '}'.repeat(n);
+          // 如果重建失败，尝试 ±1 个括号
+          for (let n = Math.max(0, missing - 1); n <= missing + 2; n++) {
+            const alt = rebuilt + '}'.repeat(n);
             try {
               JSON.parse(alt);
               fixedArgs = alt;
-              console.log(`[JSON Fix #${fixAttempts}] Truncated unterminated string at pos ${errorPos}, ${n} closing brace(s)`);
+              console.log(`[JSON Fix #${fixAttempts}] Replaced truncated content field at pos ${errorPos}, ${n} closing brace(s)`);
               break;
             } catch {}
           }
