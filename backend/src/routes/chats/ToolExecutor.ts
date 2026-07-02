@@ -485,56 +485,82 @@ function handleJsonParseError(rawArgs: string, parseError: Error): ToolResult {
   let fixAttempts = 0;
   const MAX_FIX_ATTEMPTS = 5;
 
-  // 策略 1: Unterminated string - 补全引号和括号
+  // ── 策略 1: Unterminated string ──────────────────────────────────
+  // 核心思路：找到截断点，截断 content 值到截断点，然后正确闭合 JSON。
+  // 旧实现只是盲目追加 '"' + '}'，但 content 内部可能含未转义的 " 字符，
+  // 导致追加的 '"' 反而嵌入了字符串中间，无法真正闭合。
   if (parseError.message.includes('Unterminated string')) {
     fixAttempts++;
-    const openBraces = (fixedArgs.match(/{/g) || []).length;
-    const closeBraces = (fixedArgs.match(/}/g) || []).length;
 
-    // 检查 content 字段是否被截断
-    const contentMatch = fixedArgs.match(/"content"\s*:\s*"/);
-    if (contentMatch) {
-      // content 字段未闭合。补全结束引号。
-      //
-      // 重要: content 内部可能含有未转义的 { / } 字符 (例如 Java 代码块 `class Foo {`),
-      // 因此不能用 fixedArgs 的总 {/} 计数来推断缺失的右括号数 —— 会把内容里的 { 也算进去。
-      // 正确做法: 关闭未闭合的字符串后, 逐步尝试 1~5 个右括号, 看哪个能让 JSON.parse 成功。
-      //
-      // 历史 bug: 旧版直接 append '"}"}(3 字符), 但对
-      //   {"path": "...", "content": "...匹配 \""}
-      // 这类典型 write_file 结构, 只需要 1 个 }, 旧逻辑会多 1 个 } 导致
-      //   "Extra data: line 1 column N (char M)"
-      // 然后进入 cascade 失败循环。
-      fixedArgs = fixedArgs + '"';
-      for (let n = 1; n <= 5; n++) {
-        const candidate = fixedArgs + '}'.repeat(n);
+    // 提取错误位置
+    const posMatch = parseError.message.match(/position\s+(\d+)/);
+    const errorPos = posMatch ? parseInt(posMatch[1]) : -1;
+
+    // 从截断点往前找，确定我们在哪个字段里
+    // 倒查最近的 "content" 或 "oldText" 或 "newText" 字段
+    let lastFieldMatch: RegExpMatchArray | null = null;
+    if (errorPos >= 0 && errorPos < fixedArgs.length) {
+      const beforeCut = fixedArgs.slice(0, errorPos);
+      lastFieldMatch = beforeCut.match(/"(content|oldText|newText|script|code|data)"\s*:\s*"([\s\S]*)$/);
+
+      if (lastFieldMatch) {
+        // 找到了被截断的字段：截断点之前的内容就是有效字段名 + 截断的字符串值
+        // 方案：取到 errorPos 为止的内容，追加 '"' 闭合字符串，再补全剩余的 }
+        const truncated = fixedArgs.slice(0, errorPos);
+        // 尝试闭合：truncated + '"' + 补齐缺少的 }
+        const openBraces = (truncated.match(/{/g) || []).length;
+        const closeBraces = (truncated.match(/}/g) || []).length;
+        const missing = openBraces - closeBraces;
+        const candidate = truncated + '"' + '}'.repeat(Math.max(0, missing));
+
         try {
           JSON.parse(candidate);
           fixedArgs = candidate;
-          console.log(`[JSON Fix #${fixAttempts}] Closed unterminated string + ${n} brace(s) (content branch)`);
-          break;
+          console.log(`[JSON Fix #${fixAttempts}] Truncated unterminated string at pos ${errorPos}, added ${missing} closing brace(s)`);
         } catch {
-          // 继续尝试下一个 n
+          // 如果补齐括号也不行，尝试少补几个
+          for (let n = Math.max(0, missing - 2); n <= missing + 1; n++) {
+            const alt = truncated + '"' + '}'.repeat(n);
+            try {
+              JSON.parse(alt);
+              fixedArgs = alt;
+              console.log(`[JSON Fix #${fixAttempts}] Truncated unterminated string at pos ${errorPos}, ${n} closing brace(s)`);
+              break;
+            } catch {}
+          }
         }
       }
-    } else {
-      // 非 content 截断 (例如 path 截断). 补全缺失的括号.
-      //
-      // 同样地, 这里的字符串也可能未闭合 (例如 {"path": "src/foo 中, "src/foo 是 value 的开头,
-      // 但 value 还没结束). 策略 1 专注于 content 字段; 非 content 情况较少见,
-      // 但也可能发生. 同样采用尝试法: 先关闭可能的字符串, 再补 0~5 个 }.
+    }
+
+    // 兜底：只在智能截断没找到匹配字段时才用旧逻辑
+    const smartTruncateSucceeded = (errorPos >= 0 && lastFieldMatch && fixedArgs !== rawArgs);
+    if (!smartTruncateSucceeded) {
       const openBraces = (fixedArgs.match(/{/g) || []).length;
       const closeBraces = (fixedArgs.match(/}/g) || []).length;
-      const missingBraces = openBraces - closeBraces;
-      fixedArgs = fixedArgs + '"';
-      for (let n = 0; n <= missingBraces + 3; n++) {
-        const candidate = fixedArgs + '}'.repeat(n);
-        try {
-          JSON.parse(candidate);
-          fixedArgs = candidate;
-          console.log(`[JSON Fix #${fixAttempts}] Closed string + ${n} brace(s) (generic branch)`);
-          break;
-        } catch {}
+      const contentMatch = fixedArgs.match(/"content"\s*:\s*"/);
+      if (contentMatch) {
+        fixedArgs = fixedArgs + '"';
+        for (let n = 1; n <= 5; n++) {
+          const candidate = fixedArgs + '}'.repeat(n);
+          try {
+            JSON.parse(candidate);
+            fixedArgs = candidate;
+            console.log(`[JSON Fix #${fixAttempts}] Closed unterminated string + ${n} brace(s) (content branch)`);
+            break;
+          } catch {}
+        }
+      } else {
+        const missingBraces = openBraces - closeBraces;
+        fixedArgs = fixedArgs + '"';
+        for (let n = 0; n <= missingBraces + 3; n++) {
+          const candidate = fixedArgs + '}'.repeat(n);
+          try {
+            JSON.parse(candidate);
+            fixedArgs = candidate;
+            console.log(`[JSON Fix #${fixAttempts}] Closed string + ${n} brace(s) (generic branch)`);
+            break;
+          } catch {}
+        }
       }
     }
   }
