@@ -335,7 +335,9 @@ function normalizeExecError(
   }
 
   // 经典 grep/findstr "无匹配" 模式：exit=1 且输出全空
-  if (exitCode === 1 && !trimmedOut && !trimmedErr) {
+  // 仅对 grep/findstr/Select-String 类命令适用，对其他命令（如 mvn、java）应报告真实错误
+  const likelySearchCmd = /\bgrep\b|\bfindstr\b|\bSelect-String\b/i.test(originalCommand);
+  if (exitCode === 1 && !trimmedOut && !trimmedErr && likelySearchCmd) {
     return {
       success: false,
       stdout,
@@ -920,8 +922,9 @@ async function executePowerShellCommand(command: string, cwd: string, timeoutMs:
     }
 
     // 清理命令中的 shell/bash 特有语法（PowerShell 不识别）
+    // 注意：不再剥离 2>&1，因为它在管道中是必要的（stderr 重定向到 stdout 才能被 Select-String 等捕获）
+    // 只剥离 PowerShell 完全不支持的重定向 >&2
     let cleanCmd = command
-      .replace(/\s*2>\s*&1\s*(\||;|$)/g, '$1')     // 剥离 2>&1（末尾、管道前、分号前）
       .replace(/\s*>\s*&\d\s*$/g, '')             // 剥离 >&2 等
       .replace(/\s*\|\s*tee\s+[^\s]*/gi, '')     // 剥离 | tee
       .replace(/\s*;\s*exit\s*\$?\w+/gi, ''); // 剥离 ; exit $?
