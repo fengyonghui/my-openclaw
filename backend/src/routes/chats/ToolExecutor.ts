@@ -369,8 +369,19 @@ function normalizeExecError(
   }
 
   // 其他错误：保留原始 err.message（通常含 stderr），并附上退出码
+  // 但先清理 PowerShell CLIXML 格式的错误输出（<S S="Error">...</S> 标签）
+  let cleanError = err?.message || 'Unknown exec error';
+  // 去除 CLIXML 标签：<S S="Error">text</S>_x000D__x000A_
+  cleanError = cleanError.replace(/<S S="Error">\s*([\s\S]*?)<\/S>/gi, '$1');
+  // 去除 CLIXML 控制字符 (_x000D_ = CR, _x000A_ = LF)
+  cleanError = cleanError.replace(/_x000[DA]_/g, '');
+  // 去除 CLIXML 头部声明
+  cleanError = cleanError.replace(/^#< CLIXML[\s\S]*?<Objs[\s\S]*?>\s*/, '');
+  // 去除剩余 XML 标签
+  cleanError = cleanError.replace(/<[^>]+>/g, '');
+
   return {
-    error: `${err?.message || 'Unknown exec error'} [exit=${exitCode ?? '?'}]`,
+    error: `${cleanError} [exit=${exitCode ?? '?'}]`,
     stdout,
     stderr,
     _exitCode: exitCode,
