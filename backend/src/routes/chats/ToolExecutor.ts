@@ -1495,7 +1495,9 @@ export async function executeFileIO(
     'write': 'write_file',
     'read': 'read_file',
     'list': 'list_files',
-    'delete': 'rm'
+    'delete': 'rm',
+    'find': 'find',
+    'search': 'find',
   };
 
   const normalizedCommand = command.trim().toLowerCase();
@@ -1529,6 +1531,50 @@ export async function executeFileIO(
       if (!newText) return { error: '缺少参数: newText' };
       const editResult = await FileToolService.editFile(project.workspace, filePath, oldText, newText);
       return { success: true, ...editResult };
+
+    case 'find':
+    case 'search': {
+      // 解析 "find . -name '*.java'" 或 "find src -name 'Foo.java'" 格式的搜索命令
+      const findArg = args.command || args.cmd || '';
+      const findMatch = findArg.match(/^find\s+(\S+)\s+-name\s+["']?([^"']+)["']?\s*$/);
+      if (findMatch) {
+        const searchDir = findMatch[1] || '.';
+        const pattern = findMatch[2];
+        try {
+          const { absolutePath } = FileToolService.resolveWorkspacePath(project.workspace, searchDir);
+          const results: any[] = [];
+          function walk(dir: string, depth: number, maxDepth: number) {
+            return new Promise<void>((resolve) => {
+              if (depth > maxDepth) { resolve(); return; }
+              fs.readdir(dir, { withFileTypes: true }, (err, entries) => {
+                if (err) { resolve(); return; }
+                (entries || []).forEach((entry) => {
+                  const fullPath = path.join(dir, entry.name);
+                  const rel = path.relative(absolutePath, fullPath).replace(/\\/g, '/');
+                  // 通配符匹配：支持 * 和 ?
+                  const regexPattern = '^' + pattern.replace(/\*/g, '.*').replace(/\?/g, '.') + '$';
+                  if (entry.isFile() && new RegExp(regexPattern).test(entry.name)) {
+                    fs.stat(fullPath, (err, stat) => {
+                      if (!err) {
+                        results.push({ path: rel, name: entry.name, size: stat.size, updatedAt: stat.mtime.toISOString() });
+                      }
+                    });
+                  }
+                  if (entry.isDirectory()) walk(fullPath, depth + 1, maxDepth);
+                });
+                resolve();
+              });
+            });
+          }
+          await walk(absolutePath, 0, 5);
+          return { success: true, count: results.length, results, _searchDir: searchDir, _pattern: pattern };
+        } catch (err: any) {
+          return { success: false, error: `文件搜索失败: ${err.message}` };
+        }
+      }
+      // 没有 -name 参数，退回 list_files
+      return await FileToolService.listFiles(project.workspace, filePath || '.', Number(args.depth) || 3);
+    }
 
     default:
       return { error: `未知 file-io 命令: ${command}` };
