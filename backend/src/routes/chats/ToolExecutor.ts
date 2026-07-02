@@ -1050,8 +1050,8 @@ function convertCmdToPowerShell(cmd: string): string {
   const grepMatch = trimmed.match(/^grep\s+(-[a-zA-Z]+)?\s+("(?:[^"\\]|\\.)*"|'[^']*'|(\S+))\s+(.+)$/);
   if (grepMatch) {
     const flags = grepMatch[1] || '';
-    // group 2 = quoted pattern, group 3 = unquoted pattern, group 4 = remainder (target + optional flags)
-    const pattern = grepMatch[2] || grepMatch[3] || '';
+    // group 2 = quoted pattern (with surrounding quotes), group 3 = unquoted pattern, group 4 = remainder
+    const pattern = (grepMatch[2] || grepMatch[3] || '').replace(/^["']|["']$/g, '');
     const remainder = grepMatch[4]?.trim() || '';
 
     // 从 remainder 中提取目标目录和 --include/--exclude/--color 等 GNU 选项
