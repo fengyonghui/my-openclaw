@@ -1084,16 +1084,17 @@ function convertCmdToPowerShell(cmd: string): string {
   }
 
   // find dir -name "*.ext" / find . -name "*.ext"
-  const findMatch = trimmed.match(/^find\s+(\S+)\s+(-[a-zA-Z]+\s+)?(-name|"[^"]+")\s+(.+?)(?:\s*2>&1|\s*2>\/dev\/null|\s*\||\s*$)/);
+  // 注意: pattern 后可能跟 2>&1 / 2>/dev/null / | head 等，需要用负向前瞻排除
+  const findMatch = trimmed.match(/^find\s+(\S+)\s+(-[a-zA-Z]+\s+)?(-name|"[^"]+")\s+((?:(?!2>[&/]|\|\s*(?:head|tail|grep|findstr)).)+)(?:\s*2>&1\s*(?:\||$)|\s*2>\/dev\/null\s*(?:\||$)|\s*\||\s*$)/);
   if (findMatch) {
     // 清理目录路径和 pattern 中可能残留的引号
     const dir = findMatch[1]?.replace(/^["']|["']$/g, '') || '.';
-    const pattern = findMatch[4]?.replace(/^["']|["']$/g, '') || '';
+    const pattern = findMatch[4]?.trim().replace(/^["']|["']$/g, '') || '';
     return `Get-ChildItem -Path "${dir}" -Recurse -Filter "${pattern}" | Select-Object -ExpandProperty FullName`;
   }
 
   // find dir -type f / find dir -type d / find dir -type f -name "*.ext"
-  const findTypeMatch = trimmed.match(/^find\s+(\S+)\s+-type\s+(f|d)\s+(.+?)(?:\s*2>&1|\s*2>\/dev\/null|\s*\||\s*$)/);
+  const findTypeMatch = trimmed.match(/^find\s+(\S+)\s+-type\s+(f|d)\s+((?:(?!2>[&/]|\|\s*(?:head|tail|grep|findstr)).)+)(?:\s*2>&1\s*(?:\||$)|\s*2>\/dev\/null\s*(?:\||$)|\s*\||\s*$)/);
   if (findTypeMatch) {
     const dir = findTypeMatch[1]?.replace(/^["']|["']$/g, '') || '.';
     const type = findTypeMatch[2];
@@ -1114,7 +1115,7 @@ function convertCmdToPowerShell(cmd: string): string {
   }
 
   // find dir -path "pattern" [-print] / find dir -path "pattern" -name "*.ext"
-  const findPathMatch = trimmed.match(/^find\s+(\S+)\s+-path\s+"([^"]+)"(?:\s+-print)?(?:\s*2>&1|\s*2>\/dev\/null|\s*\|\s*head\s+(\d+))?/);
+  const findPathMatch = trimmed.match(/^find\s+(\S+)\s+-path\s+"([^"]+)"(?:\s+-print)?(?:\s*2>&1\s*(?:\||$)|\s*2>\/dev\/null\s*(?:\||$)|\s*\|\s*head\s+(\d+))?/);
   if (findPathMatch) {
     const dir = findPathMatch[1];
     const pattern = findPathMatch[2];
