@@ -942,6 +942,15 @@ async function executePowerShellCommand(command: string, cwd: string, timeoutMs:
 
     // 使用 {block} 语法避免引号嵌套问题
     // 注意：双大括号 {{ }} 在模板字符串中是单大括号 {}
+    //
+    // 关键修复：LLM 的命令中可能包含 \"（转义的双引号），在 {block} 中
+    // PowerShell 会正确解释，但 child_process.exec 经过 Windows API 层时，
+    // \" 可能被错误解析为字符串终止符，导致后续命令碎片化。
+    // 解决方案：先清理所有 \" 为 PowerShell 原生的 "" 或单引号包裹，
+    // 同时清理 \$ 为原生的 $。
+    cleanCmd = cleanCmd.replace(/\\"/g, "'");  // \" → '（用单引号替代转义双引号）
+    cleanCmd = cleanCmd.replace(/\$\$/g, '$');  // $$ → $（防止 $$ 被解释为上一个命令的输出）
+
     const psCmd = `powershell -NoProfile -Command {${cleanCmd}}`;
 
     // 关键: 必须显式指定 shell: 'powershell.exe'。
