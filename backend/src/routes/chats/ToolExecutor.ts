@@ -844,9 +844,9 @@ async function executePowerShellCommand(command: string, cwd: string, timeoutMs:
 
     // 清理命令中的 shell/bash 特有语法（PowerShell 不识别）
     let cleanCmd = command
-      .replace(/\s*2>\s*&1\s*$/g, '')        // 剥离 2>&1
-      .replace(/\s*>\s*&\d\s*$/g, '')         // 剥离 >&2 等
-      .replace(/\s*\|\s*tee\s+[^\s]*/gi, '') // 剥离 | tee
+      .replace(/\s*2>\s*&1\s*(\||$)/g, '$1')     // 剥离 2>&1（末尾或管道前）
+      .replace(/\s*>\s*&\d\s*$/g, '')             // 剥离 >&2 等
+      .replace(/\s*\|\s*tee\s+[^\s]*/gi, '')     // 剥离 | tee
       .replace(/\s*;\s*exit\s*\$?\w+/gi, ''); // 剥离 ; exit $?
 
     // 修复 Windows 路径末尾的反斜杠（PowerShell -Command 中会转义闭合引号）
@@ -952,17 +952,38 @@ function convertCmdToPowerShell(cmd: string): string {
     return `Get-Content "${files}"`;
   }
 
-  // grep pattern file / grep -r pattern dir
-  const grepMatch = trimmed.match(/^grep\s+(-[a-zA-Z]+)?\s*(.+?)\s+(.+)$/);
+  // grep pattern file / grep -r pattern dir / grep -rn "pattern" dir --include="*.ts"
+  // 使用更稳健的正则：先匹配选项，再匹配 pattern（可带引号），再匹配 target（可带 --include/--exclude）
+  const grepMatch = trimmed.match(/^grep\s+(-[a-zA-Z]+)?\s+("(?:[^"\\]|\\.)*"|'[^']*'|(\S+))\s+(.+)$/);
   if (grepMatch) {
     const flags = grepMatch[1] || '';
-    const pattern = grepMatch[2].trim();
-    const target = grepMatch[3].trim();
+    // group 2 = quoted pattern, group 3 = unquoted pattern, group 4 = remainder (target + optional flags)
+    const pattern = grepMatch[2] || grepMatch[3] || '';
+    const remainder = grepMatch[4]?.trim() || '';
+
+    // 从 remainder 中提取目标目录和 --include/--exclude/--color 等 GNU 选项
+    const includeMatch = remainder.match(/--include="([^"]+)"/);
+    const excludeMatch = remainder.match(/--exclude="([^"]+)"/);
+    const parts = remainder.split(/\s+/);
+    // 第一个非选项 token 是目标路径
+    let target = '.';
+    for (const part of parts) {
+      if (!part.startsWith('--')) {
+        target = part;
+        break;
+      }
+    }
+
     const isRecursive = /r/.test(flags);
     const isCaseInsensitive = /i/.test(flags);
 
     if (isRecursive) {
-      let ps = `Get-ChildItem -Recurse -File | Select-String -Pattern "${pattern}"`;
+      let ps = `Get-ChildItem -Recurse -File`;
+      // 如果有 --include，限制搜索的文件
+      if (includeMatch) {
+        ps += ` -Filter "*${includeMatch[1]}"`;
+      }
+      ps += ` | Select-String -Pattern "${pattern}"`;
       if (isCaseInsensitive) ps += ' -CaseSensitive:$false';
       return ps;
     }
@@ -1103,10 +1124,21 @@ function convertCmdToPowerShell(cmd: string): string {
   }
 
   // curl 命令 → curl.exe（PowerShell 的 curl 是 Invoke-WebRequest 别名，不兼容）
+  // 注意：不要在此处 return，因为 LLM 可能在 curl 后追加 | head / | tail
   const curlMatch = trimmed.match(/^curl(\.exe)?\s+(.+)$/i);
   if (curlMatch) {
-    const curlArgs = curlMatch[2];
-    return `curl.exe ${curlArgs}`;
+    let ps = `curl.exe ${curlMatch[2]}`;
+    // 如果后面跟了 | head 或 | tail，转换为 PowerShell 等效命令
+    const pipeHead = ps.match(/^(.*?)\s*\|\s*head\s+(-n\s+)?(\d+)\s*$/);
+    if (pipeHead) {
+      ps = `${pipeHead[1]} | Select-Object -First ${pipeHead[3]}`;
+    } else {
+      const pipeTail = ps.match(/^(.*?)\s*\|\s*tail\s+(-n\s+)?(\d+)\s*$/);
+      if (pipeTail) {
+        ps = `${pipeTail[1]} | Select-Object -Last ${pipeTail[3]}`;
+      }
+    }
+    return ps;
   }
 
   // Get-CimInstance Win32_Process -Filter "Name='java.exe'" 需要转换
@@ -1416,7 +1448,7 @@ async function runMemberAgentLoop(
   }
 
   const PREFERRED_MODEL_IDS = [
-    'gemini-2.5-pro', 'MiniMax-M3', 'minimaxai/minimax-m2.5',
+    'gemini-2.5-pro', 'MiniMax-M3',
     'mx27', 'mx27-h', 'z-ai/glm5',
     'claude-sonnet-4-6', 'claude-opus-4-6-thinking',
     'gpt-4o', 'o3', 'o3-mini', 'o4-mini',
@@ -1542,7 +1574,7 @@ async function runMemberAgentLoop(
           continue;
         }
       } else {
-        repeatCallCount = 1;
+        repeatCallCount = 0;
       }
       lastToolCallSignature = sig;
 
@@ -1734,7 +1766,7 @@ async function requestForcedSummary(
           'Authorization': `Bearer ${tryModel.apiKey}`
         },
         body: JSON.stringify(reqBody)
-      }, { maxAttempts: 1, timeoutMs: 30000, contextLabel: `forced-summary→${tryModel.name}` });
+      }, { maxAttempts: 2, timeoutMs: 60000, contextLabel: `forced-summary→${tryModel.name}` });
 
       if (res.ok) {
         const data: any = await res.json();
