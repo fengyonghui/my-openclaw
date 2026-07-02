@@ -921,7 +921,7 @@ async function executePowerShellCommand(command: string, cwd: string, timeoutMs:
 
     // 清理命令中的 shell/bash 特有语法（PowerShell 不识别）
     let cleanCmd = command
-      .replace(/\s*2>\s*&1\s*(\||$)/g, '$1')     // 剥离 2>&1（末尾或管道前）
+      .replace(/\s*2>\s*&1\s*(\||;|$)/g, '$1')     // 剥离 2>&1（末尾、管道前、分号前）
       .replace(/\s*>\s*&\d\s*$/g, '')             // 剥离 >&2 等
       .replace(/\s*\|\s*tee\s+[^\s]*/gi, '')     // 剥离 | tee
       .replace(/\s*;\s*exit\s*\$?\w+/gi, ''); // 剥离 ; exit $?
@@ -929,6 +929,9 @@ async function executePowerShellCommand(command: string, cwd: string, timeoutMs:
     // 修复 Windows 路径末尾的反斜杠（PowerShell -Command 中会转义闭合引号）
     // 将 D:\ 末尾反斜杠改为正斜杠，PowerShell 兼容
     cleanCmd = cleanCmd.replace(/([A-Za-z]):\\(?=\s*(['"]|\s*[-&|]|$))/g, '$1:/');
+
+    // 修复无空格的管道符：word| → word |（PowerShell 要求 | 前后有空格或换行）
+    cleanCmd = cleanCmd.replace(/([a-zA-Z0-9_-])\|/g, '$1 |');
 
     // 把 \$ 替换为 $（LLM 常见错误：把 bash 的 \$variable 习惯带进 PowerShell）
     // PowerShell 的转义符是反引号 `，\ 是字面字符
