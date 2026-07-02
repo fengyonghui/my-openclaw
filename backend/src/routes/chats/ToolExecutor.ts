@@ -1083,9 +1083,31 @@ function convertCmdToPowerShell(cmd: string): string {
   // find dir -name "*.ext" / find . -name "*.ext"
   const findMatch = trimmed.match(/^find\s+(\S+)\s+(-[a-zA-Z]+\s+)?(-name|"[^"]+")\s+(.+?)(?:\s*2>&1|\s*\||\s*$)/);
   if (findMatch) {
-    const dir = findMatch[1];
+    // 清理目录路径和 pattern 中可能残留的引号
+    const dir = findMatch[1]?.replace(/^["']|["']$/g, '') || '.';
     const pattern = findMatch[4]?.replace(/^["']|["']$/g, '') || '';
     return `Get-ChildItem -Path "${dir}" -Recurse -Filter "${pattern}" | Select-Object -ExpandProperty FullName`;
+  }
+
+  // find dir -type f / find dir -type d / find dir -type f -name "*.ext"
+  const findTypeMatch = trimmed.match(/^find\s+(\S+)\s+-type\s+(f|d)\s+(.+?)(?:\s*2>&1|\s*\||\s*$)/);
+  if (findTypeMatch) {
+    const dir = findTypeMatch[1]?.replace(/^["']|["']$/g, '') || '.';
+    const type = findTypeMatch[2];
+    const rest = findTypeMatch[3]?.trim() || '';
+    let ps = `Get-ChildItem -Path "${dir}" -Recurse`;
+    if (type === 'd') {
+      ps += ' | Where-Object { $_.PSIsContainer }';
+    } else {
+      ps += ' | Where-Object { -not $_.PSIsContainer }';
+    }
+    // 如果有额外的 -name "*.ext" 条件，进一步过滤
+    const nameMatch = rest.match(/-name\s+"([^"]+)"/);
+    if (nameMatch) {
+      ps += ` | Where-Object { $_.Name -like "${nameMatch[1]}" }`;
+    }
+    ps += ' | Select-Object -ExpandProperty FullName';
+    return ps;
   }
 
   // find dir -path "pattern" [-print] / find dir -path "pattern" -name "*.ext"
