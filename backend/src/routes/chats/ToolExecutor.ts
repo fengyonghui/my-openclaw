@@ -1065,6 +1065,25 @@ function convertCmdToPowerShell(cmd: string): string {
     return `Get-ChildItem -Path "${dir}" -Recurse -Filter "${pattern}" | Select-Object -ExpandProperty FullName`;
   }
 
+  // find dir -path "pattern" [-print] / find dir -path "pattern" -name "*.ext"
+  const findPathMatch = trimmed.match(/^find\s+(\S+)\s+-path\s+"([^"]+)"(?:\s+-print)?(?:\s*\|\s*head\s+(\d+))?/);
+  if (findPathMatch) {
+    const dir = findPathMatch[1];
+    const pattern = findPathMatch[2];
+    // -path uses shell glob syntax like "*/main/*", convert to PowerShell -Include
+    let ps = `Get-ChildItem -Path "${dir}" -Recurse`;
+    if (pattern.includes('*') || pattern.includes('?')) {
+      ps += ` -Include "${pattern}"`;
+    } else {
+      ps += ` -Include "*${pattern}*" `;
+    }
+    ps += ' | Select-Object -ExpandProperty FullName';
+    if (findPathMatch[3]) {
+      ps += ` | Select-Object -First ${findPathMatch[3]}`;
+    }
+    return ps;
+  }
+
   // find . -name "a" -o -name "b" -o -name "c" | head -20 （多文件扩展名搜索）
   const findMultiMatch = trimmed.match(/^find\s+(\S+)\s+(-name\s+"[^"]+"\s+-o\s+)+(-name\s+"[^"]+")(\s*\|\s*head\s+(-\d+)?\s*(\d+))?/);
   if (findMultiMatch) {
