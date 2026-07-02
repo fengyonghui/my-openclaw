@@ -1084,7 +1084,7 @@ function convertCmdToPowerShell(cmd: string): string {
   }
 
   // find dir -name "*.ext" / find . -name "*.ext"
-  const findMatch = trimmed.match(/^find\s+(\S+)\s+(-[a-zA-Z]+\s+)?(-name|"[^"]+")\s+(.+?)(?:\s*2>&1|\s*\||\s*$)/);
+  const findMatch = trimmed.match(/^find\s+(\S+)\s+(-[a-zA-Z]+\s+)?(-name|"[^"]+")\s+(.+?)(?:\s*2>&1|\s*2>\/dev\/null|\s*\||\s*$)/);
   if (findMatch) {
     // 清理目录路径和 pattern 中可能残留的引号
     const dir = findMatch[1]?.replace(/^["']|["']$/g, '') || '.';
@@ -1093,7 +1093,7 @@ function convertCmdToPowerShell(cmd: string): string {
   }
 
   // find dir -type f / find dir -type d / find dir -type f -name "*.ext"
-  const findTypeMatch = trimmed.match(/^find\s+(\S+)\s+-type\s+(f|d)\s+(.+?)(?:\s*2>&1|\s*\||\s*$)/);
+  const findTypeMatch = trimmed.match(/^find\s+(\S+)\s+-type\s+(f|d)\s+(.+?)(?:\s*2>&1|\s*2>\/dev\/null|\s*\||\s*$)/);
   if (findTypeMatch) {
     const dir = findTypeMatch[1]?.replace(/^["']|["']$/g, '') || '.';
     const type = findTypeMatch[2];
@@ -1114,7 +1114,7 @@ function convertCmdToPowerShell(cmd: string): string {
   }
 
   // find dir -path "pattern" [-print] / find dir -path "pattern" -name "*.ext"
-  const findPathMatch = trimmed.match(/^find\s+(\S+)\s+-path\s+"([^"]+)"(?:\s+-print)?(?:\s*\|\s*head\s+(\d+))?/);
+  const findPathMatch = trimmed.match(/^find\s+(\S+)\s+-path\s+"([^"]+)"(?:\s+-print)?(?:\s*2>&1|\s*2>\/dev\/null|\s*\|\s*head\s+(\d+))?/);
   if (findPathMatch) {
     const dir = findPathMatch[1];
     const pattern = findPathMatch[2];
