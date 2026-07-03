@@ -1095,10 +1095,17 @@ function convertCmdToPowerShell(cmd: string): string {
 
   // ls -la / ls -l / ls -a / ls -la path / ls -l path 等
   // 注意：2>&1 和 | 管道不应被当作路径的一部分
-  const lsMatch = trimmed.match(/^ls\s+(-[a-zA-Z]+)?\s*(.+?)(?:\s*2>&1|\s*\||\s*$)/);
+  // ls -la / ls -l / ls -a / ls -la path / ls -l path 等
+  // \S+(?:\s+\S+)* 匹配一个或多个空格分隔的路径（支持 ls dir1 dir2）
+  // \s* 而非 \s+ 以支持 "ls" 不带参数的情况
+  const lsMatch = trimmed.match(/^ls(-[a-zA-Z]+)?\s*(\S+(?:\s+\S+)*)?$/);
   if (lsMatch) {
     const flags = lsMatch[1] || '';
-    const path = lsMatch[2]?.trim() || '.';
+    const rawPaths = lsMatch[2]?.trim() || '';
+    // Linux ls 接受空格分隔的多个路径，PowerShell 的 Get-ChildItem 不接受。
+    // 将空格分隔的路径拆分为数组，用逗号传入 -Path（PowerShell 接受数组）
+    const paths = rawPaths ? rawPaths.split(/\s+/).filter(Boolean) : ['.'];
+    const path = paths.length > 1 ? paths.join(',') : paths[0];
     const hasLongFormat = /l/.test(flags);
     const hasAll = /a/.test(flags);
     const hasRecurse = /R/.test(flags);
