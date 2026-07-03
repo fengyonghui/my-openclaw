@@ -67,44 +67,29 @@ function getCachedPlatformInfo() {
 export const BUILTIN_SHELL_CMD_SKILL = {
   id: 'builtin-shell-cmd',
   name: 'shell-cmd',
-  description: 'Execute shell commands and git operations. Use when you need to run system commands, git workflows, file navigation, process management, or any command-line operations.',
+  description: 'Execute shell commands and git operations. Use ONLY for build tools (npm, mvn, gradle), git workflows, process management, or version checks. For file operations, use read_file/list_files/search_files instead.',
   url: 'builtin://shell-cmd',
   builtIn: true,
   rawContent: `---
 name: shell-cmd
-description: Execute shell commands and git operations. Use when you need to run system commands, git workflows, file navigation, process management, or any command-line operations.
+description: Execute shell commands. Use ONLY for build tools (npm, mvn, gradle), git workflows, process management, or version checks. For file operations, use read_file/list_files/search_files instead.
 ---
 
 # Shell Command Execution
 
-Use the \`exec\` tool to run shell commands.
+Use the \`shell_exec\` tool to run system commands.
 
-## Common Patterns
+## When to use shell_exec
+- Build commands: \`npm run build\`, \`mvn compile\`, \`gradle build\`
+- Git operations: \`git status\`, \`git add .\`, \`git commit\`
+- Process management: \`ps\`, \`top\`, \`kill\`
+- Version checks: \`java -version\`, \`mvn -v\`, \`node -v\`
 
-### File inspection
-\`\`\`bash
-ls /path/to/dir
-cat file.txt
-grep -n "pattern" file.py
-find . -name "*.ts"
-\`\`\`
-
-### Git workflows
-\`\`\`bash
-git status
-git add .
-git commit -m "message"
-git push
-git pull
-git checkout branch
-git log --oneline -10
-\`\`\`
-
-### Build
-\`\`\`bash
-npm install
-npm run build
-\`\`\`
+## When NOT to use shell_exec
+- Reading files → use \`read_file { path: "..." }\`
+- Listing directories → use \`list_files { path: "..." }\`
+- Searching files → use \`search_files { path: ".", pattern: "*.java" }\`
+- Editing files → use \`edit_file { path: "...", oldText: "...", newText: "..." }\`
 
 ## Rules
 - Destructive commands (rm, git push --force) — ask user first
@@ -181,40 +166,45 @@ python3 -c "content = open('f.py').read(); print(f'chars={len(content)}, lines={
 export const BUILTIN_FILE_IO_SKILL = {
   id: 'builtin-file-io',
   name: 'file-io',
-  description: 'Project-scoped file reading and writing with safe workspace boundaries.',
+  description: 'Project-scoped file reading, writing, editing, listing, and searching. Use these tools instead of shell commands for file operations.',
   url: 'builtin://file-io',
   builtIn: true,
   rawContent: [
     '---',
     'name: file-io',
-    'description: Read, write, and edit files inside the current project workspace. Use when the task requires inspecting code, generating files, patching existing files, or listing directories.',
+    'description: Read, write, edit, list, and search files inside the current project workspace. Use these structured tools instead of shell commands.',
     '---',
     '',
     '# File IO',
     '',
-    'Use the provided file tools instead of guessing file contents.',
+    '## Available Tools',
+    '- \`list_files\` (alias: list, ls, dir): inspect project directories',
+    '- \`read_file\` (alias: read, cat, type): read file content with pagination',
+    '- \`write_file\` (alias: write, create, save): create or overwrite files (requires content!)',
+    '- \`edit_file\` (alias: edit, replace, patch): make exact-text replacements',
+    '- \`search_files\` (NEW): search for files by name pattern (use instead of shell "find")',
+    '',
+    '## When to use each tool',
+    '- Read a file → \`read_file { path: "src/app.ts" }\`',
+    '- List directory → \`list_files { path: "src", depth: 3 }\`',
+    '- Find files by name → \`search_files { path: ".", pattern: "*.java" }\`',
+    '- Create/overwrite file → \`write_file { path: "file.txt", content: "..." }\`',
+    '- Edit specific text → \`edit_file { path: "file.txt", oldText: "...", newText: "..." }\`',
+    '- Build/run → \`shell_exec { command: "npm run build" }\`',
     '',
     '## ⚠️ IMPORTANT - Write Command Requires content Parameter',
     '**When using write command, you MUST include the content parameter with the FULL file content.**',
     '- ❌ WRONG: {"path": "file.txt", "command": "write"} — will fail!',
     '- ✅ CORRECT: {"path": "file.txt", "command": "write", "content": "Hello World"}',
     '',
-    '## Tools',
-    '- `list` (alias: list_files): inspect project directories',
-    '- `read` (alias: read_file): read file content',
-    '- `write` (alias: **create**, write_file): create or fully overwrite files (⚠️ requires content!)',
-    '- `edit` (alias: edit_file): make exact-text replacements',
-    '',
-    '## Required Parameters',
-    '- write/create requires: {"path": "filename.ext", "command": "write", "content": "文件内容"}',
-    '- edit requires: {"path": "file", "command": "edit", "oldText": "原内容", "newText": "新内容"}',
-    '- read requires: {"path": "file", "command": "read"}',
-    '- list requires: {"path": "directory", "command": "list"}',
+    '## Path Rules',
+    '- Always use relative paths from the project workspace root.',
+    '- Example project path: varies by project.',
     '',
     '## Rules',
     '- Only operate inside the current project workspace.',
     '- Read before editing unless the user clearly asked to create/overwrite a file.',
-    '- Prefer `edit` for surgical changes.',
+    '- Prefer edit for surgical changes.',
     '- Preserve existing formatting unless the user requested a refactor.',
     '- Explain what changed after file operations complete.'
   ].join('\n')
