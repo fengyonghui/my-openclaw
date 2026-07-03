@@ -529,36 +529,30 @@ function handleJsonParseError(rawArgs: string, parseError: Error): ToolResult {
 
     // 从截断点往前找，确定我们在哪个字段里
     // 倒查最近的 "content" 或 "oldText" 或 "newText" 字段
+    // 使用正则而非 indexOf，因为 LLM 输出可能带或不带冒号后的空格
     let lastFieldMatch: RegExpMatchArray | null = null;
     let lastFieldValStart = -1;
-    if (errorPos >= 0 && errorPos < fixedArgs.length) {
+    if (errorPos >= 0 && errorPos <= fixedArgs.length) {
       const beforeCut = fixedArgs.slice(0, errorPos);
-      // 用 search 找最后一次出现的位置（match 只返回第一个）
-      const fieldNames = ['content', 'oldText', 'newText', 'script', 'code', 'data', 'path'];
+      // 匹配 "fieldName" 后跟可选空格、冒号、可选空格、开引号
+      const fieldPattern = /"(content|oldText|newText|script|code|data|path)"\s*:\s*"/;
+      // 找最后一个匹配（最近的字段）
       let bestIdx = -1;
       let bestName = '';
-      for (const name of fieldNames) {
-        // 查找 "fieldName": " 在 beforeCut 中的所有出现
-        let lastIdx = -1;
-        let searchIdx = 0;
-        const needle = '"' + name + '": "';
-        while (true) {
-          const found = beforeCut.indexOf(needle, searchIdx);
-          if (found === -1) break;
-          lastIdx = found;
-          searchIdx = found + 1;
-        }
-        if (lastIdx > bestIdx) {
-          bestIdx = lastIdx;
-          bestName = name;
+      let m;
+      const re = new RegExp(fieldPattern.source, 'g');
+      while ((m = re.exec(beforeCut)) !== null) {
+        if (m.index > bestIdx) {
+          bestIdx = m.index;
+          bestName = m[1];
         }
       }
       if (bestIdx >= 0) {
-        // 找到字段名，计算字段值开始位置（": " 之后的第一个 "）
+        // 计算字段值开始位置：匹配串末尾的 " 之后
         const snippet = beforeCut.slice(bestIdx);
-        const colonQuoteIdx = snippet.indexOf('": "');
-        if (colonQuoteIdx >= 0) {
-          lastFieldValStart = bestIdx + colonQuoteIdx + 3;
+        const colonQuoteMatch = snippet.match(/"\s*:\s*"/);
+        if (colonQuoteMatch) {
+          lastFieldValStart = bestIdx + colonQuoteMatch.index! + colonQuoteMatch[0].length;
           lastFieldMatch = { index: bestIdx, 0: snippet } as any;
         }
       }
@@ -590,6 +584,7 @@ function handleJsonParseError(rawArgs: string, parseError: Error): ToolResult {
           console.log(`[JSON Fix #${fixAttempts}] Replaced truncated field "${bestName}" at pos ${errorPos}, added ${missing} closing brace(s)`);
         } catch {
           // 如果重建失败，尝试 ±1 个括号
+          // 额外尝试：原始 JSON 可能以 } 结尾但被截断了，尝试补 1 个 }
           for (let n = Math.max(0, missing - 1); n <= missing + 2; n++) {
             const alt = rebuilt + '}'.repeat(n);
             try {
@@ -597,6 +592,15 @@ function handleJsonParseError(rawArgs: string, parseError: Error): ToolResult {
               fixedArgs = alt;
               console.log(`[JSON Fix #${fixAttempts}] Replaced truncated field "${bestName}" at pos ${errorPos}, ${n} closing brace(s)`);
               break;
+            } catch {}
+          }
+          // 最后尝试：如果 prefix 以 { 开头但没有匹配的 }，直接补一个
+          if (fixedArgs === rawArgs && rebuilt.startsWith('{')) {
+            const alt2 = rebuilt + '}';
+            try {
+              JSON.parse(alt2);
+              fixedArgs = alt2;
+              console.log(`[JSON Fix #${fixAttempts}] Replaced truncated field "${bestName}", added 1 closing brace (fallback)`);
             } catch {}
           }
         }
