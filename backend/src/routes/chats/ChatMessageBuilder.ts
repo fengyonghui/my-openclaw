@@ -132,12 +132,19 @@ export function buildSystemMessage(
   const cmds = getSystemCommands();
 
   const platformSection = `
-## PLATFORM
-- platform: **${sysInfo.platformName}** (${sysInfo.platform})
-- shell: **${sysInfo.shell}** (${sysInfo.shellPath})
-- workspace: \`${workspace}\`
-- workspace path format: **${workspace.includes('/mnt/') ? 'Unix-style (/mnt/d/...) — use Linux commands' : workspace.match(/^[a-z]:\\/i) ? 'Windows-style (D:\\...) — use Windows commands' : 'relative or other format'}**
-- path separator: \`${sysInfo.pathSeparator}\`
+## PLATFORM — CRITICAL: FOLLOW THESE RULES
+
+**You are running on: ${sysInfo.platformName}**
+- Shell: ${sysInfo.shell}
+- Workspace: \`${workspace}\`
+- Path format: ${sysInfo.isWindows ? 'Windows (D:\\...) — use Windows commands ONLY' : sysInfo.isWSL ? 'WSL/Linux — use Linux commands' : 'Linux/Mac — use Unix commands'}
+
+⚠️ **MANDATORY RULES FOR SHELL COMMANDS:**
+1. **NEVER use Linux/Unix commands on Windows:** \`ls\`, \`cat\`, \`grep\`, \`find\`, \`head\`, \`tail\`, \`pwd\`, \`rm\`, \`cp\`, \`mv\`, \`mkdir -p\`, \`touch\`, \`2>/dev/null\`, \`| tee\`
+2. **NEVER use Unix commands on Linux/Mac:** \`dir\`, \`type\`, \`findstr\`, \`Get-ChildItem\`, \`powershell\`
+3. **ALWAYS use the commands listed below under "SHELL COMMANDS (${sysInfo.platformName})"**
+4. For file operations (read/write/search/list), use the structured tools: \`read_file\`, \`write_file\`, \`edit_file\`, \`list_files\`, \`search_files\` — NOT shell commands
+5. For build/run commands (npm, mvn, gradle, git), use \`shell_exec\` with the correct platform commands
 
 ## SHELL COMMANDS (${sysInfo.platformName})
 Use these commands for shell_exec tool. DO NOT guess commands.
