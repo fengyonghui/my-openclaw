@@ -135,7 +135,7 @@ export const BUILTIN_TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'write_file',
-    description: 'Create a new file or overwrite an existing file. MUST include the complete file content. CRITICAL: Use the EXACT file path the user specified in their request. Do NOT invent or add subdirectory prefixes (e.g. "ue/", "ux/", "docs/", "src/") based on assumed conventions — the user will be confused if the file appears somewhere they did not ask for. If unsure about path, ask the user before calling.\n\n⚠️ SIZE LIMIT: If the file content exceeds ~2000 characters, DO NOT write it all at once. Instead:\n1. Use edit_file to create the file skeleton first\n2. Then use edit_file to append content in chunks\n3. Or split into multiple smaller files\nWriting very large content in one call often fails due to response truncation.',
+    description: 'Create a new file or overwrite an existing file. MUST include the complete file content. CRITICAL: Use the EXACT file path the user specified in their request. Do NOT invent or add subdirectory prefixes (e.g. "ue/", "ux/", "docs/", "src/") based on assumed conventions — the user will be confused if the file appears somewhere they did not ask for. If unsure about path, ask the user before calling.\n\n⚠️ SIZE LIMIT: If the file content exceeds ~2000 characters, DO NOT write it all at once. Instead:\n1. Split into multiple smaller files\n2. Use shell_exec to run a script that writes the file\n3. Or write in chunks using edit_file (see edit_file size guidance)\nWriting very large content in one call often fails due to response truncation.',
     parameters: {
       type: 'object',
       properties: {
@@ -153,7 +153,7 @@ export const BUILTIN_TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'edit_file',
-    description: 'Make precise text replacements in an existing file. Finds exact text and replaces it. Use this to append content to files or make incremental changes. Ideal for large files — create the skeleton with write_file, then use edit_file to fill in content.',
+    description: 'Make precise text replacements in an existing file. Finds exact text and replaces it. ⚠️ SIZE LIMIT: oldText and newText must each be under ~1000 characters. If you need to replace large content:\n1. Use write_file to overwrite the entire file (see write_file size guidance)\n2. Or split the edit into multiple small edit_file calls\n3. Or use shell_exec to run a script that does the replacement\nNever put large code blocks in oldText/newText — the JSON will be truncated and the edit will fail.',
     parameters: {
       type: 'object',
       properties: {
@@ -163,11 +163,11 @@ export const BUILTIN_TOOL_DEFINITIONS: ToolDefinition[] = [
         },
         oldText: {
           type: 'string',
-          description: 'Exact text to find. Must match exactly including whitespace.'
+          description: 'Exact text to find. Must match exactly including whitespace. ⚠️ Keep under 1000 chars — use write_file for larger replacements.'
         },
         newText: {
           type: 'string',
-          description: 'Text to replace with. Use \\n for newlines.'
+          description: 'Text to replace with. Use \\n for newlines. ⚠️ Keep under 1000 chars — use write_file for larger content.'
         }
       },
       required: ['path', 'oldText', 'newText']
