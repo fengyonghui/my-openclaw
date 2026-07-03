@@ -135,7 +135,7 @@ export const BUILTIN_TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'write_file',
-    description: 'Create a new file or overwrite an existing file. MUST include the complete file content. CRITICAL: Use the EXACT file path the user specified in their request. Do NOT invent or add subdirectory prefixes (e.g. "ue/", "ux/", "docs/", "src/") based on assumed conventions — the user will be confused if the file appears somewhere they did not ask for. If unsure about path, ask the user before calling.',
+    description: 'Create a new file or overwrite an existing file. MUST include the complete file content. CRITICAL: Use the EXACT file path the user specified in their request. Do NOT invent or add subdirectory prefixes (e.g. "ue/", "ux/", "docs/", "src/") based on assumed conventions — the user will be confused if the file appears somewhere they did not ask for. If unsure about path, ask the user before calling.\n\n⚠️ SIZE LIMIT: If the file content exceeds ~2000 characters, DO NOT write it all at once. Instead:\n1. Use edit_file to create the file skeleton first\n2. Then use edit_file to append content in chunks\n3. Or split into multiple smaller files\nWriting very large content in one call often fails due to response truncation.',
     parameters: {
       type: 'object',
       properties: {
@@ -145,7 +145,7 @@ export const BUILTIN_TOOL_DEFINITIONS: ToolDefinition[] = [
         },
         content: {
           type: 'string',
-          description: 'Complete file content. Use \\n for newlines. This parameter is REQUIRED.'
+          description: 'Complete file content. Use \\n for newlines. This parameter is REQUIRED. ⚠️ If content > 2000 chars, use edit_file instead (create skeleton first, then append in chunks).'
         }
       },
       required: ['path', 'content']
@@ -153,7 +153,7 @@ export const BUILTIN_TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'edit_file',
-    description: 'Make precise text replacements in an existing file. Finds exact text and replaces it.',
+    description: 'Make precise text replacements in an existing file. Finds exact text and replaces it. Use this to append content to files or make incremental changes. Ideal for large files — create the skeleton with write_file, then use edit_file to fill in content.',
     parameters: {
       type: 'object',
       properties: {
