@@ -1094,11 +1094,9 @@ function convertCmdToPowerShell(cmd: string): string {
   // ── Bash/Unix 命令转换（LLM 经常生成的跨平台命令）───────────────
 
   // ls -la / ls -l / ls -a / ls -la path / ls -l path 等
-  // 注意：2>&1 和 | 管道不应被当作路径的一部分
-  // ls -la / ls -l / ls -a / ls -la path / ls -l path 等
   // \S+(?:\s+\S+)* 匹配一个或多个空格分隔的路径（支持 ls dir1 dir2）
-  // \s* 而非 \s+ 以支持 "ls" 不带参数的情况
-  const lsMatch = trimmed.match(/^ls(-[a-zA-Z]+)?\s*(\S+(?:\s+\S+)*)?$/);
+  // 注意：flags 和 paths 之间用 \s+ 分隔，确保 flags 优先匹配
+  const lsMatch = trimmed.match(/^ls\s*(-[a-zA-Z]+)?\s*(\S+(?:\s+\S+)*)?$/);
   if (lsMatch) {
     const flags = lsMatch[1] || '';
     const rawPaths = lsMatch[2]?.trim() || '';
