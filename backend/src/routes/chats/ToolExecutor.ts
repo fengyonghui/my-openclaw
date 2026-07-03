@@ -1346,7 +1346,7 @@ function convertCmdToPowerShell(cmd: string): string {
   // wc -l file
   const wcMatch = trimmed.match(/^wc\s+-l\s+(.+)$/);
   if (wcMatch) {
-    const file = wcMatch[1].trim();
+    const file = wcMatch[1]?.trim().replace(/^["']|["']$/g, '') || '';
     return `(Get-Content "${file}").Count`;
   }
 
