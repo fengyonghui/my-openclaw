@@ -978,12 +978,10 @@ async function executePowerShellCommand(command: string, cwd: string, timeoutMs:
     }
 
   // 清理命令中的 shell/bash 特有语法（PowerShell 不识别）
-  // 注意：预处理必须在任何具体转换器之前执行，因为 LLM 经常生成
-  // 复合命令如 "cat file 2>/dev/null ; find ..." 其中 2>/dev/null
-  // 和 ; 后面的命令会被 cat 的正则吞进文件名参数里。
+  // 注意：不在这里剥离 ; 命令链，因为 LLM 经常生成 "pwd ; ls -la" 这样的复合命令，
+  // 每个分段都需要独立转换。只剥离 2>/dev/null 和 2>&1。
   let cleanCmd = command
     .replace(/\s*2>\/dev\/null\s*;?\s*/g, ' ')           // 剥离 2>/dev/null（含前后分号）
-    .replace(/;\s*(find|grep|ls|cat|rm|mv|cp|echo|head|tail|wc|curl|wget|Select-String|Get-ChildItem|Get-Content)\b/gi, '')  // 剥离 ; 命令链
     .replace(/\s*2>\s*&1\s*(\||;|$)/g, '$1')             // 剥离 2>&1（末尾、管道前、分号前）
     .replace(/\s*>\s*&\d\s*$/g, '')                      // 剥离 >&2 等
     .replace(/\s*\|\s*tee\s+[^\s]*/gi, '')               // 剥离 | tee
@@ -1077,7 +1075,7 @@ function convertCmdToPowerShell(cmd: string): string {
 
   // ls -la / ls -l / ls -a / ls -la path / ls -l path 等
   // 注意：2>&1 和 | 管道不应被当作路径的一部分
-  const lsMatch = trimmed.match(/^ls\s+(-[a-zA-Z]+)?\s+(.+?)(?:\s*2>&1|\s*\||\s*$)/);
+  const lsMatch = trimmed.match(/^ls\s+(-[a-zA-Z]+)?\s*(.+?)(?:\s*2>&1|\s*\||\s*$)/);
   if (lsMatch) {
     const flags = lsMatch[1] || '';
     const path = lsMatch[2]?.trim() || '.';
@@ -1483,6 +1481,14 @@ function convertCmdToPowerShell(cmd: string): string {
     return genericMatch[1].trim();
   }
 
+  // 复合命令：按 ; 拆分后逐段转换，再拼接
+  // 处理 "pwd ; ls -la"、"cat file ; find ..." 等多命令场景
+  if (trimmed.includes(';')) {
+    const segments = trimmed.split(';').map(s => s.trim()).filter(Boolean);
+    const converted = segments.map(s => convertSingleSegment(s)).join('; ');
+    return converted;
+  }
+
   // ── 通用管道：| head / | tail 转换 ──────────────────────────────
   // 处理任意命令后的 | head N / | tail N（LLM 常用此限制输出行数）
   // 支持 "cmd | head 50"、"cmd | head -n 50"、"cmd | head -50" 三种格式
@@ -1500,6 +1506,49 @@ function convertCmdToPowerShell(cmd: string): string {
   }
 
   return cmd;
+}
+
+/**
+ * 转换单个命令段（不含 ; 分隔符）
+ * 供复合命令拆分后逐段转换使用
+ */
+function convertSingleSegment(segment: string): string {
+  const trimmed = segment.trim();
+  if (!trimmed) return trimmed;
+
+  // pwd
+  if (/^pwd\s*$/.test(trimmed)) {
+    return 'Get-Location | Select-Object -ExpandProperty Path';
+  }
+
+  // ls -la / ls -l / ls -a / ls -la path / ls -l path 等
+  // \S* 允许 ls 不带参数（如 "ls"），flags 和 path 之间用 \s* 分隔避免重叠
+  const lsMatch = trimmed.match(/^ls\s*(-[a-zA-Z]+)?\s*(\S*)$/);
+  if (lsMatch) {
+    const flags = lsMatch[1] || '';
+    const path = lsMatch[2]?.trim() || '.';
+    const hasLongFormat = /l/.test(flags);
+    const hasAll = /a/.test(flags);
+
+    let ps = 'Get-ChildItem';
+    if (hasAll) ps += ' -Force';
+    if (path && path !== '.') ps += ` -Path "${path}"`;
+
+    if (hasLongFormat) {
+      ps += ' | Format-Table Name,Length,LastWriteTime,Mode -AutoSize';
+    }
+    return ps;
+  }
+
+  // cat file / cat file1 file2
+  const catMatch = trimmed.match(/^cat\s+(.+?)(?:\s*2>&1|\s*\||\s*$)/);
+  if (catMatch) {
+    const files = catMatch[1]?.trim() || '.';
+    return `Get-Content "${files}"`;
+  }
+
+  // 未知命令：原样返回
+  return trimmed;
 }
 
 /**
