@@ -370,6 +370,22 @@ function normalizeExecError(
     };
   }
 
+  // 输出过大：maxBuffer 溢出。通常发生在命令产生大量输出时（如递归列出大目录）。
+  // 提示 LLM 缩小输出范围（加 -maxdepth、-name 过滤、或 head/tail 限制行数）。
+  if (/maxBuffer|output.*exceed|buffer.*exceed/i.test(err?.message || '')) {
+    return {
+      error: `命令输出过大，超出缓冲区限制 [exit=?]: ${cmdPreview}`,
+      stdout: trimmedOut || '(输出被截断，超过 500KB)',
+      stderr: trimmedErr || '',
+      _exitCode: null,
+      _note: '命令产生了大量输出（超过 500KB）。请缩小输出范围：\n'
+           + '1. 添加 -maxdepth 限制递归深度\n'
+           + '2. 使用 search_files 工具替代 find（支持 -name 过滤）\n'
+           + '3. 用 head/tail 限制输出行数\n'
+           + '4. 缩小搜索目录范围',
+    };
+  }
+
   // 其他错误：保留原始 err.message（通常含 stderr），并附上退出码
   // 但先清理 PowerShell CLIXML 格式的错误输出（<S S="Error">...</S> 标签）
   let cleanError = err?.message || 'Unknown exec error';
