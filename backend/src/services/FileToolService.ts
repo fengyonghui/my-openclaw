@@ -240,7 +240,13 @@ export class FileToolService {
 
     // 验证替换确实改变了文件内容，避免无意义的重复调用
     if (updated === normalizedCurrent) {
-      throw new Error('替换未产生任何变化——文件内容可能已被其他进程修改，或 oldText 与实际内容不匹配。请重新读取文件后重试。');
+      // 诊断：检查是否是 oldText 和 newText 相同导致的
+      const oldEqualNew = normalizeText(oldText) === normalizeText(newText);
+      throw new Error(
+        oldEqualNew
+          ? '替换未产生任何变化——oldText 和 newText 相同。无需编辑。'
+          : '替换未产生任何变化——文件内容可能已被其他进程修改，或 oldText 与实际内容不匹配。请重新读取文件后重试。'
+      );
     }
 
     // 将归一化后的结果写回磁盘（统一使用 \n 换行）
