@@ -1485,16 +1485,17 @@ function convertCmdToPowerShell(cmd: string): string {
 
   // ── 通用管道：| head / | tail 转换 ──────────────────────────────
   // 处理任意命令后的 | head N / | tail N（LLM 常用此限制输出行数）
-  const pipeHead = trimmed.match(/^(.*?)\s*\|\s*head\s+(-n\s+)?(\d+)\s*$/);
+  // 支持 "cmd | head 50"、"cmd | head -n 50"、"cmd | head -50" 三种格式
+  const pipeHead = trimmed.match(/^(.+?)\s*\|\s*head\s+-?n?\s*(\d+)\s*$/);
   if (pipeHead && pipeHead[1]?.trim()) {
     const leftSide = pipeHead[1].trim();
-    const count = pipeHead[3];
+    const count = pipeHead[2];
     return `${leftSide} | Select-Object -First ${count}`;
   }
-  const pipeTail = trimmed.match(/^(.*?)\s*\|\s*tail\s+(-n\s+)?(\d+)\s*$/);
+  const pipeTail = trimmed.match(/^(.+?)\s*\|\s*tail\s+-?n?\s*(\d+)\s*$/);
   if (pipeTail && pipeTail[1]?.trim()) {
     const leftSide = pipeTail[1].trim();
-    const count = pipeTail[3];
+    const count = pipeTail[2];
     return `${leftSide} | Select-Object -Last ${count}`;
   }
 
