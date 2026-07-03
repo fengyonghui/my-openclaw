@@ -176,13 +176,13 @@ export const BUILTIN_TOOL_DEFINITIONS: ToolDefinition[] = [
   // === Shell 命令工具 ===
   {
     name: 'shell_exec',
-    description: 'Execute shell commands (bash/cmd/powershell based on platform). Use for git, npm, build commands, etc.',
+    description: 'Execute shell commands. Use ONLY for build tools (npm, mvn, gradle), git operations, process management, version checks, or when no structured tool exists. For file operations, use read_file/list_files/search_files instead.',
     parameters: {
       type: 'object',
       properties: {
         command: {
           type: 'string',
-          description: 'Shell command to execute (e.g., "git status", "npm run build", "ls -la")'
+          description: 'Shell command to execute (e.g., "npm run build", "git status", "mvn -v", "java -version")'
         },
         timeout: {
           type: 'number',
@@ -195,6 +195,30 @@ export const BUILTIN_TOOL_DEFINITIONS: ToolDefinition[] = [
         }
       },
       required: ['command']
+    }
+  },
+  // === 文件搜索工具 ===
+  {
+    name: 'search_files',
+    description: 'Search for files in the project workspace by name pattern. Use this instead of shell "find" commands. Supports wildcards (*, ?). Returns matching file paths, names, sizes, and modification times.',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: {
+          type: 'string',
+          description: 'Directory to search in (e.g., "src", ".", "backend/src")'
+        },
+        pattern: {
+          type: 'string',
+          description: 'File name pattern with wildcards (e.g., "*.java", "Foo*", "*Test*"). Use "*" for all files.'
+        },
+        max_depth: {
+          type: 'number',
+          description: 'Maximum recursion depth (default 5, max 10)',
+          default: 5
+        }
+      },
+      required: ['path', 'pattern']
     }
   },
   // === Agent 委托工具 ===
@@ -450,7 +474,7 @@ export function buildToolList(
   // 1. 添加内置文件工具（如果启用）
   if (project?.enabledSkillIds?.includes('builtin-file-io')) {
     for (const def of BUILTIN_TOOL_DEFINITIONS) {
-      if (['list_files', 'read_file', 'write_file', 'edit_file'].includes(def.name)) {
+      if (['list_files', 'read_file', 'write_file', 'edit_file', 'search_files'].includes(def.name)) {
         tools.push({ type: 'function', function: def });
         addedToolNames.add(def.name);
       }

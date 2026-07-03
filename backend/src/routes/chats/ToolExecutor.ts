@@ -456,6 +456,8 @@ export async function executeToolCall(
       return await FileToolService.listFiles(project.workspace, args.path || '.', Number(args.depth) || 3);
     case 'read_file':
       return await FileToolService.readFile(project.workspace, args.path, Number(args.offset) || 1, Number(args.limit) || 200);
+    case 'search_files':
+      return await executeSearchFiles(project, args);
     case 'write_file':
       return await handleWriteFile(project, args);
     case 'edit_file':
@@ -737,6 +739,60 @@ async function handleWriteFile(project: any, args: any): Promise<ToolResult> {
 }
 
 /**
+ * 执行文件搜索（替代 shell "find" 命令）
+ * 在 workspace 中递归搜索匹配 glob pattern 的文件
+ */
+async function executeSearchFiles(project: any, args: any): Promise<ToolResult> {
+  const searchPath = args.path || '.';
+  const pattern = args.pattern || '*';
+  const maxDepth = Math.min(Number(args.max_depth) || 5, 10);
+
+  try {
+    const { absolutePath } = FileToolService.resolveWorkspacePath(project.workspace, searchPath);
+    const results: any[] = [];
+
+    function walk(dir: string, depth: number) {
+      return new Promise<void>((resolve) => {
+        if (depth > maxDepth) { resolve(); return; }
+        fs.readdir(dir, { withFileTypes: true }, (err, entries) => {
+          if (err) { resolve(); return; }
+          (entries || []).forEach((entry) => {
+            if (entry.isFile() && globMatch(entry.name, pattern)) {
+              fs.stat(path.join(dir, entry.name), (err, stat) => {
+                if (!err) {
+                  results.push({
+                    path: path.relative(absolutePath, path.join(dir, entry.name)).replace(/\\/g, '/'),
+                    name: entry.name,
+                    size: stat.size,
+                    updatedAt: stat.mtime.toISOString()
+                  });
+                }
+              });
+            }
+            if (entry.isDirectory()) walk(path.join(dir, entry.name), depth + 1);
+          });
+          resolve();
+        });
+      });
+    }
+
+    await walk(absolutePath, 0);
+    return { success: true, count: results.length, results, searchPath, pattern };
+  } catch (err: any) {
+    return { success: false, error: `文件搜索失败: ${err.message}` };
+  }
+}
+
+/**
+ * 简易 glob 匹配：支持 * 和 ?
+ */
+function globMatch(filename: string, pattern: string): boolean {
+  // 将 glob pattern 转为正则
+  const regex = '^' + pattern.replace(/\*/g, '.*').replace(/\?/g, '.') + '$';
+  return new RegExp(regex).test(filename);
+}
+
+/**
  * 执行 Shell 命令
  *
  * 三系统统一路由：
@@ -921,13 +977,17 @@ async function executePowerShellCommand(command: string, cwd: string, timeoutMs:
       return;
     }
 
-    // 清理命令中的 shell/bash 特有语法（PowerShell 不识别）
-    // 注意：不再剥离 2>&1，因为它在管道中是必要的（stderr 重定向到 stdout 才能被 Select-String 等捕获）
-    // 只剥离 PowerShell 完全不支持的重定向 >&2
-    let cleanCmd = command
-      .replace(/\s*>\s*&\d\s*$/g, '')             // 剥离 >&2 等
-      .replace(/\s*\|\s*tee\s+[^\s]*/gi, '')     // 剥离 | tee
-      .replace(/\s*;\s*exit\s*\$?\w+/gi, ''); // 剥离 ; exit $?
+  // 清理命令中的 shell/bash 特有语法（PowerShell 不识别）
+  // 注意：预处理必须在任何具体转换器之前执行，因为 LLM 经常生成
+  // 复合命令如 "cat file 2>/dev/null ; find ..." 其中 2>/dev/null
+  // 和 ; 后面的命令会被 cat 的正则吞进文件名参数里。
+  let cleanCmd = command
+    .replace(/\s*2>\/dev\/null\s*;?\s*/g, ' ')           // 剥离 2>/dev/null（含前后分号）
+    .replace(/;\s*(find|grep|ls|cat|rm|mv|cp|echo|head|tail|wc|curl|wget|Select-String|Get-ChildItem|Get-Content)\b/gi, '')  // 剥离 ; 命令链
+    .replace(/\s*2>\s*&1\s*(\||;|$)/g, '$1')             // 剥离 2>&1（末尾、管道前、分号前）
+    .replace(/\s*>\s*&\d\s*$/g, '')                      // 剥离 >&2 等
+    .replace(/\s*\|\s*tee\s+[^\s]*/gi, '')               // 剥离 | tee
+    .replace(/\s*;\s*exit\s*\$?\w+/gi, '');              // 剥离 ; exit $?
 
     // 修复 Windows 路径末尾的反斜杠（PowerShell -Command 中会转义闭合引号）
     // 将 D:\ 末尾反斜杠改为正斜杠，PowerShell 兼容
