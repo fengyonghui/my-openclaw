@@ -1193,7 +1193,7 @@ function convertCmdToPowerShell(cmd: string): string {
     return ps;
   }
 
-  // find . -name "a" -o -name "b" -o -name "c" | head -20 （多文件扩展名搜索）
+  // find dir -name "a" -o -name "b" -o -name "c" | head -20 （多文件扩展名搜索）
   const findMultiMatch = trimmed.match(/^find\s+(\S+)\s+(-name\s+"[^"]+"\s+-o\s+)+(-name\s+"[^"]+")(\s*\|\s*head\s+(-\d+)?\s*(\d+))?/);
   if (findMultiMatch) {
     const dir = findMultiMatch[1];
@@ -1217,6 +1217,29 @@ function convertCmdToPowerShell(cmd: string): string {
       }
       return ps;
     }
+  }
+
+  // find dir -maxdepth N -name "a" -o -name "b" ... （带 -maxdepth 的多模式搜索）
+  const findComplexMatch = trimmed.match(/^find\s+(\S+)\s+-maxdepth\s+(\d+)\s+(.+?)(?:\s*2>&1\s*(?:\||$)|\s*2>\/dev\/null\s*(?:\||$)|\s*\||\s*$)/);
+  if (findComplexMatch) {
+    const dir = findComplexMatch[1]?.replace(/^["']|["']$/g, '') || '.';
+    const maxDepth = parseInt(findComplexMatch[2]) || 5;
+    const rest = findComplexMatch[3]?.trim() || '';
+    // 提取所有 -name "pattern" 条件（支持 -o 连接）
+    const allNames = rest.match(/-name\s+"([^"]+)"/g) || [];
+    const patterns = allNames.map(p => {
+      const m = p.match(/-name\s+"([^"]+)"/);
+      return m ? m[1] : '';
+    }).filter(Boolean);
+
+    let ps = `Get-ChildItem -Path "${dir}" -Recurse`;
+    if (maxDepth > 0) ps += ` -Depth ${maxDepth}`;
+    if (patterns.length > 0) {
+      ps += ` -Include "${patterns.join(',')}"`;
+    }
+    ps += ' | Where-Object { $_.PSIsContainer -eq $false }';
+    ps += ' | Select-Object -ExpandProperty FullName';
+    return ps;
   }
 
   // find + head 组合（处理 find ... | head N）
