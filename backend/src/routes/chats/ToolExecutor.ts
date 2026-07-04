@@ -1075,10 +1075,12 @@ function convertGrepToPowerShell(grepRest: string): string | null {
 
   const includeMatch = remainder.match(/--include="([^"]+)"/);
   const parts = remainder.split(/\s+/);
-  let target = '.';
+  // 收集所有非 --option 的 token 作为目标路径（支持 grep pattern file1 file2 file3）
+  const targets: string[] = [];
   for (const part of parts) {
-    if (!part.startsWith('--')) { target = part; break; }
+    if (!part.startsWith('--')) { targets.push(part); }
   }
+  const target = targets.length > 0 ? targets.join(',') : '.';
 
   const isRecursive = /r/.test(flags);
   const isCaseInsensitive = /i/.test(flags);
@@ -1189,10 +1191,12 @@ function convertCmdToPowerShell(cmd: string): string {
 
     const includeMatch = remainder.match(/--include="([^"]+)"/);
     const parts = remainder.split(/\s+/);
-    let target = '.';
+    // 收集所有非 --option 的 token 作为目标路径（支持 grep pattern file1 file2 file3）
+    const targets: string[] = [];
     for (const part of parts) {
-      if (!part.startsWith('--')) { target = part; break; }
+      if (!part.startsWith('--')) { targets.push(part); }
     }
+    const target = targets.length > 0 ? targets.join(',') : '.';
 
     const isRecursive = /r/.test(flags);
     const isCaseInsensitive = /i/.test(flags);
