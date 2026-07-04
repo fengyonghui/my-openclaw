@@ -1011,6 +1011,9 @@ async function executePowerShellCommand(command: string, cwd: string, timeoutMs:
     .replace(/\s*\|\s*tee\s+[^\s]*/gi, '')               // 剥离 | tee
     .replace(/\s*;\s*exit\s*\$?\w+/gi, '');              // 剥离 ; exit $?
 
+    // 剥离 PowerShell 参数 -Raw / -Encoding 等（LLM 有时会混用 type/file -Raw 语法）
+    cleanCmd = cleanCmd.replace(/\s+(?:-Raw|-Encoding|-Width)\s*\S*\s*$/g, '');
+
     // 修复 Windows 路径末尾的反斜杠（PowerShell -Command 中会转义闭合引号）
     // 将 D:\ 末尾反斜杠改为正斜杠，PowerShell 兼容
     cleanCmd = cleanCmd.replace(/([A-Za-z]):\\(?=\s*(['"]|\s*[-&|]|$))/g, '$1:/');
