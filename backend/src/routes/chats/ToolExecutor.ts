@@ -1133,12 +1133,15 @@ function convertCmdToPowerShell(cmd: string): string {
 
   // 统一剥离 bash 特有的重定向和管道后缀（在所有命令匹配之前）
   // 避免 2>&1、2>/dev/null 等被误认为是路径参数
+  // 同时剥离 | findstr ... 管道后缀（LLM 常用 type/file | findstr 搜索文件内容）
+  // 注意：顺序很重要 — 先剥离 | findstr 等管道后缀，再剥离 2>&1（因为 2>&1 可能在管道前）
   const preCleaned = trimmed
-    .replace(/\s*2>\/dev\/null\s*$/g, '')
-    .replace(/\s*2>\s*&1\s*$/g, '')
-    .replace(/\s*>\s*&\d\s*$/g, '')
-    .replace(/\s*\|\s*tee\s+[^\s]*\s*$/g, '')
-    .replace(/\s*;\s*exit\s*\$?\w+\s*$/g, '');
+    .replace(/\s*2>\/dev\/null\s*(\||$)/g, '$1')       // 剥离 2>/dev/null（含末尾管道）
+    .replace(/\s*\|\s*findstr\s+(?:\/R\s+)?(?:"[^"]*"|\S+)\s*$/gi, '')  // 剥离 | findstr ... 管道
+    .replace(/\s*2>\s*&1\s*(\||$)/g, '$1')             // 剥离 2>&1（末尾或管道前）
+    .replace(/\s*>\s*&\d\s*$/g, '')                     // 剥离 >&2 等
+    .replace(/\s*\|\s*tee\s+[^\s]*\s*$/g, '')           // 剥离 | tee
+    .replace(/\s*;\s*exit\s*\$?\w+\s*$/g, '');          // 剥离 ; exit $?
 
   // ── Bash/Unix 命令转换（LLM 经常生成的跨平台命令）───────────────
 
@@ -1191,6 +1194,14 @@ function convertCmdToPowerShell(cmd: string): string {
       ps += ' | Select-Object FullName,Length,LastWriteTime';
     }
     return ps;
+  }
+
+  // type file — Windows CMD 内置命令，等价于 cat
+  // 剥离 trailing -Raw / -Encoding 等 PowerShell 参数（LLM 有时会混用）
+  const typeMatch = preCleaned.match(/^type\s+(.+?)(?:\s*(?:-Raw|-Encoding|-Width)\b)?(?:\s*2>&1|\s*\||\s*$)/);
+  if (typeMatch) {
+    const file = typeMatch[1]?.trim() || '.';
+    return `Get-Content "${file}"`;
   }
 
   // cat file / cat file1 file2
@@ -1565,9 +1576,9 @@ function convertCmdToPowerShell(cmd: string): string {
   }
 
   // cmd /c "type file" → Get-Content
-  const typeMatch = trimmed.match(/^cmd\s+\/c\s+"type\s+(.+?)"$/i);
-  if (typeMatch) {
-    const file = typeMatch[1].trim();
+  const cmdTypeMatch = trimmed.match(/^cmd\s+\/c\s+"type\s+(.+?)"$/i);
+  if (cmdTypeMatch) {
+    const file = cmdTypeMatch[1].trim();
     return `Get-Content "${file}"`;
   }
 
@@ -1698,6 +1709,18 @@ function convertSingleSegment(segment: string): string {
   if (catMatch) {
     const files = catMatch[1]?.trim() || '.';
     return `Get-Content "${files}"`;
+  }
+
+  // type file — Windows CMD 内置命令，等价于 cat
+  // 剥离 trailing -Raw / -Encoding 等 PowerShell 参数
+  const typeClean = trimmed
+    .replace(/\s*2>\/dev\/null\s*(\||$)/g, '$1')
+    .replace(/\s*\|\s*findstr\s+(?:\/R\s+)?(?:"[^"]*"|\S+)\s*$/gi, '')
+    .replace(/\s*2>\s*&1\s*(\||$)/g, '$1');
+  const typeMatch = typeClean.match(/^type\s+(.+?)(?:\s*(?:-Raw|-Encoding|-Width)\b)?(?:\s*2>&1|\s*\||\s*$)/);
+  if (typeMatch) {
+    const file = typeMatch[1]?.trim() || '.';
+    return `Get-Content "${file}"`;
   }
 
   // 未知命令：原样返回
