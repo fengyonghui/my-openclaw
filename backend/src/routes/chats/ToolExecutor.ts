@@ -929,12 +929,11 @@ export async function executeShellCommand(project: any, args: any): Promise<Tool
         : path.posix.join(windowsWorkspace.replace(/\\/g, '/'), cwdArg).replace(/\//g, '\\')
       : windowsWorkspace;
     console.log(`[Shell] Resolved cwd: ${cwd} (cwdArg=${cwdArg || 'none'})`);
-    const isPowerShellCmd = /^(Test-|Remove-|Write-|Get-|New-|Set-)/i.test(trimmedCmd) ||
-                             trimmedCmd.startsWith('if ');
-    if (isPowerShellCmd) {
-      return executePowerShellCommand(effectiveCommand, cwd, timeoutMs);
-    }
-    return executeWindowsCommand(effectiveCommand, cwd, timeoutMs);
+
+    // 统一通过 convertCmdToPowerShell 归一化所有命令（bash/cmd/PowerShell 混合）
+    // 不再区分 isPowerShellCmd — 所有命令经过同一套转换管道，避免 LLM 利用路由差异
+    const normalized = convertCmdToPowerShell(effectiveCommand);
+    return executePowerShellCommand(normalized, cwd, timeoutMs);
   }
 
   if (sys.isWSL) {
@@ -1048,40 +1047,6 @@ async function executePowerShellCommand(command: string, cwd: string, timeoutMs:
     //   'Select-String' is not recognized as an internal or external command
     // (即使用户写的是 PowerShell 风格命令, 错误信息仍是 cmd.exe 风格的)
     exec(psCmd, {
-      cwd,
-      shell: 'powershell.exe',
-      timeout: timeoutMs,
-      maxBuffer: MAX_OUTPUT
-    }, (err, stdout, stderr) => {
-      if (err) {
-        resolve(normalizeExecError(err, stdout, stderr, command));
-      } else {
-        resolve({ success: true, stdout, stderr });
-      }
-    });
-  });
-}
-
-/**
- * 执行 Windows CMD 命令
- */
-async function executeWindowsCommand(command: string, cwd: string, timeoutMs: number = 60000): Promise<ToolResult> {
-  return new Promise((resolve) => {
-    const MAX_OUTPUT = 500 * 1024;
-
-    let cleanCmd = command;
-    // 修复 npx tsc 解析错误包的问题：npm 仓库中有同名 tsc 包，npx 会下载到它而不是 typescript/bin/tsc
-    // 替换为使用本地 TypeScript 编译器（用单引号避免 PowerShell 转义反斜杠）
-    cleanCmd = cleanCmd.replace(/^npx\s+tsc\b/i, `node '${cwd}\\node_modules\\typescript\\lib\\tsc.js'`);
-    cleanCmd = cleanCmd.replace(/^npx\s+typescript\b/i, `node '${cwd}\\node_modules\\typescript\\lib\\tsc.js'`);
-    // 用占位符避免在转换中相互影响
-    cleanCmd = cleanCmd.replace(/(\s|^)&&(\s|$)/g, '$1;$2');
-    cleanCmd = cleanCmd.replace(/(\s|^)\|\|(\s|$)/g, '$1;$2');
-
-    // 统一使用 PowerShell：将 cmd.exe 命令转换为 PowerShell 等效命令
-    cleanCmd = convertCmdToPowerShell(cleanCmd);
-
-    exec(cleanCmd, {
       cwd,
       shell: 'powershell.exe',
       timeout: timeoutMs,
