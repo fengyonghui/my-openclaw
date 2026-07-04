@@ -17,7 +17,7 @@ import { DbService } from '../../services/DbService.js';
 import { getSystemInfo } from '../../services/SystemCommands.js';
 import { toWSLPath, toWindowsPath, getProjectWorkspacePath } from '../../services/PathService.js';
 import { extractToolCalls } from './ModelRequestor.js';
-import { buildToolList } from '../../services/ToolDefinitions.js';
+import { buildToolList, buildToolListForAgent } from '../../services/ToolDefinitions.js';
 
 /**
  * 安全地将工具结果序列化为 JSON 字符串
@@ -1910,6 +1910,30 @@ export async function executeFileIO(
 }
 
 /**
+ * 评估成员 agent 的结果质量
+ * 低质量结果会自动触发重试
+ */
+function evaluateResultQuality(finalContent: string, task: string): { ok: boolean; reason?: string } {
+  // 空内容
+  if (!finalContent || finalContent.trim().length === 0) {
+    return { ok: false, reason: 'empty result' };
+  }
+  // 太短（< 50 chars 可能只是 "已完成" 之类的敷衍）
+  if (finalContent.trim().length < 50) {
+    return { ok: false, reason: `too short (${finalContent.trim().length} chars)` };
+  }
+  // 检查是否包含文件路径（如果任务涉及文件操作）
+  const hasFileOp = /write|create|edit|build|implement|开发|创建|编辑|写入|修改/.test(task);
+  if (hasFileOp) {
+    const hasFilePath = /[\w\-\.]+\/[\w\-\.]+\.(ts|java|json|css|html|md|txt|yaml|yml|xml|kt|py|sh|ps1|bat)/.test(finalContent);
+    if (!hasFilePath) {
+      return { ok: false, reason: 'no file path found in file operation task' };
+    }
+  }
+  return { ok: true };
+}
+
+/**
  * 成员 Agent 完整循环（同步等待成员真正完成工作）。
  *
  * 关键改进 vs 旧 executeAgentDelegation（单次 LLM fetch + 立刻返回）：
@@ -1938,13 +1962,13 @@ async function runMemberAgentLoop(
   allEnabledSkills: any[],
   reply: any
 ): Promise<{ success: boolean; finalContent: string; iterations: number; toolCallCount: number; error?: string; model?: string; forcedSummary?: boolean }> {
-  // 构造成员 agent 工具集：与协调员一致，但排除 delegate_to_agent（防递归）
-  const allTools = buildToolList(project, allProjectAgents, targetAgent.id, allEnabledSkills);
+  // 构造成员 agent 工具集：按角色过滤 + 排除 delegate_to_agent（防递归）
+  const allTools = buildToolListForAgent(project, allProjectAgents, targetAgent.id, allEnabledSkills, targetAgent.name);
   const memberTools = allTools.filter((t: any) => {
     const name = t.function?.name || t.name;
     return name !== 'delegate_to_agent';
   });
-  console.log(`[MemberLoop] ${targetAgent.name} toolset: ${memberTools.length} tools (excluded delegate_to_agent) → ${memberTools.map((t: any) => t.function?.name || t.name).join(', ')}`);
+  console.log(`[MemberLoop] ${targetAgent.name} toolset: ${memberTools.length} tools (role-filtered + excluded delegate_to_agent) → ${memberTools.map((t: any) => t.function?.name || t.name).join(', ')}`);
 
   // 构造 system + initial user
   const agentSystemMessage = {
@@ -1995,6 +2019,7 @@ async function runMemberAgentLoop(
   let finalContent = '';
   let lastIteration = 0;  // 实际跑了几轮（用于 return 时报告准确 iterations）
   let pickedModel: any = null;
+  let retryCount = 0;  // 质量检查重试次数（最多 2 次）
 
   for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
     console.log('');
@@ -2174,6 +2199,20 @@ async function runMemberAgentLoop(
     // 没有 tool_calls → 视为最终响应
     finalContent = assistantContent;
     lastIteration = iteration;  // 记录本轮为最后成功轮次
+
+    // 质量检查：低质量结果自动重试
+    const quality = evaluateResultQuality(finalContent, task);
+    if (!quality.ok && retryCount < 2) {
+      retryCount++;
+      console.log(`[MemberLoop] ⚠️  ${targetAgent.name} 结果质量不佳 (${quality.reason})，自动重试 #${retryCount}`);
+      // 注入重试指令
+      messages.push({
+        role: 'user',
+        content: `[系统提示] 你的上次回复质量不足：${quality.reason}。请重新执行任务，提供更详细、更有价值的结果。`
+      });
+      continue;
+    }
+
     console.log(`[MemberLoop] ✅ ${targetAgent.name} 完成，finalContent=${finalContent.length} chars`);
     console.log(`[MemberLoop] 📊 Stats: iterations=${iteration + 1}, toolCalls=${toolCallCount}, model=${pickedModel.name}`);
 
