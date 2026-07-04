@@ -1001,6 +1001,10 @@ async function executePowerShellCommand(command: string, cwd: string, timeoutMs:
   // 注意：不在这里剥离 ; 命令链，因为 LLM 经常生成 "pwd ; ls -la" 这样的复合命令，
   // 每个分段都需要独立转换。只剥离 2>/dev/null 和 2>&1。
   let cleanCmd = command
+    // 修复 npx tsc 解析错误包的问题
+    .replace(/^npx\s+tsc\b/i, `node '${cwd}\\node_modules\\typescript\\lib\\tsc.js'`)
+    .replace(/^npx\s+typescript\b/i, `node '${cwd}\\node_modules\\typescript\\lib\\tsc.js'`)
+    // 剥离 2>&1 等必须在 npx 替换之后（否则 npx tsc 2>&1 中的 2>&1 会把 tsc 命令吞掉）
     .replace(/\s*2>\/dev\/null\s*;?\s*/g, ' ')           // 剥离 2>/dev/null（含前后分号）
     .replace(/\s*2>\s*&1\s*(\||;|$)/g, '$1')             // 剥离 2>&1（末尾、管道前、分号前）
     .replace(/\s*>\s*&\d\s*$/g, '')                      // 剥离 >&2 等
@@ -1063,6 +1067,10 @@ async function executeWindowsCommand(command: string, cwd: string, timeoutMs: nu
     const MAX_OUTPUT = 500 * 1024;
 
     let cleanCmd = command;
+    // 修复 npx tsc 解析错误包的问题：npm 仓库中有同名 tsc 包，npx 会下载到它而不是 typescript/bin/tsc
+    // 替换为使用本地 TypeScript 编译器（用单引号避免 PowerShell 转义反斜杠）
+    cleanCmd = cleanCmd.replace(/^npx\s+tsc\b/i, `node '${cwd}\\node_modules\\typescript\\lib\\tsc.js'`);
+    cleanCmd = cleanCmd.replace(/^npx\s+typescript\b/i, `node '${cwd}\\node_modules\\typescript\\lib\\tsc.js'`);
     // 用占位符避免在转换中相互影响
     cleanCmd = cleanCmd.replace(/(\s|^)&&(\s|$)/g, '$1;$2');
     cleanCmd = cleanCmd.replace(/(\s|^)\|\|(\s|$)/g, '$1;$2');
@@ -1086,32 +1094,96 @@ async function executeWindowsCommand(command: string, cwd: string, timeoutMs: nu
 }
 
 /**
+ * 将 grep 参数部分转换为 PowerShell Select-String
+ * 供 grep | head / grep | tail 管道转换复用
+ */
+function convertGrepToPowerShell(grepRest: string): string | null {
+  const flagsMatch = grepRest.match(/^(-[a-zA-Z]+)?\s+("(?:[^"\\]|\\.)*"|'[^']*'|(\S+))\s+(.+)$/);
+  if (!flagsMatch) return null;
+
+  const flags = flagsMatch[1] || '';
+  const pattern = (flagsMatch[2] || flagsMatch[3] || '').replace(/^["']|["']$/g, '');
+  const remainder = flagsMatch[4]?.trim() || '';
+
+  const includeMatch = remainder.match(/--include="([^"]+)"/);
+  const parts = remainder.split(/\s+/);
+  let target = '.';
+  for (const part of parts) {
+    if (!part.startsWith('--')) { target = part; break; }
+  }
+
+  const isRecursive = /r/.test(flags);
+  const isCaseInsensitive = /i/.test(flags);
+
+  if (isRecursive) {
+    let ps = `Get-ChildItem -Recurse -File`;
+    if (includeMatch) ps += ` -Filter "*${includeMatch[1]}"`;
+    ps += ` | Select-String -Pattern "${pattern}"`;
+    if (isCaseInsensitive) ps += ' -CaseSensitive:$false';
+    return ps;
+  }
+  return `Select-String -Path "${target}" -Pattern "${pattern}"${isCaseInsensitive ? ' -CaseSensitive:$false' : ''}`;
+}
+
+/**
  * 将 CMD 命令转换为 PowerShell 等效命令
  */
 function convertCmdToPowerShell(cmd: string): string {
   const trimmed = cmd.trim();
 
+  // 统一剥离 bash 特有的重定向和管道后缀（在所有命令匹配之前）
+  // 避免 2>&1、2>/dev/null 等被误认为是路径参数
+  const preCleaned = trimmed
+    .replace(/\s*2>\/dev\/null\s*$/g, '')
+    .replace(/\s*2>\s*&1\s*$/g, '')
+    .replace(/\s*>\s*&\d\s*$/g, '')
+    .replace(/\s*\|\s*tee\s+[^\s]*\s*$/g, '')
+    .replace(/\s*;\s*exit\s*\$?\w+\s*$/g, '');
+
   // ── Bash/Unix 命令转换（LLM 经常生成的跨平台命令）───────────────
 
   // ls -la / ls -l / ls -a / ls -la path / ls -l path 等
-  // \S+(?:\s+\S+)* 匹配一个或多个空格分隔的路径（支持 ls dir1 dir2）
-  // 注意：flags 和 paths 之间用 \s+ 分隔，确保 flags 优先匹配
-  const lsMatch = trimmed.match(/^ls\s*(-[a-zA-Z]+)?\s*(\S+(?:\s+\S+)*)?$/);
+  // 先剥离 2>&1、2>/dev/null、| head、| tail 等 bash 特有后缀
+  const lsClean = trimmed.replace(/\s*2>\/dev\/null\s*;?\s*$/g, '')
+                         .replace(/\s*2>\s*&1\s*;?\s*$/g, '')
+                         .replace(/\s*\|\s*head\s+(-n\s+)?\d+\s*$/g, '')
+                         .replace(/\s*\|\s*tail\s+(-n\s+)?\d+\s*$/g, '');
+  const lsMatch = lsClean.match(/^ls\s*(-[a-zA-Z]+)?\s*(.+?)\s*$/);
   if (lsMatch) {
     const flags = lsMatch[1] || '';
     const rawPaths = lsMatch[2]?.trim() || '';
     // Linux ls 接受空格分隔的多个路径，PowerShell 的 Get-ChildItem 不接受。
     // 将空格分隔的路径拆分为数组，用逗号传入 -Path（PowerShell 接受数组）
-    const paths = rawPaths ? rawPaths.split(/\s+/).filter(Boolean) : ['.'];
-    const path = paths.length > 1 ? paths.join(',') : paths[0];
+    const paths = rawPaths.split(/\s+/).filter(Boolean);
     const hasLongFormat = /l/.test(flags);
     const hasAll = /a/.test(flags);
     const hasRecurse = /R/.test(flags);
 
-    let ps = 'Get-ChildItem';
-    if (hasRecurse) ps += ' -Recurse';
-    if (hasAll) ps += ' -Force';
-    if (path && path !== '.') ps += ` -Path "${path}"`;
+    // 对每个路径单独构建 Get-ChildItem，避免逗号分隔路径时出现非法字符
+    if (paths.length === 1) {
+      let ps = 'Get-ChildItem';
+      if (hasRecurse) ps += ' -Recurse';
+      if (hasAll) ps += ' -Force';
+      if (paths[0] && paths[0] !== '.') ps += ` -Path "${paths[0]}"`;
+
+      if (hasLongFormat) {
+        ps += ' | Format-Table Name,Length,LastWriteTime,Mode -AutoSize';
+      } else if (hasRecurse) {
+        ps += ' | Select-Object FullName,Length,LastWriteTime';
+      }
+      return ps;
+    }
+
+    // 多路径：分别执行 Get-ChildItem 后用管道合并
+    let ps = '(';
+    ps += paths.map(p => {
+      let cmd = 'Get-ChildItem';
+      if (hasRecurse) cmd += ' -Recurse';
+      if (hasAll) cmd += ' -Force';
+      if (p && p !== '.') cmd += ` -Path "${p}"`;
+      return cmd;
+    }).join(' ; ');
+    ps += ')';
 
     if (hasLongFormat) {
       ps += ' | Format-Table Name,Length,LastWriteTime,Mode -AutoSize';
@@ -1129,25 +1201,18 @@ function convertCmdToPowerShell(cmd: string): string {
   }
 
   // grep pattern file / grep -r pattern dir / grep -rn "pattern" dir --include="*.ts"
-  // 使用更稳健的正则：先匹配选项，再匹配 pattern（可带引号），再匹配 target（可带 --include/--exclude）
-  const grepMatch = trimmed.match(/^grep\s+(-[a-zA-Z]+)?\s+("(?:[^"\\]|\\.)*"|'[^']*'|(\S+))\s+(.+)$/);
+  // 注意：| head / | tail 后缀必须在 preCleaned 阶段剥离，否则会吞掉它们
+  const grepMatch = preCleaned.match(/^grep\s+(-[a-zA-Z]+)?\s+("(?:[^"\\]|\\.)*"|'[^']*'|(\S+))\s+(.+)$/);
   if (grepMatch) {
     const flags = grepMatch[1] || '';
-    // group 2 = quoted pattern (with surrounding quotes), group 3 = unquoted pattern, group 4 = remainder
     const pattern = (grepMatch[2] || grepMatch[3] || '').replace(/^["']|["']$/g, '');
     const remainder = grepMatch[4]?.trim() || '';
 
-    // 从 remainder 中提取目标目录和 --include/--exclude/--color 等 GNU 选项
     const includeMatch = remainder.match(/--include="([^"]+)"/);
-    const excludeMatch = remainder.match(/--exclude="([^"]+)"/);
     const parts = remainder.split(/\s+/);
-    // 第一个非选项 token 是目标路径
     let target = '.';
     for (const part of parts) {
-      if (!part.startsWith('--')) {
-        target = part;
-        break;
-      }
+      if (!part.startsWith('--')) { target = part; break; }
     }
 
     const isRecursive = /r/.test(flags);
@@ -1155,10 +1220,7 @@ function convertCmdToPowerShell(cmd: string): string {
 
     if (isRecursive) {
       let ps = `Get-ChildItem -Recurse -File`;
-      // 如果有 --include，限制搜索的文件
-      if (includeMatch) {
-        ps += ` -Filter "*${includeMatch[1]}"`;
-      }
+      if (includeMatch) ps += ` -Filter "*${includeMatch[1]}"`;
       ps += ` | Select-String -Pattern "${pattern}"`;
       if (isCaseInsensitive) ps += ' -CaseSensitive:$false';
       return ps;
@@ -1166,9 +1228,31 @@ function convertCmdToPowerShell(cmd: string): string {
     return `Select-String -Path "${target}" -Pattern "${pattern}"${isCaseInsensitive ? ' -CaseSensitive:$false' : ''}`;
   }
 
+  // grep pattern file | head N / grep pattern file | tail N — 剥离管道后缀后由 grep 处理，
+  // 这里补充处理 grep 未匹配到的 | head / | tail 管道命令
+  const grepPipeHead = preCleaned.match(/^grep\s+(.+?)\s*\|\s*head\s+-?n?\s*(\d+)\s*$/);
+  if (grepPipeHead) {
+    const rest = grepPipeHead[1];
+    const count = grepPipeHead[2];
+    // 先转换 grep 部分，再追加 head
+    const grepConverted = convertGrepToPowerShell(rest);
+    if (grepConverted) {
+      return `${grepConverted} | Select-Object -First ${count}`;
+    }
+  }
+  const grepPipeTail = preCleaned.match(/^grep\s+(.+?)\s*\|\s*tail\s+-?n?\s*(\d+)\s*$/);
+  if (grepPipeTail) {
+    const rest = grepPipeTail[1];
+    const count = grepPipeTail[2];
+    const grepConverted = convertGrepToPowerShell(rest);
+    if (grepConverted) {
+      return `${grepConverted} | Select-Object -Last ${count}`;
+    }
+  }
+
   // find dir -name "*.ext" / find . -name "*.ext"
   // 注意: pattern 后可能跟 2>&1 / 2>/dev/null / | head 等，需要用负向前瞻排除
-  const findMatch = trimmed.match(/^find\s+(\S+)\s+(-[a-zA-Z]+\s+)?(-name|"[^"]+")\s+((?:(?!2>[&/]|\|\s*(?:head|tail|grep|findstr)).)+)(?:\s*2>&1\s*(?:\||$)|\s*2>\/dev\/null\s*(?:\||$)|\s*\||\s*$)/);
+  const findMatch = preCleaned.match(/^find\s+(\S+)\s+(-[a-zA-Z]+\s+)?(-name|"[^"]+")\s+((?:(?!2>[&/]|\|\s*(?:head|tail|grep|findstr)).)+)(?:\s*2>&1\s*(?:\||$)|\s*2>\/dev\/null\s*(?:\||$)|\s*\||\s*$)/);
   if (findMatch) {
     // 清理目录路径和 pattern 中可能残留的引号
     const dir = findMatch[1]?.replace(/^["']|["']$/g, '') || '.';
@@ -1177,7 +1261,7 @@ function convertCmdToPowerShell(cmd: string): string {
   }
 
   // find dir -type f / find dir -type d / find dir -type f -name "*.ext"
-  const findTypeMatch = trimmed.match(/^find\s+(\S+)\s+-type\s+(f|d)\s+((?:(?!2>[&/]|\|\s*(?:head|tail|grep|findstr)).)+)(?:\s*2>&1\s*(?:\||$)|\s*2>\/dev\/null\s*(?:\||$)|\s*\||\s*$)/);
+  const findTypeMatch = preCleaned.match(/^find\s+(\S+)\s+-type\s+(f|d)\s+((?:(?!2>[&/]|\|\s*(?:head|tail|grep|findstr)).)+)(?:\s*2>&1\s*(?:\||$)|\s*2>\/dev\/null\s*(?:\||$)|\s*\||\s*$)/);
   if (findTypeMatch) {
     const dir = findTypeMatch[1]?.replace(/^["']|["']$/g, '') || '.';
     const type = findTypeMatch[2];
@@ -1198,7 +1282,7 @@ function convertCmdToPowerShell(cmd: string): string {
   }
 
   // find dir -path "pattern" [-print] / find dir -path "pattern" -name "*.ext"
-  const findPathMatch = trimmed.match(/^find\s+(\S+)\s+-path\s+"([^"]+)"(?:\s+-print)?(?:\s*2>&1\s*(?:\||$)|\s*2>\/dev\/null\s*(?:\||$)|\s*\|\s*head\s+(\d+))?/);
+  const findPathMatch = preCleaned.match(/^find\s+(\S+)\s+-path\s+"([^"]+)"(?:\s+-print)?(?:\s*2>&1\s*(?:\||$)|\s*2>\/dev\/null\s*(?:\||$)|\s*\|\s*head\s+(\d+))?/);
   if (findPathMatch) {
     const dir = findPathMatch[1];
     const pattern = findPathMatch[2];
@@ -1217,11 +1301,11 @@ function convertCmdToPowerShell(cmd: string): string {
   }
 
   // find dir -name "a" -o -name "b" -o -name "c" | head -20 （多文件扩展名搜索）
-  const findMultiMatch = trimmed.match(/^find\s+(\S+)\s+(-name\s+"[^"]+"\s+-o\s+)+(-name\s+"[^"]+")(\s*\|\s*head\s+(-\d+)?\s*(\d+))?/);
+  const findMultiMatch = preCleaned.match(/^find\s+(\S+)\s+(-name\s+"[^"]+"\s+-o\s+)+(-name\s+"[^"]+")(\s*\|\s*head\s+(-\d+)?\s*(\d+))?/);
   if (findMultiMatch) {
     const dir = findMultiMatch[1];
     const headMatch = findMultiMatch[6];
-    const allNameParts = trimmed.match(/-name\s+"([^"]+)"/g) || [];
+    const allNameParts = preCleaned.match(/-name\s+"([^"]+)"/g) || [];
     const patterns = allNameParts.map(p => {
       const m = p.match(/-name\s+"([^"]+)"/);
       return m ? m[1] : '';
@@ -1243,7 +1327,7 @@ function convertCmdToPowerShell(cmd: string): string {
   }
 
   // find dir -maxdepth N -name "a" -o -name "b" ... （带 -maxdepth 的多模式搜索）
-  const findComplexMatch = trimmed.match(/^find\s+(\S+)\s+-maxdepth\s+(\d+)\s+(.+?)(?:\s*2>&1\s*(?:\||$)|\s*2>\/dev\/null\s*(?:\||$)|\s*\||\s*$)/);
+  const findComplexMatch = preCleaned.match(/^find\s+(\S+)\s+-maxdepth\s+(\d+)\s+(.+?)(?:\s*2>&1\s*(?:\||$)|\s*2>\/dev\/null\s*(?:\||$)|\s*\||\s*$)/);
   if (findComplexMatch) {
     const dir = findComplexMatch[1]?.replace(/^["']|["']$/g, '') || '.';
     const maxDepth = parseInt(findComplexMatch[2]) || 5;
@@ -1266,7 +1350,7 @@ function convertCmdToPowerShell(cmd: string): string {
   }
 
   // find + head 组合（处理 find ... | head N）
-  const findWithHead = trimmed.match(/^(find\s+[^\|]+)\s*\|\s*head\s+(-\d+)?\s*(\d+)/);
+  const findWithHead = preCleaned.match(/^(find\s+[^\|]+)\s*\|\s*head\s+(-\d+)?\s*(\d+)/);
   if (findWithHead) {
     const findCmd = findWithHead[1];
     const count = findWithHead[3];
@@ -1281,15 +1365,42 @@ function convertCmdToPowerShell(cmd: string): string {
     return 'Get-Location | Select-Object -ExpandProperty Path';
   }
 
+  // findstr /R "pattern" file — Windows CMD 搜索命令，转换为 PowerShell Select-String
+  const findstrMatch = preCleaned.match(/^findstr\s+\/R\s+"([^"]+)"\s+(.+)$/i);
+  if (findstrMatch) {
+    const pattern = findstrMatch[1];
+    const file = findstrMatch[2].trim();
+    return `Select-String -Path "${file}" -Pattern "${pattern}"`;
+  }
+  // findstr /R "pattern" — 搜索当前目录所有文件
+  const findstrCurrentMatch = preCleaned.match(/^findstr\s+\/R\s+"([^"]+)"\s*$/i);
+  if (findstrCurrentMatch) {
+    const pattern = findstrCurrentMatch[1];
+    return `Get-ChildItem -File | Select-String -Pattern "${pattern}"`;
+  }
+  // findstr "pattern" file — 不带 /R 标志的基本搜索
+  const findstrBasicMatch = preCleaned.match(/^findstr\s+"([^"]+)"\s+(.+)$/i);
+  if (findstrBasicMatch) {
+    const pattern = findstrBasicMatch[1];
+    const file = findstrBasicMatch[2].trim();
+    return `Select-String -Path "${file}" -Pattern "${pattern}"`;
+  }
+  // findstr "pattern" — 搜索当前目录所有文件
+  const findstrBasicCurrentMatch = preCleaned.match(/^findstr\s+"([^"]+)"\s*$/i);
+  if (findstrBasicCurrentMatch) {
+    const pattern = findstrBasicCurrentMatch[1];
+    return `Get-ChildItem -File | Select-String -Pattern "${pattern}"`;
+  }
+
   // which cmd / where cmd
-  const whichMatch = trimmed.match(/^(which|where)\s+(.+)$/);
+  const whichMatch = preCleaned.match(/^(which|where)\s+(.+)$/);
   if (whichMatch) {
     const cmdName = whichMatch[2].trim();
     return `Get-Command ${cmdName} | Select-Object -ExpandProperty Source`;
   }
 
   // echo text
-  const echoMatch = trimmed.match(/^echo\s+(.+)$/);
+  const echoMatch = preCleaned.match(/^echo\s+(.+)$/);
   if (echoMatch) {
     const text = echoMatch[1].trim();
     return `Write-Output ${text}`;
@@ -1337,7 +1448,7 @@ function convertCmdToPowerShell(cmd: string): string {
   }
 
   // head -n N file
-  const headMatch = trimmed.match(/^head\s+(-n\s+)?(\d+)\s+(.+)$/);
+  const headMatch = preCleaned.match(/^head\s+(-n\s+)?(\d+)\s+(.+)$/);
   if (headMatch) {
     const count = headMatch[2];
     const file = headMatch[3].trim();
@@ -1345,7 +1456,7 @@ function convertCmdToPowerShell(cmd: string): string {
   }
 
   // tail -n N file
-  const tailMatch = trimmed.match(/^tail\s+(-n\s+)?(\d+)\s+(.+)$/);
+  const tailMatch = preCleaned.match(/^tail\s+(-n\s+)?(\d+)\s+(.+)$/);
   if (tailMatch) {
     const count = tailMatch[2];
     const file = tailMatch[3].trim();
@@ -1353,7 +1464,7 @@ function convertCmdToPowerShell(cmd: string): string {
   }
 
   // wc -l file
-  const wcMatch = trimmed.match(/^wc\s+-l\s+(.+)$/);
+  const wcMatch = preCleaned.match(/^wc\s+-l\s+(.+)$/);
   if (wcMatch) {
     const file = wcMatch[1]?.trim().replace(/^["']|["']$/g, '') || '';
     return `(Get-Content "${file}").Count`;
@@ -1366,7 +1477,7 @@ function convertCmdToPowerShell(cmd: string): string {
 
   // curl 命令 → curl.exe（PowerShell 的 curl 是 Invoke-WebRequest 别名，不兼容）
   // 注意：不要在此处 return，因为 LLM 可能在 curl 后追加 | head / | tail
-  const curlMatch = trimmed.match(/^curl(\.exe)?\s+(.+)$/i);
+  const curlMatch = preCleaned.match(/^curl(\.exe)?\s+(.+)$/i);
   if (curlMatch) {
     let ps = `curl.exe ${curlMatch[2]}`;
     // 如果后面跟了 | head 或 | tail，转换为 PowerShell 等效命令
@@ -1409,7 +1520,7 @@ function convertCmdToPowerShell(cmd: string): string {
   }
 
   // Get-Process 替代 ps aux / tasklist
-  const psMatch = trimmed.match(/^ps\s+(aux|ax)?\s*(.*)$/);
+  const psMatch = preCleaned.match(/^ps\s+(aux|ax)?\s*(.*)$/);
   if (psMatch) {
     const args = psMatch[2]?.trim() || '';
     if (args.includes('java')) {
@@ -1508,8 +1619,8 @@ function convertCmdToPowerShell(cmd: string): string {
 
   // 复合命令：按 ; 拆分后逐段转换，再拼接
   // 处理 "pwd ; ls -la"、"cat file ; find ..." 等多命令场景
-  if (trimmed.includes(';')) {
-    const segments = trimmed.split(';').map(s => s.trim()).filter(Boolean);
+  if (preCleaned.includes(';')) {
+    const segments = preCleaned.split(';').map(s => s.trim()).filter(Boolean);
     const converted = segments.map(s => convertSingleSegment(s)).join('; ');
     return converted;
   }
@@ -1517,20 +1628,20 @@ function convertCmdToPowerShell(cmd: string): string {
   // ── 通用管道：| head / | tail 转换 ──────────────────────────────
   // 处理任意命令后的 | head N / | tail N（LLM 常用此限制输出行数）
   // 支持 "cmd | head 50"、"cmd | head -n 50"、"cmd | head -50" 三种格式
-  const pipeHead = trimmed.match(/^(.+?)\s*\|\s*head\s+-?n?\s*(\d+)\s*$/);
+  const pipeHead = preCleaned.match(/^(.+?)\s*\|\s*head\s+-?n?\s*(\d+)\s*$/);
   if (pipeHead && pipeHead[1]?.trim()) {
     const leftSide = pipeHead[1].trim();
     const count = pipeHead[2];
     return `${leftSide} | Select-Object -First ${count}`;
   }
-  const pipeTail = trimmed.match(/^(.+?)\s*\|\s*tail\s+-?n?\s*(\d+)\s*$/);
+  const pipeTail = preCleaned.match(/^(.+?)\s*\|\s*tail\s+-?n?\s*(\d+)\s*$/);
   if (pipeTail && pipeTail[1]?.trim()) {
     const leftSide = pipeTail[1].trim();
     const count = pipeTail[2];
     return `${leftSide} | Select-Object -Last ${count}`;
   }
 
-  return cmd;
+  return preCleaned;
 }
 
 /**
@@ -1546,18 +1657,35 @@ function convertSingleSegment(segment: string): string {
     return 'Get-Location | Select-Object -ExpandProperty Path';
   }
 
+  // findstr /R "pattern" file — Windows CMD 搜索命令，转换为 PowerShell Select-String
+  const findstrMatch = trimmed.match(/^findstr\s+\/R\s+"([^"]+)"\s+(.+)$/i);
+  if (findstrMatch) {
+    const pattern = findstrMatch[1];
+    const file = findstrMatch[2].trim();
+    return `Select-String -Path "${file}" -Pattern "${pattern}"`;
+  }
+  // findstr "pattern" file — 不带 /R 标志的基本搜索
+  const findstrBasicMatch = trimmed.match(/^findstr\s+"([^"]+)"\s+(.+)$/i);
+  if (findstrBasicMatch) {
+    const pattern = findstrBasicMatch[1];
+    const file = findstrBasicMatch[2].trim();
+    return `Select-String -Path "${file}" -Pattern "${pattern}"`;
+  }
+
   // ls -la / ls -l / ls -a / ls -la path / ls -l path 等
-  // \S* 允许 ls 不带参数（如 "ls"），flags 和 path 之间用 \s* 分隔避免重叠
-  const lsMatch = trimmed.match(/^ls\s*(-[a-zA-Z]+)?\s*(\S*)$/);
+  // 先剥离 2>&1、2>/dev/null 等 bash 后缀
+  const lsClean = trimmed.replace(/\s*2>\/dev\/null\s*;?\s*$/g, '')
+                         .replace(/\s*2>\s*&1\s*;?\s*$/g, '');
+  const lsMatch = lsClean.match(/^ls\s*(-[a-zA-Z]+)?\s*(.+?)\s*$/);
   if (lsMatch) {
     const flags = lsMatch[1] || '';
-    const path = lsMatch[2]?.trim() || '.';
+    const rawPath = lsMatch[2]?.trim() || '';
     const hasLongFormat = /l/.test(flags);
     const hasAll = /a/.test(flags);
 
     let ps = 'Get-ChildItem';
     if (hasAll) ps += ' -Force';
-    if (path && path !== '.') ps += ` -Path "${path}"`;
+    if (rawPath && rawPath !== '.') ps += ` -Path "${rawPath}"`;
 
     if (hasLongFormat) {
       ps += ' | Format-Table Name,Length,LastWriteTime,Mode -AutoSize';
@@ -1653,6 +1781,7 @@ export async function executeFileIO(
     'read-file': 'read_file',
     'list-files': 'list_files',
     'edit-file': 'edit_file',
+    'search-files': 'search_files',
     'create': 'write_file',
     'write': 'write_file',
     'read': 'read_file',
@@ -1693,6 +1822,47 @@ export async function executeFileIO(
       if (!newText) return { error: '缺少参数: newText' };
       const editResult = await FileToolService.editFile(project.workspace, filePath, oldText, newText);
       return { success: true, ...editResult };
+
+    case 'search_files':
+    case 'search-files': {
+      const searchPath = filePath || '.';
+      const pattern = args.pattern || '*';
+      const maxDepth = Math.min(Number(args.max_depth) || 5, 10);
+      try {
+        const { absolutePath } = FileToolService.resolveWorkspacePath(project.workspace, searchPath);
+        const results: any[] = [];
+
+        function walk(dir: string, depth: number) {
+          return new Promise<void>((resolve) => {
+            if (depth > maxDepth) { resolve(); return; }
+            fs.readdir(dir, { withFileTypes: true }, (err, entries) => {
+              if (err) { resolve(); return; }
+              (entries || []).forEach((entry) => {
+                if (entry.isFile() && globMatch(entry.name, pattern)) {
+                  fs.stat(path.join(dir, entry.name), (err, stat) => {
+                    if (!err) {
+                      results.push({
+                        path: path.relative(absolutePath, path.join(dir, entry.name)).replace(/\\/g, '/'),
+                        name: entry.name,
+                        size: stat.size,
+                        updatedAt: stat.mtime.toISOString()
+                      });
+                    }
+                  });
+                }
+                if (entry.isDirectory()) walk(path.join(dir, entry.name), depth + 1);
+              });
+              resolve();
+            });
+          });
+        }
+
+        await walk(absolutePath, 0);
+        return { success: true, count: results.length, results, searchPath, pattern };
+      } catch (err: any) {
+        return { success: false, error: `文件搜索失败: ${err.message}` };
+      }
+    }
 
     case 'find':
     case 'search': {
