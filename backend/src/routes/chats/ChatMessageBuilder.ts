@@ -106,26 +106,42 @@ function buildAgentCapabilitySummary(agent: any): string | null {
   const name = agent.name || 'Unknown';
   const role = agent.role || '';
 
-  // 提取擅长领域（Core Competencies / 擅长 / Default Technical Preferences / 技术栈）
+  // 提取擅长领域：从 Core Competencies 段落提取编号标题（**xxx**）
   const strengths: string[] = [];
   const competencies = desc.match(/## Core Competencies([\s\S]*?)(?=##|$)/i);
   if (competencies) {
-    const lines = competencies[1].split('\n').map(l => l.replace(/^-+\s*\d+\.\s*/, '').trim()).filter(Boolean).slice(0, 4);
-    lines.forEach(l => {
-      // 提取关键技术/能力关键词
-      const skills = l.match(/[A-Z][\w-]+|[a-z]+[A-Z][\w-]*|\b(Spring|React|TypeScript|Tailwind|MyBatis|Nacos|Redis|MySQL|Java|Python|CSS|HTML|Testing|UI|UX|Product|PRD)\b/i);
-      if (skills) skills.forEach(s => { if (!strengths.includes(s)) strengths.push(s); });
-    });
+    // 匹配 **标题**：能提取结构化标题，而非整句
+    const boldTitles = competencies[1].match(/\*\*([^*]{2,30})\*\*/g);
+    if (boldTitles) {
+      for (const bt of boldTitles) {
+        const title = bt.slice(2, -2); // 去掉 ** 包裹
+        // 过滤太短或太通用的词
+        if (title.length >= 2 && !['API', 'UI', 'UX', 'PRD'].includes(title)) {
+          if (!strengths.includes(title)) strengths.push(title);
+        }
+      }
+    }
+    // 兜底：如果没有 ** 标题，提取每行的前几个中文词
+    if (strengths.length === 0) {
+      const lines = competencies[1].split('\n').map(l => l.trim()).filter(Boolean).slice(0, 3);
+      lines.forEach(l => {
+        // 提取前 10 个中文字符作为关键词
+        const cnMatch = l.match(/[一-龥]{2,10}/);
+        if (cnMatch && cnMatch[0].length >= 2 && !strengths.includes(cnMatch[0])) {
+          strengths.push(cnMatch[0]);
+        }
+      });
+    }
   }
 
-  // 提取默认技术偏好
+  // 提取默认技术偏好（如 Framework, Language, Styling 等）
   const techPrefs = desc.match(/## Default Technical Preferences([\s\S]*?)(?=##|$)/i);
   if (techPrefs) {
     techPrefs[1].split('\n').forEach(line => {
       const m = line.match(/-?\s*([\w]+):\s*(.+)/);
       if (m) {
         const val = m[2].trim().split(',')[0].trim();
-        if (val && !strengths.includes(val)) strengths.push(val);
+        if (val && !strengths.includes(val) && val.length >= 2 && val.length <= 30) strengths.push(val);
       }
     });
   }
@@ -139,22 +155,24 @@ function buildAgentCapabilitySummary(agent: any): string | null {
   const outputMatch = desc.match(/## Output\s*\n\s*-?\s*(.+?)(?:\n|$)/i);
   const outputPath = outputMatch ? outputMatch[1].trim() : '';
 
-  // 提取适用任务（从 Workflow 或 Constraints 中推断关键词）
+  // 提取适用任务：基于 agent 名称精确匹配（不扫描全文，避免误匹配）
   const taskKeywords: string[] = [];
-  const workflowSections = desc.match(/## Workflow([\s\S]*?)(?=##|$)/i);
-  if (workflowSections) {
-    const wfText = workflowSections[1].toLowerCase();
-    if (/后端|backend|java|spring|api|数据库|db|mysql|nacos|redis|mybatis/i.test(desc)) taskKeywords.push('后端开发');
-    if (/前端|frontend|react|typescript|tailwind|css|ui|ux|组件|界面/i.test(desc)) taskKeywords.push('前端/UI');
-    if (/测试|qa|test|自动化|缺陷/i.test(desc)) taskKeywords.push('测试');
-    if (/产品|prd|需求|user story|workflow|流程/i.test(desc)) taskKeywords.push('产品设计');
+  const lowerName = (name + ' ' + role).toLowerCase();
+
+  // 优先匹配 agent 名称中的明确标识
+  if (/后端|backend/i.test(name)) {
+    taskKeywords.push('后端开发');
+  } else if (/ux|前端|design|ui/i.test(name)) {
+    taskKeywords.push('前端/UI');
+  } else if (/qa|测试/i.test(name)) {
+    taskKeywords.push('测试');
+  } else if (/产品|pm/i.test(name)) {
+    taskKeywords.push('产品设计');
   }
+
+  // 兜底：如果没匹配到任何任务类型，用 role
   if (taskKeywords.length === 0) {
-    if (/后端|backend|java|spring|api|数据库/i.test(desc)) taskKeywords.push('后端开发');
-    else if (/前端|react|typescript|tailwind|ui|ux/i.test(desc)) taskKeywords.push('前端/UI');
-    else if (/测试|qa|test/i.test(desc)) taskKeywords.push('测试');
-    else if (/产品|prd|需求/i.test(desc)) taskKeywords.push('产品设计');
-    else taskKeywords.push(role);
+    taskKeywords.push(role || '通用');
   }
 
   // 组装摘要
