@@ -456,6 +456,47 @@ export function generateToolDefinitionForSkill(skill: any): ToolDefinition | nul
 }
 
 /**
+ * 根据 agent 角色过滤工具集
+ * 不同角色的 agent 需要不同的工具权限，减少不必要的暴露
+ */
+const AGENT_TOOL_FILTERS: Record<string, string[]> = {
+  // 后端 agent: 需要 shell_exec（编译/构建/数据库操作）
+  '后端': ['read_file', 'write_file', 'edit_file', 'search_files', 'list_files', 'shell_exec', 'shell-cmd'],
+  // UX agent: 不需要 shell_exec（专注前端代码）
+  'UX': ['read_file', 'write_file', 'edit_file', 'search_files', 'list_files'],
+  // QA agent: 有限的 shell_exec（跑测试）
+  'QA': ['read_file', 'write_file', 'edit_file', 'search_files', 'list_files', 'shell_exec', 'shell-cmd'],
+  // 产品经理: 不需要 shell_exec（专注文档）
+  '产品经理': ['read_file', 'write_file', 'edit_file', 'search_files', 'list_files'],
+};
+
+/**
+ * 根据 agent 角色构建工具列表（过滤工具集）
+ * 如果 agentName 匹配已知角色，则只保留该角色的工具
+ */
+export function buildToolListForAgent(
+  project: any,
+  allProjectAgents: any[],
+  coordinatorAgentId: string | undefined,
+  enabledSkills: any[],
+  agentName?: string
+): any[] {
+  const tools = buildToolList(project, allProjectAgents, coordinatorAgentId, enabledSkills);
+
+  if (agentName && AGENT_TOOL_FILTERS[agentName]) {
+    const allowedTools = AGENT_TOOL_FILTERS[agentName];
+    const filtered = tools.filter((t: any) => {
+      const name = t.function?.name || t.name;
+      return allowedTools.includes(name);
+    });
+    console.log(`[ToolFilter] Agent "${agentName}" restricted to: ${allowedTools.join(', ')}`);
+    return filtered;
+  }
+
+  return tools;
+}
+
+/**
  * 构建完整的工具列表
  * @param project 项目配置
  * @param allProjectAgents 项目 Agent 列表
@@ -470,7 +511,7 @@ export function buildToolList(
 ): any[] {
   const tools: any[] = [];
   const addedToolNames = new Set<string>();
-  
+
   // 1. 添加内置文件工具（如果启用）
   if (project?.enabledSkillIds?.includes('builtin-file-io')) {
     for (const def of BUILTIN_TOOL_DEFINITIONS) {
@@ -480,7 +521,7 @@ export function buildToolList(
       }
     }
   }
-  
+
   // 2. 添加 Shell 工具（如果启用）
   if (project?.enabledSkillIds?.includes('builtin-shell-cmd')) {
     const shellDef = BUILTIN_TOOL_DEFINITIONS.find(d => d.name === 'shell_exec');
@@ -499,12 +540,12 @@ export function buildToolList(
       addedToolNames.add('shell-cmd');
     }
   }
-  
+
   // 3. 添加委托工具（如果有团队成员）
   const delegateOptions = allProjectAgents
     .filter((a: any) => String(a.id) !== String(coordinatorAgentId))
     .map(a => a.name);
-  
+
   if (delegateOptions.length > 0) {
     const delegateDef = BUILTIN_TOOL_DEFINITIONS.find(d => d.name === 'delegate_to_agent');
     if (delegateDef) {
@@ -526,23 +567,23 @@ export function buildToolList(
       addedToolNames.add('delegate_to_agent');
     }
   }
-  
+
   // 4. 添加技能工具
   for (const skill of enabledSkills) {
     const skillName = skill.name || skill.id;
-    
+
     // 跳过已添加的内置技能
     if (skillName.startsWith('builtin-') || addedToolNames.has(skillName)) {
       continue;
     }
-    
+
     const def = generateToolDefinitionForSkill(skill);
     if (def) {
       tools.push({ type: 'function', function: def });
       addedToolNames.add(def.name);
     }
   }
-  
+
   return tools;
 }
 

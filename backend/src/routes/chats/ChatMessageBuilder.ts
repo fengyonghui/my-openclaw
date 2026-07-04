@@ -94,6 +94,78 @@ function estimateMessageTokens(msg: Message): number {
 }
 
 // ============================================================
+// Agent 能力摘要提取
+// ============================================================
+
+/**
+ * 从 agent description 中提取结构化能力摘要
+ * 替代直接粘贴完整 description（几千字符），节省 token 且更易读
+ */
+function buildAgentCapabilitySummary(agent: any): string | null {
+  const desc = agent.description || '';
+  const name = agent.name || 'Unknown';
+  const role = agent.role || '';
+
+  // 提取擅长领域（Core Competencies / 擅长 / Default Technical Preferences / 技术栈）
+  const strengths: string[] = [];
+  const competencies = desc.match(/## Core Competencies([\s\S]*?)(?=##|$)/i);
+  if (competencies) {
+    const lines = competencies[1].split('\n').map(l => l.replace(/^-+\s*\d+\.\s*/, '').trim()).filter(Boolean).slice(0, 4);
+    lines.forEach(l => {
+      // 提取关键技术/能力关键词
+      const skills = l.match(/[A-Z][\w-]+|[a-z]+[A-Z][\w-]*|\b(Spring|React|TypeScript|Tailwind|MyBatis|Nacos|Redis|MySQL|Java|Python|CSS|HTML|Testing|UI|UX|Product|PRD)\b/i);
+      if (skills) skills.forEach(s => { if (!strengths.includes(s)) strengths.push(s); });
+    });
+  }
+
+  // 提取默认技术偏好
+  const techPrefs = desc.match(/## Default Technical Preferences([\s\S]*?)(?=##|$)/i);
+  if (techPrefs) {
+    techPrefs[1].split('\n').forEach(line => {
+      const m = line.match(/-?\s*([\w]+):\s*(.+)/);
+      if (m) {
+        const val = m[2].trim().split(',')[0].trim();
+        if (val && !strengths.includes(val)) strengths.push(val);
+      }
+    });
+  }
+
+  // 如果没提取到任何东西，用 role 兜底
+  if (strengths.length === 0 && role) {
+    strengths.push(role);
+  }
+
+  // 提取输出位置（## Output 段落）
+  const outputMatch = desc.match(/## Output\s*\n\s*-?\s*(.+?)(?:\n|$)/i);
+  const outputPath = outputMatch ? outputMatch[1].trim() : '';
+
+  // 提取适用任务（从 Workflow 或 Constraints 中推断关键词）
+  const taskKeywords: string[] = [];
+  const workflowSections = desc.match(/## Workflow([\s\S]*?)(?=##|$)/i);
+  if (workflowSections) {
+    const wfText = workflowSections[1].toLowerCase();
+    if (/后端|backend|java|spring|api|数据库|db|mysql|nacos|redis|mybatis/i.test(desc)) taskKeywords.push('后端开发');
+    if (/前端|frontend|react|typescript|tailwind|css|ui|ux|组件|界面/i.test(desc)) taskKeywords.push('前端/UI');
+    if (/测试|qa|test|自动化|缺陷/i.test(desc)) taskKeywords.push('测试');
+    if (/产品|prd|需求|user story|workflow|流程/i.test(desc)) taskKeywords.push('产品设计');
+  }
+  if (taskKeywords.length === 0) {
+    if (/后端|backend|java|spring|api|数据库/i.test(desc)) taskKeywords.push('后端开发');
+    else if (/前端|react|typescript|tailwind|ui|ux/i.test(desc)) taskKeywords.push('前端/UI');
+    else if (/测试|qa|test/i.test(desc)) taskKeywords.push('测试');
+    else if (/产品|prd|需求/i.test(desc)) taskKeywords.push('产品设计');
+    else taskKeywords.push(role);
+  }
+
+  // 组装摘要
+  let summary = `### ${name}${role ? ` (${role})` : ''}`;
+  summary += `\n- **擅长**: ${strengths.slice(0, 5).join(', ')}`;
+  summary += `\n- **适用任务**: ${taskKeywords.join(', ')}`;
+  if (outputPath) summary += `\n- **输出位置**: ${outputPath}`;
+  return summary;
+}
+
+// ============================================================
 // 核心：构建系统消息（带缓存）
 // ============================================================
 
@@ -223,12 +295,14 @@ ${sysInfo.isWindows ? `- createFile command (empty file only): ${cmds.createFile
 
   let teamPrompt = '';
   if (availableDelegates.length > 0) {
-    const delegateDetails = allProjectAgents
+    // 为每个非协调员 agent 生成结构化能力摘要（替代完整 description，节省 token）
+    const memberSummaries = allProjectAgents
       .filter((a: any) => String(a.id) !== String(coordinatorAgent?.id))
-      .map((a: any) => `- ${a.name}${a.role ? ` (${a.role})` : ''}: ${a.description || ''}`)
-      .join('\n');
+      .map(a => buildAgentCapabilitySummary(a))
+      .filter(Boolean)
+      .join('\n\n');
 
-    teamPrompt = `\n\n## YOUR TEAM\nYou can delegate tasks to these team members:\n${delegateDetails}`;
+    teamPrompt = `\n\n## YOUR TEAM\nYou can delegate tasks to these team members:\n\n${memberSummaries}\n\n## DELEGATION GUIDE\nWhen the user asks you to delegate a task, match the task type to the best agent:\n- **后端** → Java/Spring/数据库/API/架构相关任务\n- **UX** → React/TypeScript/Tailwind/前端组件/UI设计相关任务\n- **QA** → 测试计划/自动化测试/缺陷排查/回归测试\n- **产品经理** → PRD/用户故事/需求分析/产品规划\n\nAlways review each agent's "擅长" and "适用任务" fields above to choose the right agent.`;
   }
 
   // 加载项目 MEMORY.md（已带缓存）
