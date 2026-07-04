@@ -1197,15 +1197,15 @@ function convertCmdToPowerShell(cmd: string): string {
   }
 
   // type file — Windows CMD 内置命令，等价于 cat
-  // 剥离 trailing -Raw / -Encoding 等 PowerShell 参数（LLM 有时会混用）
-  const typeMatch = preCleaned.match(/^type\s+(.+?)(?:\s*(?:-Raw|-Encoding|-Width)\b)?(?:\s*2>&1|\s*\||\s*$)/);
+  // 剥离 trailing -Raw / -Encoding utf8 等 PowerShell 参数
+  const typeMatch = preCleaned.match(/^type\s+(.+?)(?:\s+(?:-Raw|-Encoding|-Width)(?:\s+\S+)?)?(?:\s*2>&1|\s*\||\s*$)/);
   if (typeMatch) {
     const file = typeMatch[1]?.trim() || '.';
     return `Get-Content "${file}"`;
   }
 
   // cat file / cat file1 file2
-  const catMatch = trimmed.match(/^cat\s+(.+?)(?:\s*2>&1|\s*\||\s*$)/);
+  const catMatch = preCleaned.match(/^cat\s+(.+?)(?:\s*2>&1|\s*\||\s*$)/);
   if (catMatch) {
     const files = catMatch[1]?.trim() || '.';
     return `Get-Content "${files}"`;
@@ -1578,7 +1578,8 @@ function convertCmdToPowerShell(cmd: string): string {
   // cmd /c "type file" → Get-Content
   const cmdTypeMatch = trimmed.match(/^cmd\s+\/c\s+"type\s+(.+?)"$/i);
   if (cmdTypeMatch) {
-    const file = cmdTypeMatch[1].trim();
+    // 剥离 trailing -Raw / -Encoding utf8 等 PowerShell 参数
+    const file = cmdTypeMatch[1].trim().replace(/\s+(?:-Raw|-Encoding|-Width)\s*\S*\s*$/, '').trim();
     return `Get-Content "${file}"`;
   }
 
@@ -1717,7 +1718,7 @@ function convertSingleSegment(segment: string): string {
     .replace(/\s*2>\/dev\/null\s*(\||$)/g, '$1')
     .replace(/\s*\|\s*findstr\s+(?:\/R\s+)?(?:"[^"]*"|\S+)\s*$/gi, '')
     .replace(/\s*2>\s*&1\s*(\||$)/g, '$1');
-  const typeMatch = typeClean.match(/^type\s+(.+?)(?:\s*(?:-Raw|-Encoding|-Width)\b)?(?:\s*2>&1|\s*\||\s*$)/);
+  const typeMatch = typeClean.match(/^type\s+(.+?)(?:\s+(?:-Raw|-Encoding|-Width)(?:\s+\S+)?)?(?:\s*2>&1|\s*\||\s*$)/);
   if (typeMatch) {
     const file = typeMatch[1]?.trim() || '.';
     return `Get-Content "${file}"`;
