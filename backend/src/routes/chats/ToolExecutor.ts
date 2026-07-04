@@ -1918,8 +1918,9 @@ function evaluateResultQuality(finalContent: string, task: string): { ok: boolea
   if (!finalContent || finalContent.trim().length === 0) {
     return { ok: false, reason: 'empty result' };
   }
-  // 太短（< 50 chars 可能只是 "已完成" 之类的敷衍）
-  if (finalContent.trim().length < 50) {
+  // 太短（< 30 chars 可能只是 "已完成" 之类的敷衍）
+  // 中文内容较短也正常，放宽阈值
+  if (finalContent.trim().length < 30) {
     return { ok: false, reason: `too short (${finalContent.trim().length} chars)` };
   }
   // 检查是否包含文件路径（如果任务涉及文件操作）
