@@ -34,6 +34,7 @@ export interface ChatContext {
   coordinatorAgent: any;
   allProjectAgents: any[];
   allEnabledSkills: any[];
+  sessionMemory?: any[];  // 当前对话的会话级记忆
 }
 
 // ============================================================
@@ -48,16 +49,29 @@ interface SystemCacheEntry {
 const _systemCache = new Map<string, SystemCacheEntry>();
 const SYSTEM_CACHE_TTL_MS = 60_000; // 60s 兜底 TTL
 
-/** 计算上下文配置的 hash（Agent/Skills 变更时缓存失效） */
+/** 计算上下文配置的 hash（Agent/Skills/MEMORY.md 变更时缓存失效） */
 function computeConfigHash(
   coordinatorAgent: any,
   allProjectAgents: any[],
-  allEnabledSkills: any[]
+  allEnabledSkills: any[],
+  workspace?: string
 ): string {
   const agentIds = allProjectAgents.map((a: any) => a.id).sort().join(',');
   const skillIds = allEnabledSkills.map((s: any) => s.id).sort().join(',');
   const agentDesc = coordinatorAgent ? `${coordinatorAgent.id}|${coordinatorAgent.instructions?.slice(0, 100) || ''}` : '';
-  return `${agentIds}|${skillIds}|${agentDesc}`;
+
+  // 加入 MEMORY.md 的 mtime，确保文件变更时缓存失效
+  let memoryMtime = 'none';
+  if (workspace) {
+    try {
+      const memoryPath = path.join(workspace, 'MEMORY.md');
+      if (fs.existsSync(memoryPath)) {
+        memoryMtime = fs.statSync(memoryPath).mtimeMs.toString();
+      }
+    } catch { /* 文件不存在或读取失败，使用默认值 */ }
+  }
+
+  return `${agentIds}|${skillIds}|${agentDesc}|${memoryMtime}`;
 }
 
 /** 清除系统消息缓存 */
@@ -201,7 +215,7 @@ export function buildSystemMessage(
   // 尝试命中缓存
   if (projectId) {
     const cached = _systemCache.get(projectId);
-    const configHash = computeConfigHash(coordinatorAgent, allProjectAgents, allEnabledSkills);
+    const configHash = computeConfigHash(coordinatorAgent, allProjectAgents, allEnabledSkills, workspace);
     const now = Date.now();
 
     if (
@@ -326,6 +340,18 @@ ${sysInfo.isWindows ? `- createFile command (empty file only): ${cmds.createFile
   // 加载项目 MEMORY.md（已带缓存）
   const memoryPrompt = '\n\n## PROJECT MEMORY\n' + loadMemoryFile(workspace);
 
+  // 注入会话级记忆（最近 5 条，控制 token）
+  const sessionMemorySection = (() => {
+    if (!context.sessionMemory || context.sessionMemory.length === 0) return '';
+    const recent = context.sessionMemory.slice(-5);
+    const points = recent
+      .filter((m: any) => m.content && !m.promoted) // 只注入未晋升的会话记忆
+      .map((m: any) => `- ${m.content}`)
+      .join('\n');
+    if (!points) return '';
+    return `\n\n## SESSION MEMORY (this chat)\n${points}`;
+  })();
+
   // 构建系统消息内容
   const systemContent =
     `You are an AI assistant working inside project workspace: **${workspace}**\n` +
@@ -333,6 +359,7 @@ ${sysInfo.isWindows ? `- createFile command (empty file only): ${cmds.createFile
     `${agentRolePrompt}` +
     `${teamPrompt}` +
     `${memoryPrompt}` +
+    `${sessionMemorySection}` +
     `${platformSection}` +
     `## TOOL CALLING RULES
 - **CRITICAL — Build verification after code changes**:
@@ -371,7 +398,7 @@ ${availableDelegates.length > 0 ? `- To delegate a task to a team member: **USE 
 
   // 缓存
   if (projectId) {
-    const configHash = computeConfigHash(coordinatorAgent, allProjectAgents, allEnabledSkills);
+    const configHash = computeConfigHash(coordinatorAgent, allProjectAgents, allEnabledSkills, workspace);
     _systemCache.set(projectId, {
       message,
       configHash,

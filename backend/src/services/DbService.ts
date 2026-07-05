@@ -120,19 +120,47 @@ export class DbService {
   }
 
   // --- 项目记忆管理 ---
+  // 单一数据源：从 MEMORY.md 文件读取，不再维护 db.json 副本
   static async getProjectMemories(projectId: string) {
     const db = await this.load();
-    if (!db.memories) db.memories = [];
-    return db.memories.filter((m: any) => m.projectId === projectId);
+    const project = db.projects?.find((p: any) => p.id === projectId);
+    if (!project) return [];
+
+    // 从 MEMORY.md 文件读取（单一数据源）
+    try {
+      const { loadMemoryFile } = await import('../routes/chats/MemoryFileHandler.js');
+      const content = loadMemoryFile(project.workspace);
+      // 解析记忆条目格式: - [category] content（来源: source）
+      const lines = content.split('\n');
+      const memories: any[] = [];
+      for (const line of lines) {
+        const m = line.match(/^\s*-\s*\[(.+?)\]\s*(.+?)（来源:\s*(.+?)\)/);
+        if (m) {
+          memories.push({
+            id: `mem_${memories.length}`,
+            projectId,
+            category: m[1] as any,
+            content: m[2].trim(),
+            source: m[3].trim(),
+            createdAt: new Date().toISOString()
+          });
+        }
+      }
+      return memories;
+    } catch {
+      return [];
+    }
   }
 
+  // 保留 addProjectMemory 用于前端 API 兼容（实际写入 MEMORY.md）
   static async addProjectMemory(projectId: string, memory: any) {
     const db = await this.load();
-    const newMemory = { ...memory, id: Date.now().toString(), projectId, createdAt: new Date().toISOString() };
-    if (!db.memories) db.memories = [];
-    db.memories.unshift(newMemory);
-    await this.save();
-    return newMemory;
+    const project = db.projects?.find((p: any) => p.id === projectId);
+    if (!project) return null;
+
+    const { saveToMemoryFile } = await import('../routes/chats/MemoryFileHandler.js');
+    const result = await saveToMemoryFile(`请注意: ${memory.content}`, project.workspace);
+    return result === 'success' ? memory : null;
   }
 
   // --- 全局模型 CRUD ---

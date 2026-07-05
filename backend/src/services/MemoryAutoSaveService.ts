@@ -401,7 +401,9 @@ export async function autoSaveMemory(
   // 6. 保存到项目层
   saveProjectMemory(workspacePath, result.summary, result.points);
 
-  // 7. 同步到 db.json（供前端展示）
+  // 7. 同步到 db.json（保留兼容，前端不再依赖此数据源）
+  //    注：DbService.getProjectMemories 已改为从 MEMORY.md 读取，
+  //    此处 syncToDb 仅为向后兼容，未来可移除
   syncToDb(project.id, result.points, result.summary).catch(() => {});
 }
 
