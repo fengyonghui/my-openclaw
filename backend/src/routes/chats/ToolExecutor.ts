@@ -1044,7 +1044,15 @@ async function executePowerShellCommand(command: string, cwd: string, timeoutMs:
     // 将 D:\ 末尾反斜杠改为正斜杠，PowerShell 兼容
     cleanCmd = cleanCmd.replace(/([A-Za-z]):\\(?=\s*(['"]|\s*[-&|]|$))/g, '$1:/');
 
-    // 修复无空格的管道符：word| → word |（PowerShell 要求 | 前后有空格或换行）
+    // ── 修复 Windows 路径中的前向斜杠 ──
+    // PowerShell 路径可以使用 /，但某些情况下（如 -Path "src/main/java"）会被 PowerShell 解释为
+    // 相对路径，而 cwd 是 D:\... 时可能找不到。统一将 / 替换为 \ 以确保路径正确。
+    cleanCmd = cleanCmd.replace(/-Path\s+'([^']+)'/g, (m, p) => `-Path '${p.replace(/\//g, '\\')}'`);
+    cleanCmd = cleanCmd.replace(/-Path\s+"([^"]+)"/g, (m, p) => `-Path "${p.replace(/\//g, '\\')}"`);
+    cleanCmd = cleanCmd.replace(/-Filter\s+"([^"]+)"/g, (m, p) => `-Filter "${p.replace(/\//g, '\\')}"`);
+
+    // 修复 bash 风格 && 为 PowerShell 风格 ;（PowerShell 不支持 && 作为命令分隔符）
+    cleanCmd = cleanCmd.replace(/\s*&\s*&\s*/g, '; ');
     cleanCmd = cleanCmd.replace(/([a-zA-Z0-9_-])\|/g, '$1 |');
 
     // 把 \$ 替换为 $（LLM 常见错误：把 bash 的 \$variable 习惯带进 PowerShell）
@@ -1385,7 +1393,7 @@ function convertCmdToPowerShell(cmd: string): string {
   const findstrMatch = preCleaned.match(/^findstr\s+\/R\s+"([^"]+)"\s+(.+)$/i);
   if (findstrMatch) {
     const pattern = findstrMatch[1];
-    const file = findstrMatch[2].trim();
+    const file = findstrMatch[2].trim().replace(/\//g, '\\');
     return `Select-String -Path "${file}" -Pattern "${pattern}"`;
   }
   // findstr /R "pattern" — 搜索当前目录所有文件
@@ -1398,7 +1406,7 @@ function convertCmdToPowerShell(cmd: string): string {
   const findstrBasicMatch = preCleaned.match(/^findstr\s+"([^"]+)"\s+(.+)$/i);
   if (findstrBasicMatch) {
     const pattern = findstrBasicMatch[1];
-    const file = findstrBasicMatch[2].trim();
+    const file = findstrBasicMatch[2].trim().replace(/\//g, '\\');
     return `Select-String -Path "${file}" -Pattern "${pattern}"`;
   }
   // findstr "pattern" — 搜索当前目录所有文件
@@ -1406,6 +1414,20 @@ function convertCmdToPowerShell(cmd: string): string {
   if (findstrBasicCurrentMatch) {
     const pattern = findstrBasicCurrentMatch[1];
     return `Get-ChildItem -File | Select-String -Pattern "${pattern}"`;
+  }
+  // findstr /S /C:"pattern" dir — 递归搜索（LLM 常用）
+  const findstrRecursiveMatch = preCleaned.match(/^findstr\s+\/S\s+\/C:"([^"]+)"\s+(.+)$/i);
+  if (findstrRecursiveMatch) {
+    const pattern = findstrRecursiveMatch[1];
+    const dir = findstrRecursiveMatch[2].trim().replace(/\//g, '\\');
+    return `Get-ChildItem -Path "${dir}" -Recurse -File | Select-String -Pattern "${pattern}"`;
+  }
+  // findstr /S "pattern" dir — 递归搜索（无 /C）
+  const findstrRecursiveSimpleMatch = preCleaned.match(/^findstr\s+\/S\s+"([^"]+)"\s+(.+)$/i);
+  if (findstrRecursiveSimpleMatch) {
+    const pattern = findstrRecursiveSimpleMatch[1];
+    const dir = findstrRecursiveSimpleMatch[2].trim().replace(/\//g, '\\');
+    return `Get-ChildItem -Path "${dir}" -Recurse -File | Select-String -Pattern "${pattern}"`;
   }
 
   // which cmd / where cmd
