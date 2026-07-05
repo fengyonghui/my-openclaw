@@ -147,7 +147,36 @@ export async function saveToMemoryFile(userMessage: string, projectWorkspace: st
 }
 
 /**
- * 加载项目的 MEMORY.md 内容（带缓存 + mtime 失效）
+ * 从 MEMORY.md 内容中提取最近 N 条记忆条目（控制 token 消耗）
+ * 只返回最近的条目，丢弃过时的内容
+ */
+function trimMemoryContent(content: string, maxChars: number = 2000): string {
+  const lines = content.split('\n');
+  const result: string[] = [];
+  let keptChars = 0;
+
+  // 从后往前遍历，保留最近的记忆条目
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i];
+    // 记忆条目以 "- [" 开头
+    if (line.trim().startsWith('- [')) {
+      keptChars += line.length;
+      result.unshift(line);
+      if (keptChars > maxChars) break;
+    }
+    // 也保留日期标题（## YYYY-MM-DD）
+    else if (line.trim().match(/^## \d{4}-\d{2}-\d{2}/)) {
+      result.unshift(line);
+    }
+  }
+
+  // 如果什么都没找到，返回空（说明文件是空的或只有 header）
+  if (result.length === 0) return '';
+  return result.join('\n');
+}
+
+/**
+ * 加载项目的 MEMORY.md 内容（带缓存 + mtime 失效 + 裁剪）
  */
 export function loadMemoryFile(projectWorkspace: string): string {
   const isWindows = os.platform() === 'win32';
@@ -165,7 +194,12 @@ export function loadMemoryFile(projectWorkspace: string): string {
       }
 
       // 缓存失效或未命中，重新读取
-      const content = fs.readFileSync(memoryPath, 'utf-8');
+      const rawContent = fs.readFileSync(memoryPath, 'utf-8');
+
+      // 裁剪：只保留最近的记忆条目（约 500 tokens），避免 MEMORY.md 过大
+      const trimmed = trimMemoryContent(rawContent);
+      const content = trimmed || rawContent; // 如果裁剪后为空，返回原始内容
+
       _memoryCache.set(memoryPath, { content, mtime: currentMtime });
       return content;
     } else {
@@ -195,4 +229,54 @@ export function invalidateMemoryCache(projectWorkspace?: string): void {
   const isWindows = os.platform() === 'win32';
   const memoryPath = getMemoryFilePath(projectWorkspace, isWindows);
   _memoryCache.delete(memoryPath);
+}
+
+/**
+ * 将会话级记忆晋升到项目级 MEMORY.md
+ * 用户手动标记某条会话记忆为重要时调用
+ */
+export async function promoteMemoryToPoint(
+  sessionContent: string,
+  sessionCategory: string,
+  sessionSource: string,
+  projectWorkspace: string
+): Promise<'success' | 'duplicate' | 'error'> {
+  const isWindows = os.platform() === 'win32';
+  const memoryPath = getMemoryFilePath(projectWorkspace, isWindows);
+
+  try {
+    let existingContent = '';
+    if (fs.existsSync(memoryPath)) {
+      existingContent = fs.readFileSync(memoryPath, 'utf-8').trim();
+    }
+
+    // 去重
+    const existingLines = existingContent.split('\n');
+    const existingNorms = new Set<string>();
+    for (const line of existingLines) {
+      const m = line.match(/^\s*-\s*\[.+\]\s*(.+?)（来源:/);
+      if (m) {
+        const norm = m[1].replace(/\s+/g, '').replace(/[，。！？；：""'']/g, '').toLowerCase();
+        existingNorms.add(norm);
+      }
+    }
+    const normNew = sessionContent.replace(/\s+/g, '').replace(/[，。！？；：""'']/g, '').toLowerCase();
+    if (existingNorms.has(normNew)) {
+      return 'duplicate';
+    }
+
+    const today = new Date().toISOString().split('T')[0];
+    const newLine = `- [${sessionCategory}] ${sessionContent}（来源: ${sessionSource}）`;
+    const newSection = `\n## ${today} 用户升级\n${newLine}\n`;
+
+    const updated = existingContent ? existingContent + newSection : `# MEMORY.md - 项目记忆\n${newSection}`;
+    fs.writeFileSync(memoryPath, updated, 'utf-8');
+
+    // 失效缓存
+    _memoryCache.delete(memoryPath);
+    return 'success';
+  } catch (e: any) {
+    console.log(`[Memory] Promotion failed: ${e.message}`);
+    return 'error';
+  }
 }

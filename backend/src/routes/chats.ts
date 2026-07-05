@@ -641,21 +641,23 @@ export async function ChatRoutes(fastify: FastifyInstance) {
       const projectPrivateSkills = targetProject?.projectSkills || [];
       const allEnabledSkills = [...globalProjectSkills, ...projectPrivateSkills];
 
-      // 构建系统消息
+      // 获取聊天历史
+      const chatWithHistory = await ProjectChatService.getChatFromProject(workspacePath, chatId);
+
+      // 构建系统消息（传入会话级记忆）
       const systemMessage = buildSystemMessage({
         project: targetProject,
         coordinatorAgent,
         allProjectAgents,
-        allEnabledSkills
+        allEnabledSkills,
+        sessionMemory: chatWithHistory?.sessionMemory || []
       });
+      const historyMessages = chatWithHistory?.messages || [];
 
       // 构建工具列表
       const tools = buildToolList(targetProject, allProjectAgents, coordinatorAgentId, allEnabledSkills);
       console.log(`[Tools] Built ${tools.length} tools: ${tools.map(t => t.function?.name || t.name).join(', ')}`);
 
-      // 获取聊天历史
-      const chatWithHistory = await ProjectChatService.getChatFromProject(workspacePath, chatId);
-      const historyMessages = chatWithHistory?.messages || [];
       // ═══════════════════════════════════════════════════════════════════════
       // 上下文管理：动态预算 + 两层保护
       // 原则：system prompt 优先，历史消息次之；总 token 不能超过 contextWindow
@@ -1390,11 +1392,13 @@ export async function ChatRoutes(fastify: FastifyInstance) {
           const allEnabledSkills = [...globalProjectSkills, ...projectPrivateSkills];
 
           // 构建消息历史（复用相同逻辑）
+          const chatForResend = await ProjectChatService.getChatFromProject(workspacePath, chatId);
           const systemMessage = buildSystemMessage({
             project: targetProject,
             coordinatorAgent,
             allProjectAgents,
             allEnabledSkills,
+            sessionMemory: chatForResend?.sessionMemory || [],
           });
           // ═══════════════════════════════════════════════════════════════════════
           // 上下文管理：动态预算 + 两层保护（与 /send 保持一致）
