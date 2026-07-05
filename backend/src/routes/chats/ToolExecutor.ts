@@ -1772,6 +1772,22 @@ function convertSingleSegment(segment: string): string {
     return `Get-Content "${file.replace(/\//g, '\\')}"`;
   }
 
+  // head -n N file / head N file — 取文件前 N 行
+  const headMatch = trimmed.match(/^head\s+(-n\s+)?(\d+)\s+(.+)$/);
+  if (headMatch) {
+    const count = headMatch[2];
+    const file = headMatch[3].trim().replace(/\//g, '\\');
+    return `Get-Content "${file}" -TotalCount ${count}`;
+  }
+
+  // tail -n N file / tail N file — 取文件后 N 行
+  const tailMatch = trimmed.match(/^tail\s+(-n\s+)?(\d+)\s+(.+)$/);
+  if (tailMatch) {
+    const count = tailMatch[2];
+    const file = tailMatch[3].trim().replace(/\//g, '\\');
+    return `Get-Content "${file}" -Tail ${count}`;
+  }
+
   // 未知命令：原样返回
   return trimmed;
 }
