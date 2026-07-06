@@ -1026,6 +1026,20 @@ async function executePowerShellCommand(command: string, cwd: string, timeoutMs:
     }
   }
 
+  // 处理 powershell -Command "..."（双引号包裹的版本）
+  // LLM 有时生成: powershell -Command "(Get-Content 'file' -Encoding Byte -TotalCount 20) -join ','"
+  // 外层 {block} 会把它变成: powershell -NoProfile -Command {powershell -Command "(...)"}
+  // 需要提取内部的 "..." 内容
+  const nestedPsQuoteRegex = /powershell\s+-Command\s+"([^"]+)"/i;
+  const nestedQuoteMatch = cleanCmd.match(nestedPsQuoteRegex);
+  if (nestedQuoteMatch) {
+    const innerCmd = nestedQuoteMatch[1];
+    // 如果内部不包含 powershell 关键字，直接使用内部命令
+    if (!/powershell\s/i.test(innerCmd)) {
+      cleanCmd = innerCmd;
+    }
+  }
+
   cleanCmd = cleanCmd
     // 修复 npx tsc 解析错误包的问题
     .replace(/^npx\s+tsc\b/i, `node '${cwd}\\node_modules\\typescript\\lib\\tsc.js'`)
@@ -1152,6 +1166,51 @@ function convertCmdToPowerShell(cmd: string): string {
 
   // ── Bash/Unix 命令转换（LLM 经常生成的跨平台命令）───────────────
 
+  // ── 通用管道：| grep ... | head / | tail 等复合管道 ──────────────
+  // 处理 "cmd | grep pattern | head N" 等长管道（LLM 常用）
+  // 注意：这必须在所有单命令匹配之前处理，因为管道是最高优先级
+  // 使用非贪婪匹配但精确捕获 grep 的参数部分和 head/tail 的数字
+  const multiPipeMatch = trimmed.match(/^(.+?)\s*\|\s*grep\s+(.+?)\s*\|\s*(head|tail)\s+(-n\s+)?(\d+)\s*$/i);
+  if (multiPipeMatch) {
+    const leftSide = multiPipeMatch[1].trim();
+    const grepPattern = multiPipeMatch[2].trim();
+    const tailHead = multiPipeMatch[3].toLowerCase();
+    const headTailNum = multiPipeMatch[5];
+    // 转换左边的命令（可能是 curl 或其他）
+    const convertedLeft = convertCmdToPowerShell(leftSide);
+    // 转换 grep pattern 为 Select-String
+    const grepConverted = convertGrepToPowerShell(grepPattern);
+    const headTailPS = tailHead === 'head'
+      ? `Select-Object -First ${headTailNum}`
+      : `Select-Object -Last ${headTailNum}`;
+    if (grepConverted) {
+      return `${convertedLeft} | ${grepConverted} | ${headTailPS}`;
+    }
+    // 如果 grep 转换失败，至少处理 head/tail
+    return `${convertedLeft} | ${headTailPS}`;
+  }
+
+  // ── 通用管道：| grep pattern | head / | tail（无左侧管道）────────
+  // 处理 "grep pattern file | head N"
+  const grepPipeHeadMatch = preCleaned.match(/^grep\s+(.+?)\s*\|\s*head\s+-?n?\s*(\d+)\s*$/);
+  if (grepPipeHeadMatch) {
+    const rest = grepPipeHeadMatch[1];
+    const count = grepPipeHeadMatch[2];
+    const grepConverted = convertGrepToPowerShell(rest);
+    if (grepConverted) {
+      return `${grepConverted} | Select-Object -First ${count}`;
+    }
+  }
+  const grepPipeTailMatch = preCleaned.match(/^grep\s+(.+?)\s*\|\s*tail\s+-?n?\s*(\d+)\s*$/);
+  if (grepPipeTailMatch) {
+    const rest = grepPipeTailMatch[1];
+    const count = grepPipeTailMatch[2];
+    const grepConverted = convertGrepToPowerShell(rest);
+    if (grepConverted) {
+      return `${grepConverted} | Select-Object -Last ${count}`;
+    }
+  }
+
   // ls -la / ls -l / ls -a / ls -la path / ls -l path 等
   // 先剥离 2>&1、2>/dev/null、| head、| tail 等 bash 特有后缀
   const lsClean = trimmed.replace(/\s*2>\/dev\/null\s*;?\s*$/g, '')
@@ -1161,7 +1220,9 @@ function convertCmdToPowerShell(cmd: string): string {
   const lsMatch = lsClean.match(/^ls\s*(-[a-zA-Z]+)?\s*(.+?)\s*$/);
   if (lsMatch) {
     const flags = lsMatch[1] || '';
-    const rawPaths = lsMatch[2]?.trim() || '';
+    let rawPaths = lsMatch[2]?.trim() || '';
+    // 修复路径中的引号不匹配（如 "images' → "images"）
+    rawPaths = rawPaths.replace(/["']/g, '"').replace(/^"|"$/g, '');
     // Linux ls 接受空格分隔的多个路径，PowerShell 的 Get-ChildItem 不接受。
     // 将空格分隔的路径拆分为数组，用逗号传入 -Path（PowerShell 接受数组）
     const paths = rawPaths.split(/\s+/).filter(Boolean);
@@ -1207,14 +1268,18 @@ function convertCmdToPowerShell(cmd: string): string {
   // 剥离 trailing -Raw / -Encoding utf8 等 PowerShell 参数
   const typeMatch = preCleaned.match(/^type\s+(.+?)(?:\s+(?:-Raw|-Encoding|-Width)(?:\s+\S+)?)?(?:\s*2>&1|\s*\||\s*$)/);
   if (typeMatch) {
-    const file = typeMatch[1]?.trim() || '.';
+    let file = typeMatch[1]?.trim() || '.';
+    // 修复路径中的引号不匹配
+    file = file.replace(/["']/g, '"').replace(/^"|"$/g, '');
     return `Get-Content "${file.replace(/\//g, '\\')}"`;
   }
 
   // cat file / cat file1 file2
   const catMatch = preCleaned.match(/^cat\s+(.+?)(?:\s*2>&1|\s*\||\s*$)/);
   if (catMatch) {
-    const files = catMatch[1]?.trim() || '.';
+    let files = catMatch[1]?.trim() || '.';
+    // 修复路径中的引号不匹配
+    files = files.replace(/["']/g, '"').replace(/^"|"$/g, '');
     return `Get-Content "${files.replace(/\//g, '\\')}"`;
   }
 
@@ -1251,26 +1316,7 @@ function convertCmdToPowerShell(cmd: string): string {
   }
 
   // grep pattern file | head N / grep pattern file | tail N — 剥离管道后缀后由 grep 处理，
-  // 这里补充处理 grep 未匹配到的 | head / | tail 管道命令
-  const grepPipeHead = preCleaned.match(/^grep\s+(.+?)\s*\|\s*head\s+-?n?\s*(\d+)\s*$/);
-  if (grepPipeHead) {
-    const rest = grepPipeHead[1];
-    const count = grepPipeHead[2];
-    // 先转换 grep 部分，再追加 head
-    const grepConverted = convertGrepToPowerShell(rest);
-    if (grepConverted) {
-      return `${grepConverted} | Select-Object -First ${count}`;
-    }
-  }
-  const grepPipeTail = preCleaned.match(/^grep\s+(.+?)\s*\|\s*tail\s+-?n?\s*(\d+)\s*$/);
-  if (grepPipeTail) {
-    const rest = grepPipeTail[1];
-    const count = grepPipeTail[2];
-    const grepConverted = convertGrepToPowerShell(rest);
-    if (grepConverted) {
-      return `${grepConverted} | Select-Object -Last ${count}`;
-    }
-  }
+  // 已由上方的 grepPipeHeadMatch/grepPipeTailMatch 统一处理
 
   // find dir -name "*.ext" / find . -name "*.ext"
   // 注意: pattern 后可能跟 2>&1 / 2>/dev/null / | head 等，需要用负向前瞻排除
@@ -1614,10 +1660,21 @@ function convertCmdToPowerShell(cmd: string): string {
     return `Get-Content "${file}"`;
   }
 
+  // del file1 file2 file3 — Windows CMD 删除多文件，转换为 Remove-Item 数组
+  // PowerShell 的 Remove-Item 不接受多个位置参数，需要用逗号分隔的数组
+  const delMultiMatch = trimmed.match(/^del\s+(.+)$/i);
+  if (delMultiMatch) {
+    const files = delMultiMatch[1]?.trim().split(/\s+/).map(f => f.replace(/\//g, '\\')).filter(Boolean);
+    if (files.length === 0) {
+      return 'Write-Output "del: 缺少文件参数"';
+    }
+    // Remove-Item 接受数组: Remove-Item "file1","file2","file3"
+    return `Remove-Item -Path ${files.map(f => `"${f}"`).join(',')} -Force`;
+  }
   // cmd /c "del file" → Remove-Item
-  const delMatch = trimmed.match(/^cmd\s+\/c\s+"del\s+(.+?)"$/i);
-  if (delMatch) {
-    const file = delMatch[1].trim();
+  const delSingleMatch = trimmed.match(/^cmd\s+\/c\s+"del\s+(.+?)"$/i);
+  if (delSingleMatch) {
+    const file = delSingleMatch[1].trim();
     return `Remove-Item "${file}" -Force`;
   }
 
@@ -1644,6 +1701,13 @@ function convertCmdToPowerShell(cmd: string): string {
     return `New-Item -ItemType Directory -Path "${dir}" -Force`;
   }
 
+  // bash -c "..." — 在 Windows 上不支持 bash，返回友好错误提示
+  // WSL 用户应直接使用 Linux 命令而非 bash -c 包装
+  const bashCMatch = trimmed.match(/^bash\s+-c\s+"([^"]+)"$/i);
+  if (bashCMatch) {
+    const innerCmd = bashCMatch[1];
+    return `[WSL] 当前环境不支持 bash。请将 bash -c "${innerCmd}" 改为直接的 PowerShell 命令。`;
+  }
   // cmd /c "cd dir && ..." → Set-Location; ...
   if (trimmed.startsWith('cmd /c "cd ')) {
     const cdMatch = trimmed.match(/^cmd\s+\/c\s+"cd\s+([^"]+?)"\s*&&\s*(.+)$/i);
@@ -1739,7 +1803,9 @@ function convertSingleSegment(segment: string): string {
   const lsMatch = lsClean.match(/^ls\s*(-[a-zA-Z]+)?\s*(.+?)\s*$/);
   if (lsMatch) {
     const flags = lsMatch[1] || '';
-    const rawPath = lsMatch[2]?.trim() || '';
+    let rawPath = lsMatch[2]?.trim() || '';
+    // 修复路径中的引号不匹配
+    rawPath = rawPath.replace(/["']/g, '"').replace(/^"|"$/g, '');
     const hasLongFormat = /l/.test(flags);
     const hasAll = /a/.test(flags);
 
@@ -1756,7 +1822,9 @@ function convertSingleSegment(segment: string): string {
   // cat file / cat file1 file2
   const catMatch = trimmed.match(/^cat\s+(.+?)(?:\s*2>&1|\s*\||\s*$)/);
   if (catMatch) {
-    const files = catMatch[1]?.trim() || '.';
+    let files = catMatch[1]?.trim() || '.';
+    // 修复路径中的引号不匹配
+    files = files.replace(/["']/g, '"').replace(/^"|"$/g, '');
     return `Get-Content "${files.replace(/\//g, '\\')}"`;
   }
 
@@ -1997,6 +2065,15 @@ export async function executeFileIO(
     }
 
     default:
+      // 空命令或未知命令
+      const trimmedCommand = (command || '').trim();
+      if (!trimmedCommand) {
+        return {
+          error: 'file-io 命令为空',
+          _availableCommands: Object.keys(commandAliases).join(', '),
+          suggestion: '请提供有效的命令，如: list_files, read_file, write_file, edit_file, search_files, find'
+        };
+      }
       return { error: `未知 file-io 命令: ${command}` };
   }
 }
