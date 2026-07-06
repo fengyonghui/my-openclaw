@@ -535,7 +535,7 @@ function handleJsonParseError(rawArgs: string, parseError: Error): ToolResult {
     if (errorPos >= 0 && errorPos <= fixedArgs.length) {
       const beforeCut = fixedArgs.slice(0, errorPos);
       // 匹配 "fieldName" 后跟可选空格、冒号、可选空格、开引号
-      const fieldPattern = /"(content|oldText|newText|script|code|data|path)"\s*:\s*"/;
+      const fieldPattern = /"(content|oldText|newText|script|code|data|path|command|cmd|code)"\s*:\s*"/;
       // 找最后一个匹配（最近的字段）
       let bestIdx = -1;
       let bestName = '';
@@ -1886,7 +1886,10 @@ async function executeLinuxCommand(command: string, cwd: string, timeoutMs: numb
 export async function executePythonCommand(project: any, args: any): Promise<ToolResult> {
   const command = args.command || args.cmd || args.code;
   if (!command) {
-    return { error: '缺少参数: command/cmd/code' };
+    return {
+      error: '缺少参数: command/cmd/code',
+      suggestion: '请提供 Python 代码，如: {"command": "print(1+1)"} 或 {"code": "content = open(\"file.py\").read()"}'
+    };
   }
 
   const sys = getSystemInfo();

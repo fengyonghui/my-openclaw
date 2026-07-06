@@ -139,7 +139,7 @@ export class FileToolService {
     
     const stat = await fs.stat(absolutePath).catch(() => null as any);
     if (!stat) throw new Error('文件不存在');
-    if (!stat.isFile()) throw new Error('目标不是文件（是目录）。如果想列出目录内容，请改用 list_files 工具。');
+    if (!stat.isFile()) throw new Error(`目标不是文件（是目录 "${relativePath}"）。如果想列出目录内容，请改用 list_files 工具。`);
 
     const content = await fs.readFile(absolutePath, 'utf-8');
     const lines = content.split(/\r?\n/);
