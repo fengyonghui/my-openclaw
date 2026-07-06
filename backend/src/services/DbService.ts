@@ -627,7 +627,11 @@ export class DbService {
       : [];
 
     const privateAgents = project?.projectAgents || [];
-    return [...fileAgents, ...privateAgents];
+    // 去重：私有 Agent（isPrivate=true 或 ID 以 PA_ 开头）以 db.json 为准，
+    // 避免与 loadAgentsFromProjectDir 读到的同名文件重复
+    const privateIds = new Set(privateAgents.map((a: any) => String(a.id)));
+    const uniqueFileAgents = fileAgents.filter((a: any) => !privateIds.has(String(a.id)));
+    return [...uniqueFileAgents, ...privateAgents];
   }
 
   // --- Skill 管理 ---
