@@ -627,8 +627,14 @@ export async function ChatRoutes(fastify: FastifyInstance) {
       const enabledAgentIds = targetProject?.enabledAgentIds || [];
       const allGlobalAgents = await DbService.getAgents();
       const projectPrivateAgents = targetProject?.projectAgents || [];
+      // 私有 Agent（isPrivate=true 或 ID 以 PA_ 开头）不受 enabledAgentIds 过滤
+      // 全局 Agent 需要先 toggle 才能出现在 enabledAgentIds 中
       const allProjectAgents = [
-        ...allGlobalAgents.filter(a => enabledAgentIds.includes(a.id)),
+        ...allGlobalAgents.filter((a: any) => {
+          const isPrivate = (a as any).isPrivate === true || String((a as any).id).startsWith('PA_');
+          if (isPrivate) return true;  // 私有 Agent 始终可用
+          return enabledAgentIds.includes(a.id);  // 全局 Agent 需要启用
+        }),
         ...projectPrivateAgents
       ];
 
@@ -1380,7 +1386,15 @@ export async function ChatRoutes(fastify: FastifyInstance) {
           const enabledAgentIds = targetProject?.enabledAgentIds || [];
           const allGlobalAgents = await DbService.getAgents();
           const projectPrivateAgents = targetProject?.projectAgents || [];
-          const allProjectAgents = [...allGlobalAgents.filter((a: any) => enabledAgentIds.includes(a.id)), ...projectPrivateAgents];
+          // 私有 Agent（isPrivate=true 或 ID 以 PA_ 开头）不受 enabledAgentIds 过滤
+          const allProjectAgents = [
+            ...allGlobalAgents.filter((a: any) => {
+              const isPrivate = (a as any).isPrivate === true || String((a as any).id).startsWith('PA_');
+              if (isPrivate) return true;  // 私有 Agent 始终可用
+              return enabledAgentIds.includes(a.id);  // 全局 Agent 需要启用
+            }),
+            ...projectPrivateAgents
+          ];
 
           const coordinatorAgentId = targetProject?.coordinatorAgentId || chat?.modelId || '1';
           const coordinatorAgent = allProjectAgents.find((a: any) => String(a.id) === String(coordinatorAgentId));
