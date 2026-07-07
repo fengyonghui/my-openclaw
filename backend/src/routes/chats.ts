@@ -1452,6 +1452,11 @@ export async function ChatRoutes(fastify: FastifyInstance) {
 
           let finalMessages = [...prunedMessagesFixed];
 
+          // 确保 finalMessages 至少包含 system message（即使历史消息被裁剪为空）
+          if (finalMessages.length === 0 || finalMessages[0]?.role !== 'system') {
+            finalMessages.unshift(systemMessage);
+          }
+
           // Step 5: 两层验证
           const combinedTokens = sysPromptTokens + Math.round((prunedMessagesFixed.reduce((s: number, m: any) => s + (m.content?.length || 0), 0)) / 4);
           console.log(`[Context] System prompt: ${sysMsgLen} chars (~${sysPromptTokens} tokens)`);
