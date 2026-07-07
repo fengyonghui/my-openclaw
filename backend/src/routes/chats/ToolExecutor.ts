@@ -974,6 +974,65 @@ async function executePowerShellCommand(command: string, cwd: string, timeoutMs:
   return new Promise((resolve) => {
     const MAX_OUTPUT = 500 * 1024;
 
+    // ── 特殊处理：python3/python -c "..." 多行脚本 ────────────────
+    // LLM 经常生成多行 Python 代码，如:
+    //   python3 -c "
+    //   import akshare as ak
+    //   ...
+    //   "
+    // 这种代码包含换行符和引号，直接放进 PowerShell {block} 会解析失败。
+    // 解决方案：将 Python 代码写入临时文件，用 python script.py 执行。
+    const pythonCMatch = command.match(/^(python3?|py)\s+-c\s+"([\s\S]+)"\s*$/i);
+    if (pythonCMatch) {
+      const pythonBin = pythonCMatch[1];
+      const script = pythonCMatch[2];
+      const { execFile } = require('child_process');
+      const os = require('os');
+      const fs = require('fs');
+      const tmpPath = fs.mkdtempSync(path.join(os.tmpdir(), 'openclaw-py-'));
+      const scriptPath = path.join(tmpPath, 'script.py');
+      fs.writeFileSync(scriptPath, script, 'utf-8');
+      execFile(pythonBin, [scriptPath], {
+        cwd,
+        timeout: timeoutMs,
+        maxBuffer: MAX_OUTPUT
+      }, (err, stdout, stderr) => {
+        // 清理临时文件
+        try { fs.rmSync(tmpPath, { recursive: true, force: true }); } catch {}
+        if (err) {
+          resolve(normalizeExecError(err, stdout, stderr, command));
+        } else {
+          resolve({ success: true, stdout, stderr });
+        }
+      });
+      return;
+    }
+    // 处理 python3 -c '...'（单引号包裹）
+    const pythonCMatchSingle = command.match(/^(python3?|py)\s+-c\s+'([\s\S]+)'\s*$/i);
+    if (pythonCMatchSingle) {
+      const pythonBin = pythonCMatchSingle[1];
+      const script = pythonCMatchSingle[2];
+      const { execFile } = require('child_process');
+      const os = require('os');
+      const fs = require('fs');
+      const tmpPath = fs.mkdtempSync(path.join(os.tmpdir(), 'openclaw-py-'));
+      const scriptPath = path.join(tmpPath, 'script.py');
+      fs.writeFileSync(scriptPath, script, 'utf-8');
+      execFile(pythonBin, [scriptPath], {
+        cwd,
+        timeout: timeoutMs,
+        maxBuffer: MAX_OUTPUT
+      }, (err, stdout, stderr) => {
+        try { fs.rmSync(tmpPath, { recursive: true, force: true }); } catch {}
+        if (err) {
+          resolve(normalizeExecError(err, stdout, stderr, command));
+        } else {
+          resolve({ success: true, stdout, stderr });
+        }
+      });
+      return;
+    }
+
     // 特殊处理：-File 参数（执行 .ps1 脚本文件），不能包装在 -Command {} 中
     // 注意：LLM 有时会写成 -File "script.ps1;Get-Content ..." 其中 ; 被错误吸收进文件名。
     // 修复：先匹配 -File 后的路径（到第一个 ; 或空白为止），再把剩余部分当作后续命令。
@@ -1068,6 +1127,11 @@ async function executePowerShellCommand(command: string, cwd: string, timeoutMs:
     // 修复 bash 风格 && 为 PowerShell 风格 ;（PowerShell 不支持 && 作为命令分隔符）
     cleanCmd = cleanCmd.replace(/\s*&\s*&\s*/g, '; ');
     cleanCmd = cleanCmd.replace(/([a-zA-Z0-9_-])\|/g, '$1 |');
+
+    // 修复 LLM 常见的 pip install + python3 -c 连写问题
+    // LLM 有时会生成: pip install akshare -q python3 -c "..."
+    // 中间缺少分号或 &&，应拆分为两条命令
+    cleanCmd = cleanCmd.replace(/(pip\s+install\s+.+?)(python3?\s+-c)/gi, '$1 ; $2');
 
     // 把 \$ 替换为 $（LLM 常见错误：把 bash 的 \$variable 习惯带进 PowerShell）
     // PowerShell 的转义符是反引号 `，\ 是字面字符
@@ -1884,10 +1948,10 @@ async function executeLinuxCommand(command: string, cwd: string, timeoutMs: numb
  * 执行 Python 命令
  */
 export async function executePythonCommand(project: any, args: any): Promise<ToolResult> {
-  const command = args.command || args.cmd || args.code;
+  const command = args.command || args.cmd || args.code || args.script;
   if (!command) {
     return {
-      error: '缺少参数: command/cmd/code',
+      error: '缺少参数: command/cmd/code/script',
       suggestion: '请提供 Python 代码，如: {"command": "print(1+1)"} 或 {"code": "content = open(\"file.py\").read()"}'
     };
   }
