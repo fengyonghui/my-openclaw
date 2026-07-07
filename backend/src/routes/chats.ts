@@ -1457,6 +1457,16 @@ export async function ChatRoutes(fastify: FastifyInstance) {
             finalMessages.unshift(systemMessage);
           }
 
+          // 如果只有 system message（没有 user 消息），注入一条默认提示
+          // 否则 API 会报 "chat content is empty"
+          const hasUserMessage = finalMessages.some((m: any) => m.role === 'user');
+          if (!hasUserMessage) {
+            finalMessages.push({
+              role: 'user',
+              content: '请回顾本次对话，总结当前进展和下一步行动。'
+            });
+          }
+
           // Step 5: 两层验证
           const combinedTokens = sysPromptTokens + Math.round((prunedMessagesFixed.reduce((s: number, m: any) => s + (m.content?.length || 0), 0)) / 4);
           console.log(`[Context] System prompt: ${sysMsgLen} chars (~${sysPromptTokens} tokens)`);
