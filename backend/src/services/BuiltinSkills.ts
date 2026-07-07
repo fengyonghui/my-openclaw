@@ -101,65 +101,52 @@ Use the \`shell_exec\` tool to run system commands.
 export const BUILTIN_INLINE_PYTHON_SKILL = {
   id: 'builtin-inline-python-edit',
   name: 'inline-python-edit',
-  description: 'Execute inline Python scripts for file editing. Use when you need to quickly run Python code snippets (read file content, find/replace text, modify files). Triggered by requests like "run python3 -c", "edit file with python", "execute python snippet".',
+  description: 'Execute inline Python scripts for file editing. Use when you need to quickly run Python code snippets (read file content, find/replace text, modify files).',
   url: 'builtin://inline-python-edit',
   builtIn: true,
   rawContent: `---
 name: inline-python-edit
-description: 快速执行 Python 单行脚本或编辑文件内容。当需要执行简单的 Python 代码片段（如读取文件、字符串替换、内容修改）时使用此技能。
+description: Execute inline Python code. You MUST pass the Python code as the "command" or "code" parameter.
 ---
 
 # Inline Python Edit
 
-## Execute Python snippet
+**CRITICAL: Every call MUST include a "command" or "code" parameter with the full Python script.**
 
-For simple one-liner operations, use \`python3 -c\` directly:
+## Usage
 
-\`\`\`bash
-python3 -c "content = open('/path/file.py').read(); print(len(content))"
-python3 -c "content = open('/path/file.py').read(); print(content.find('target'))"
+\`\`\`json
+{"command": "content = open('file.py').read(); print(len(content))"}
+{"code": "print('hello world')"}
+{"script": "x = 1 + 2; print(x)"}
 \`\`\`
 
-## Edit file with multi-line Python
+## Common Patterns
 
-Use \`scripts/edit_file.py\` for multi-line file edits:
-
-\`\`\`bash
-python3 /home/yonghui/workspace/openclaw/skills/inline-python-edit/scripts/edit_file.py \
-  "/path/to/file.py" \
-  'content = open("/path/to/file.py").read()
-content = content.replace("old", "new")
-open("/path/to/file.py", "w").write(content)'
+**Read file:**
+\`\`\`json
+{"command": "content = open('src/main.py').read(); print(content[:500])"}
 \`\`\`
-
-## Common patterns
 
 **Replace string:**
-\`\`\`bash
-python3 -c "content = open('f.py').read(); print(content.replace('old', 'new')[:200])"
+\`\`\`json
+{"command": "content = open('f.py').read(); open('f.py', 'w').write(content.replace('old', 'new'))"}
 \`\`\`
 
 **Find position:**
-\`\`\`bash
-python3 -c "content = open('f.py').read(); print(content.find('target'))"
-\`\`\`
-
-**Print excerpt:**
-\`\`\`bash
-python3 -c "content = open('f.py').read(); print(repr(content[1000:1200]))"
+\`\`\`json
+{"command": "content = open('f.py').read(); print(content.find('target'))"}
 \`\`\`
 
 **Stats:**
-\`\`\`bash
-python3 -c "content = open('f.py').read(); print(f'chars={len(content)}, lines={content.count(chr(10))}')"
+\`\`\`json
+{"command": "content = open('f.py').read(); print(f'chars={len(content)}, lines={content.count(chr(10))}')"}
 \`\`\`
 
-## Tips
-
-- Always preview with print/repr before writing
-- Use \`scripts/edit_file.py\` for multi-line Python code
-- WSL paths: /mnt/d/workspace/...
-- Use content.find() + repr() to locate exact strings before replacing
+## Rules
+- Always use the full file path relative to project workspace
+- Preview with print/repr before writing
+- Single quotes inside Python code are fine; avoid unescaped double quotes
 `
 };
 
@@ -177,29 +164,32 @@ export const BUILTIN_FILE_IO_SKILL = {
     '',
     '# File IO',
     '',
-    '## Available Tools',
-    '- \`list_files\` (alias: list, ls, dir): inspect project directories',
-    '- \`read_file\` (alias: read, cat, type): read file content with pagination',
-    '- \`write_file\` (alias: write, create, save): create or overwrite files (requires content!)',
-    '- \`edit_file\` (alias: edit, replace, patch): make exact-text replacements',
-    '- \`search_files\` (NEW): search for files by name pattern (use instead of shell "find")',
+    '## ⚠️ CRITICAL — Every call MUST include a "command" parameter',
+    '**The "command" field specifies which file operation to perform.**',
     '',
-    '## When to use each tool',
-    '- Read a file → \`read_file { path: "src/app.ts" }\`',
-    '- List directory → \`list_files { path: "src", depth: 3 }\`',
-    '- Find files by name → \`search_files { path: ".", pattern: "*.java" }\`',
-    '- Create/overwrite file → \`write_file { path: "file.txt", content: "..." }\`',
-    '- Edit specific text → \`edit_file { path: "file.txt", oldText: "...", newText: "..." }\`',
-    '- Build/run → \`shell_exec { command: "npm run build" }\`',
+    '## Available Commands',
+    '| Command | Aliases | Required Params | Description |',
+    '|---------|---------|-----------------|-------------|',
+    '| \`read\` | read_file, cat, type | \`path\` | Read file content |',
+    '| \`write\` | write_file, create, save | \`path\`, \`content\` | Create or overwrite file |',
+    '| \`edit\` | edit_file, replace, patch | \`path\`, \`oldText\`, \`newText\` | Exact text replacement |',
+    '| \`list\` | list_files, ls, dir | \`path\` (optional) | List directory contents |',
+    '| \`search_files\` | search | \`path\`, \`pattern\` | Search files by name |',
     '',
-    '## ⚠️ IMPORTANT - Write Command Requires content Parameter',
-    '**When using write command, you MUST include the content parameter with the FULL file content.**',
-    '- ❌ WRONG: {"path": "file.txt", "command": "write"} — will fail!',
-    '- ✅ CORRECT: {"path": "file.txt", "command": "write", "content": "Hello World"}',
+    '## Correct Usage',
+    '- Read a file → \`{"path": "src/app.ts", "command": "read"}\`',
+    '- List directory → \`{"path": "src", "command": "list", "depth": 3}\`',
+    '- Find files → \`{"path": ".", "command": "search_files", "pattern": "*.java"}\`',
+    '- Create/overwrite → \`{"path": "file.txt", "command": "write", "content": "..."}\`',
+    '- Edit text → \`{"path": "file.txt", "command": "edit", "oldText": "...", "newText": "..."}\`',
+    '',
+    '## ❌ Common Mistakes',
+    '- \`{"path": "file.txt"}\` — FAILS! Missing command',
+    '- \`{"command": "write"}\` — FAILS! Missing content parameter',
+    '- \`{"command": "edit"}\` — FAILS! Missing oldText and newText',
     '',
     '## Path Rules',
     '- Always use relative paths from the project workspace root.',
-    '- Example project path: varies by project.',
     '',
     '## Rules',
     '- Only operate inside the current project workspace.',
