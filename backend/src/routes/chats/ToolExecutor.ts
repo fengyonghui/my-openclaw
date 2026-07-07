@@ -390,6 +390,26 @@ function normalizeExecError(
   // 其他错误：保留原始 err.message（通常含 stderr），并附上退出码
   // 但先清理 PowerShell CLIXML 格式的错误输出（<S S="Error">...</S> 标签）
   let cleanError = err?.message || 'Unknown exec error';
+
+  // ── Python traceback 精简：提取关键错误行 ────────────────────────
+  // LLM 生成的 Python 脚本出错时，traceback 可能长达数百行，
+  // 真正有用的是最后一行 KeyError/IndexError/AttributeError 和对应的文件+行号。
+  // 提取模式：File "xxx", line N → 错误类型 → 具体键/属性
+  const pythonTraceback = cleanError.match(/Traceback \(most recent call last\):([\s\S]*)$/);
+  if (pythonTraceback) {
+    const tb = pythonTraceback[1];
+    // 提取最后一行错误: 错误类型: 具体错误信息
+    const lastErrorMatch = tb.match(/(KeyError|IndexError|AttributeError|TypeError|ValueError|NameError|FileNotFoundError|ModuleNotFoundError|ImportError):\s*(.+)$/m);
+    if (lastErrorMatch) {
+      const errorType = lastErrorMatch[1];
+      const errorMsg = lastErrorMatch[2].trim();
+      // 提取出错的文件和行号
+      const fileLineMatch = tb.match(/File\s+"([^"]+)",\s*line\s*(\d+)/g);
+      const lastFileLine = fileLineMatch ? fileLineMatch[fileLineMatch.length - 1] : '';
+      cleanError = `${errorType}: ${errorMsg} (${lastFileLine})`;
+    }
+  }
+
   // 去除 CLIXML 标签：<S S="Error">text</S>_x000D__x000A_
   cleanError = cleanError.replace(/<S S="Error">\s*([\s\S]*?)<\/S>/gi, '$1');
   // 去除 CLIXML 控制字符 (_x000D_ = CR, _x000A_ = LF)
