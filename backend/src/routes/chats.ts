@@ -757,10 +757,12 @@ export async function ChatRoutes(fastify: FastifyInstance) {
             let caseBInProgress = false;  // 安全网 Case B 重试中：tool_choice 不再 required（让 LLM 给 final）
             const MAX_DELEGATE_RETRY = 3;  // 允许 3 次安全网重试 (Case A/B/C), 1 次太严: LLM 改完一个文件后报"接下来改下一个" 又被吞 (2026-06-05 实测)
             while (guard++ < 8) {
+              // 构建消息列表：system 消息始终放在 messages 数组首位（OpenAI 标准格式）
+              // 避免部分 provider 不支持独立的 system 字段导致请求失败
+              const allMessages = [systemMessage, ...finalMessages];
               const reqBody: any = {
                 model: modelCfg.modelId,
-                system: systemMessage.content,
-                messages: finalMessages,
+                messages: allMessages,
                 stream: false,
                 max_tokens: modelCfg.maxTokens || 32768,
                 temperature: modelCfg.temperature || 0.7
@@ -1487,10 +1489,6 @@ export async function ChatRoutes(fastify: FastifyInstance) {
               max_tokens: Math.max(modelCfg.maxTokens || 32768, 16384),
               temperature: modelCfg.temperature || 0.7
             };
-            // 只有 system message 不在 messages 里时才用 system 字段（兼容旧格式）
-            if (!hasSystemInMessages) {
-              reqBody.system = systemMessage.content;
-            }
 
             if (tools.length > 0) {
               reqBody.tools = tools;
