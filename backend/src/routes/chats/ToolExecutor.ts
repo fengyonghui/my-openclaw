@@ -451,7 +451,13 @@ export async function executeToolCall(
     args = JSON.parse(rawArgs || '{}');
   } catch (parseError: any) {
     console.error(`[JSON Parse Error] Failed to parse tool arguments: ${parseError.message}`);
-    return handleJsonParseError(rawArgs, parseError);
+    const result = handleJsonParseError(rawArgs, parseError);
+    // handleJsonParseError 返回 { success: true, args } 或 { error: ... }
+    // 如果修复失败，直接返回错误对象
+    if (result.error && !result.args) {
+      return result;
+    }
+    args = result.args || {};
   }
 
   // 工具调用日志（隐藏敏感参数）
