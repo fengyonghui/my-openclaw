@@ -1,6 +1,6 @@
 #!/bin/bash
 # Usage: ./scripts/package-release.sh [version]
-# e.g.: ./scripts/package-release.sh v0.2.0
+# e.g.: ./scripts/package-release.sh v0.3.33
 
 set -e
 
@@ -23,16 +23,23 @@ cp -r ui/dist "$OUTPUT/ui/"
 # Copy backend/package.json (needed for: npm install --prefix backend)
 cp backend/package.json "$OUTPUT/backend/"
 
-# Create root .npmrc to override user's global Aliyun mirror
-cat > "$OUTPUT/.npmrc" << 'NPMRC'
-registry=https://registry.npmjs.org/
-NPMRC
+# Copy root .npmrc to override user's global Aliyun mirror
+cp .npmrc "$OUTPUT/" 2>/dev/null || true
+
+# Copy README.md
+cp README.md "$OUTPUT/"
+
+# Copy startup scripts
+cp scripts/start-windows.cmd "$OUTPUT/"
+cp scripts/start-windows.ps1 "$OUTPUT/"
+cp scripts/start-linux.sh "$OUTPUT/"
+chmod +x "$OUTPUT/start-linux.sh"
 
 # Create a clean root package.json
-cat > "$OUTPUT/package.json" << 'EOF'
+cat > "$OUTPUT/package.json" << EOF
 {
   "name": "my-openclaw",
-  "version": "VERSION_PLACEHOLDER",
+  "version": "${VERSION}",
   "private": true,
   "type": "module",
   "description": "AI coding agent with project isolation and team collaboration",
@@ -45,7 +52,6 @@ cat > "$OUTPUT/package.json" << 'EOF'
   }
 }
 EOF
-sed -i "s/VERSION_PLACEHOLDER/$VERSION/" "$OUTPUT/package.json"
 
 # Package as tar.gz
 tar -czvf "${OUTPUT}.tar.gz" "$OUTPUT"
