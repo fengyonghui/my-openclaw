@@ -393,19 +393,24 @@ function normalizeExecError(
 
   // ── Python traceback 精简：提取关键错误行 ────────────────────────
   // LLM 生成的 Python 脚本出错时，traceback 可能长达数百行，
-  // 真正有用的是最后一行 KeyError/IndexError/AttributeError 和对应的文件+行号。
+  // 真正有用的是最后一行 KeyError/IndexError/NameError 等和对应的文件+行号。
   // 提取模式：File "xxx", line N → 错误类型 → 具体键/属性
   const pythonTraceback = cleanError.match(/Traceback \(most recent call last\):([\s\S]*)$/);
   if (pythonTraceback) {
     const tb = pythonTraceback[1];
     // 提取最后一行错误: 错误类型: 具体错误信息
-    const lastErrorMatch = tb.match(/(KeyError|IndexError|AttributeError|TypeError|ValueError|NameError|FileNotFoundError|ModuleNotFoundError|ImportError):\s*(.+)$/m);
+    const lastErrorMatch = tb.match(/(KeyError|IndexError|AttributeError|TypeError|ValueError|NameError|FileNotFoundError|ModuleNotFoundError|ImportError|SyntaxError|AttributeError):\s*(.+)$/m);
     if (lastErrorMatch) {
       const errorType = lastErrorMatch[1];
-      const errorMsg = lastErrorMatch[2].trim();
+      let errorMsg = lastErrorMatch[2].trim();
       // 提取出错的文件和行号
       const fileLineMatch = tb.match(/File\s+"([^"]+)",\s*line\s*(\d+)/g);
       const lastFileLine = fileLineMatch ? fileLineMatch[fileLineMatch.length - 1] : '';
+      // 如果是 NameError 带 "Did you mean" 建议，直接使用该建议作为修复指引
+      const suggestMatch = errorMsg.match(/Did you mean:\s*['"]([^'"]+)['"]/);
+      if (suggestMatch) {
+        errorMsg = `Undefined '${errorType.toLowerCase() === 'nameerror' ? 'name' : 'attribute'}: ${errorMsg.split(':')[0]} — use '${suggestMatch[1]}' instead`;
+      }
       cleanError = `${errorType}: ${errorMsg} (${lastFileLine})`;
     }
   }
