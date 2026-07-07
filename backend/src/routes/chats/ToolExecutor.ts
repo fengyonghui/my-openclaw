@@ -1312,7 +1312,8 @@ function convertCmdToPowerShell(cmd: string): string {
     const flags = lsMatch[1] || '';
     let rawPaths = lsMatch[2]?.trim() || '';
     // 修复路径中的引号不匹配（如 "images' → "images"）
-    rawPaths = rawPaths.replace(/["']/g, '"').replace(/^"|"$/g, '');
+    // 只移除首尾的引号字符，不替换内部的引号（避免 "D:\path'" → "D:\path""）
+    rawPaths = rawPaths.replace(/^["']+|["']+$/g, '').replace(/"/g, "'");
     // Linux ls 接受空格分隔的多个路径，PowerShell 的 Get-ChildItem 不接受。
     // 将空格分隔的路径拆分为数组，用逗号传入 -Path（PowerShell 接受数组）
     const paths = rawPaths.split(/\s+/).filter(Boolean);
@@ -1359,8 +1360,8 @@ function convertCmdToPowerShell(cmd: string): string {
   const typeMatch = preCleaned.match(/^type\s+(.+?)(?:\s+(?:-Raw|-Encoding|-Width)(?:\s+\S+)?)?(?:\s*2>&1|\s*\||\s*$)/);
   if (typeMatch) {
     let file = typeMatch[1]?.trim() || '.';
-    // 修复路径中的引号不匹配
-    file = file.replace(/["']/g, '"').replace(/^"|"$/g, '');
+    // 只移除首尾引号
+    file = file.replace(/^["']+|["']+$/g, '').replace(/"/g, "'");
     return `Get-Content "${file.replace(/\//g, '\\')}"`;
   }
 
@@ -1368,8 +1369,8 @@ function convertCmdToPowerShell(cmd: string): string {
   const catMatch = preCleaned.match(/^cat\s+(.+?)(?:\s*2>&1|\s*\||\s*$)/);
   if (catMatch) {
     let files = catMatch[1]?.trim() || '.';
-    // 修复路径中的引号不匹配
-    files = files.replace(/["']/g, '"').replace(/^"|"$/g, '');
+    // 只移除首尾引号，不替换内部引号
+    files = files.replace(/^["']+|["']+$/g, '').replace(/"/g, "'");
     return `Get-Content "${files.replace(/\//g, '\\')}"`;
   }
 
@@ -1644,6 +1645,14 @@ function convertCmdToPowerShell(cmd: string): string {
     return `(Get-Content "${file.replace(/\//g, '\\')}").Count`;
   }
 
+  // tail -n N file / tail N file — 取文件后 N 行
+  const tailMainMatch = preCleaned.match(/^tail\s+(-n\s+)?(\d+)\s+(.+)$/);
+  if (tailMainMatch) {
+    const count = tailMainMatch[2];
+    const file = tailMainMatch[3]?.trim().replace(/^["']+|["']+$/g, '').replace(/"/g, "'").replace(/\//g, '\\');
+    return `Get-Content "${file}" -Tail ${count}`;
+  }
+
   // uname -a
   if (/^uname\s+-a\s*$/.test(trimmed)) {
     return '$PSVersionTable.PSVersion.ToString()';
@@ -1894,8 +1903,8 @@ function convertSingleSegment(segment: string): string {
   if (lsMatch) {
     const flags = lsMatch[1] || '';
     let rawPath = lsMatch[2]?.trim() || '';
-    // 修复路径中的引号不匹配
-    rawPath = rawPath.replace(/["']/g, '"').replace(/^"|"$/g, '');
+    // 只移除首尾引号，不替换内部引号
+    rawPath = rawPath.replace(/^["']+|["']+$/g, '').replace(/"/g, "'");
     const hasLongFormat = /l/.test(flags);
     const hasAll = /a/.test(flags);
 
@@ -1913,8 +1922,8 @@ function convertSingleSegment(segment: string): string {
   const catMatch = trimmed.match(/^cat\s+(.+?)(?:\s*2>&1|\s*\||\s*$)/);
   if (catMatch) {
     let files = catMatch[1]?.trim() || '.';
-    // 修复路径中的引号不匹配
-    files = files.replace(/["']/g, '"').replace(/^"|"$/g, '');
+    // 只移除首尾引号
+    files = files.replace(/^["']+|["']+$/g, '').replace(/"/g, "'");
     return `Get-Content "${files.replace(/\//g, '\\')}"`;
   }
 
