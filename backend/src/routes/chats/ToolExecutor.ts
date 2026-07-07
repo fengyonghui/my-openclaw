@@ -10,7 +10,8 @@
 
 import * as path from 'path';
 import * as fs from 'fs';
-import { exec } from 'child_process';
+import * as os from 'os';
+import { exec, execFile } from 'child_process';
 import { FileToolService } from '../../services/FileToolService.js';
 import { getBuiltinShellSkill, getBuiltinFileIOSkill } from '../../services/BuiltinSkills.js';
 import { DbService } from '../../services/DbService.js';
@@ -986,9 +987,6 @@ async function executePowerShellCommand(command: string, cwd: string, timeoutMs:
     if (pythonCMatch) {
       const pythonBin = pythonCMatch[1];
       const script = pythonCMatch[2];
-      const { execFile } = require('child_process');
-      const os = require('os');
-      const fs = require('fs');
       const tmpPath = fs.mkdtempSync(path.join(os.tmpdir(), 'openclaw-py-'));
       const scriptPath = path.join(tmpPath, 'script.py');
       fs.writeFileSync(scriptPath, script, 'utf-8');
@@ -1012,9 +1010,6 @@ async function executePowerShellCommand(command: string, cwd: string, timeoutMs:
     if (pythonCMatchSingle) {
       const pythonBin = pythonCMatchSingle[1];
       const script = pythonCMatchSingle[2];
-      const { execFile } = require('child_process');
-      const os = require('os');
-      const fs = require('fs');
       const tmpPath = fs.mkdtempSync(path.join(os.tmpdir(), 'openclaw-py-'));
       const scriptPath = path.join(tmpPath, 'script.py');
       fs.writeFileSync(scriptPath, script, 'utf-8');
