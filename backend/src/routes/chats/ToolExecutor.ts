@@ -742,14 +742,10 @@ function handleJsonParseError(rawArgs: string, parseError: Error): ToolResult {
     const errorPos = posMatch ? parseInt(posMatch[1]) : 0;
     
     return {
-      error: `JSON 解析失败: ${parseError.message}`,
-      _rawError: parseError.message,
+      error: `JSON 解析失败: ${parseError.message.slice(0, 200)}`,
       _rawLength: rawArgs.length,
       _errorPosition: errorPos,
       _fixAttempts: fixAttempts,
-      // 显示错误位置前后的上下文（不超过 100 字符）
-      _contextBefore: rawArgs.slice(Math.max(0, errorPos - 50), errorPos),
-      _contextAfter: rawArgs.slice(errorPos, Math.min(rawArgs.length, errorPos + 50)),
       suggestion: 'JSON 参数格式错误，请检查：1. 引号是否成对 2. 括号是否匹配 3. 是否有未转义的特殊字符'
     };
   }
