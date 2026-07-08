@@ -1177,6 +1177,14 @@ async function executePowerShellCommand(command: string, cwd: string, timeoutMs:
     cleanCmd = cleanCmd.replace(/\\"/g, "'");  // \" → '（用单引号替代转义双引号）
     cleanCmd = cleanCmd.replace(/\$\$/g, '$');  // $$ → $（防止 $$ 被解释为上一个命令的输出）
 
+    // 清理多余的双引号：""path"" → "path"（LLM 有时会重复引号）
+    cleanCmd = cleanCmd.replace(/""+/g, '"');
+
+    // 保护 PowerShell {block} 中的变量引用：将 $var 替换为 ``$var（转义）
+    // 避免 LLM 生成的 $out, $_, $error 等在 {block} 中被 PowerShell 当作变量解析
+    // 排除已知的内置变量和常见命令
+    cleanCmd = cleanCmd.replace(/\$(?!PSVersionTable|true|false|null|this|PSScriptRoot|PWD|HOME|HOST|Error|Warning|Information|Verbose|Debug|Progress|ConfirmPreference|WhatIfPreference|DebugPreference|InformationPreference|WarningPreference|ErrorActionPreference|VerbosePreference|ConfirmPreference|ProgressPreference|FormatEnumerationLimit|Host|InputObject|OutVariable|OutBuffer|PipelineVariable|WarningAction|WarningVariable|ErrorAction|ErrorVariable|Force|Recurse|Verbose|WarningAction|WarningVariable|WhatIf|Confirm|Credential|Debug|Description|EnableException|ErrorAction|ErrorVariable|Force|InFile|InformationAction|InformationVariable|OutBuffer|OutFile|OutputType|PipelineVariable|ProgressAction|ProgressVariable|ResourceGroupName|SupportsWildcards|Tags|TimeoutSec|TraceParent|TraceState|UseBasicParsing|UseDefaultCredentials|Verbose|WarningAction|WarningVariable|WhatIf|Confirm|Credential|Debug|Description|EnableException|ErrorAction|ErrorVariable|Force|InFile|InformationAction|InformationVariable|OutBuffer|OutFile|OutputType|PipelineVariable|ProgressAction|ProgressVariable|ResourceGroupName|SupportsWildcards|Tags|TimeoutSec|TraceParent|TraceState|UseBasicParsing|UseDefaultCredentials|Verbose|WarningAction|WarningVariable|WhatIf|Confirm|Credential|Debug|Description|EnableException|ErrorAction|ErrorVariable|Force|InFile|InformationAction|InformationVariable|OutBuffer|OutFile|OutputType|PipelineVariable|ProgressAction|ProgressVariable|ResourceGroupName|SupportsWildcards|Tags|TimeoutSec|TraceParent|TraceState|UseBasicParsing|UseDefaultCredentials)\b/g, '`$');
+
     const psCmd = `powershell -NoProfile -Command {${cleanCmd}}`;
 
     // 关键: 必须显式指定 shell: 'powershell.exe'。
