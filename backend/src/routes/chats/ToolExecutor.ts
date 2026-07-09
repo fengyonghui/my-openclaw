@@ -742,11 +742,8 @@ function handleJsonParseError(rawArgs: string, parseError: Error): ToolResult {
     const errorPos = posMatch ? parseInt(posMatch[1]) : 0;
     
     return {
-      error: `JSON 解析失败: ${parseError.message.slice(0, 200)}`,
-      _rawLength: rawArgs.length,
-      _errorPosition: errorPos,
-      _fixAttempts: fixAttempts,
-      suggestion: 'JSON 参数格式错误，请检查：1. 引号是否成对 2. 括号是否匹配 3. 是否有未转义的特殊字符'
+      error: `JSON 解析失败 (position ${errorPos}): ${parseError.message.slice(0, 100)}`,
+      suggestion: '文件内容过长，请尝试分多次编辑或使用 write_file 重写整个文件'
     };
   }
 }
