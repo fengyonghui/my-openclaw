@@ -748,8 +748,8 @@ function handleJsonParseError(rawArgs: string, parseError: Error): ToolResult {
     const errorPos = posMatch ? parseInt(posMatch[1]) : 0;
     
     return {
-      error: `JSON 解析失败 (position ${errorPos}): ${parseError.message.slice(0, 100)}`,
-      suggestion: '文件内容过长，请尝试分多次编辑或使用 write_file 重写整个文件'
+      error: 'JSON 参数被截断，无法写入。请分多次写入或先用 read_file 检查文件大小。',
+      suggestion: '将文件分成多个小块，分多次写入。先使用 write_file 创建文件骨架，再用 edit_file 分批添加内容。'
     };
   }
 }
