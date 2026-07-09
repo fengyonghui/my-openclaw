@@ -116,7 +116,13 @@ function sanitizeMessages(messages: any[]): any[] {
   return messages.map((m: any) => {
     const copy: any = { ...m };
     if (typeof copy.content === 'string') {
+      // 剥离控制字符
       copy.content = copy.content.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+      // 限制 tool message 内容长度：超过 2000 字符的部分截断
+      if (m.role === 'tool' && copy.content.length > 2000) {
+        const truncated = copy.content.slice(0, 2000);
+        copy.content = truncated + '\n...(tool result 被截断，原始长度 ' + copy.content.length + ' 字符)';
+      }
     }
     if (copy.tool_calls && Array.isArray(copy.tool_calls)) {
       copy.tool_calls = copy.tool_calls.map((tc: any) => {
