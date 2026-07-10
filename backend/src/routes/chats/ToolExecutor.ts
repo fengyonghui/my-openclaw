@@ -1003,7 +1003,7 @@ export async function executeShellCommand(project: any, args: any): Promise<Tool
  */
 async function executePowerShellCommand(command: string, cwd: string, timeoutMs: number = 60000): Promise<ToolResult> {
   return new Promise((resolve) => {
-    const MAX_OUTPUT = 500 * 1024;
+    const MAX_OUTPUT = 2 * 1024 * 1024; // 提升到 2MB，应对常见递归搜索输出
 
     // ── 特殊处理：python3/python -c "..." 多行脚本 ────────────────
     // LLM 经常生成多行 Python 代码，如:
@@ -1971,7 +1971,7 @@ function convertSingleSegment(segment: string): string {
  */
 async function executeLinuxCommand(command: string, cwd: string, timeoutMs: number = 60000): Promise<ToolResult> {
   return new Promise((resolve) => {
-    const MAX_OUTPUT = 500 * 1024;
+    const MAX_OUTPUT = 2 * 1024 * 1024; // 提升到 2MB，应对常见递归搜索输出
     exec(command, {
       cwd,
       timeout: timeoutMs,
