@@ -679,6 +679,26 @@ export class DbService {
   }
 
   static async addProjectPrivateSkill(projectId: string, skill: any) {
+    // 可用性验证
+    if (skill.url && skill.url.startsWith('http')) {
+      try {
+        const response = await fetch(skill.url);
+        if (!response.ok) {
+          throw new Error(`技能 URL 不可用 (HTTP ${response.status})`);
+        }
+        const text = await response.text();
+        if (!text || text.length < 50) {
+          throw new Error('技能内容为空或过短');
+        }
+        // 简单验证是否存在必需的元数据（YAML frontmatter）
+        if (!text.includes('---') || (!text.includes('name:') && !text.includes('description:'))) {
+          throw new Error('技能格式错误：缺少必需的元数据 (YAML frontmatter)');
+        }
+      } catch (err: any) {
+        throw new Error(`技能验证失败: ${err.message}`);
+      }
+    }
+
     const project = await this.getProject(projectId);
     if (!project) throw new Error('项目不存在');
     if (!project.projectSkills) project.projectSkills = [];
