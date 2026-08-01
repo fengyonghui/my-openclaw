@@ -655,10 +655,58 @@ export function buildHistoryMessages(
     return [];
   }
 
-  // Step 1: 全部转换（只做 content 还原，args 保持原样）
+  // 🛡️ 硬数量限制 + 确保包含最近用户问题 (2026-07-17/2026-08-01)
+  // 当历史消息数大于 MAX_HISTORY_LEN 时，强制只保留最近的 MAX_HISTORY_LEN 条左右。
+  //
+  // 关键修复：之前只从末尾往前找 role === 'user' 的消息，但如果最近的 40 条全是
+  // assistant/tool 交替（LLM 在长时间工具调用后还没收到新用户输入），就会把最后一条
+  // user 消息截掉，导致 LLM 收到的是"倒数第二个问题"而非"最后的问题"。
+  //
+  // 修复策略：先找窗口内最近的 user 消息，如果没有，找整个历史最后的 user 消息，
+  // 确保截断点包含至少一条用户输入。
+  let processedHistory = historyMessages;
+  const MAX_HISTORY_LEN = 60;
+  if (historyMessages.length > MAX_HISTORY_LEN) {
+    console.log(`[buildHistoryMessages] ⚠️ History too large (${historyMessages.length} msgs) — applying hard truncation`);
+
+    const startIndex = historyMessages.length - MAX_HISTORY_LEN;
+
+    // 在 [startIndex, end) 窗口内找最近的 user 消息
+    let lastUserIdx = -1;
+    for (let i = historyMessages.length - 1; i >= startIndex; i--) {
+      if (historyMessages[i].role === 'user') {
+        lastUserIdx = i;
+        break;
+      }
+    }
+    // 窗口内没有，找整个历史的最后 user 消息
+    if (lastUserIdx === -1) {
+      for (let i = historyMessages.length - 1; i >= 0; i--) {
+        if (historyMessages[i].role === 'user') {
+          lastUserIdx = i;
+          break;
+        }
+      }
+    }
+    console.log(`[buildHistoryMessages] lastUserIdx=${lastUserIdx}`);
+
+    // 截断点：确保包含最后的 user 消息
+    // 如果 lastUserIdx 在窗口内或之后，用 startIndex（保留更多上下文）
+    // 如果 lastUserIdx 在窗口前，用 lastUserIdx（确保包含用户问题）
+    const cutoffIndex = lastUserIdx >= startIndex ? startIndex : lastUserIdx;
+
+    // 同时，必须保留前 2 条消息作为意图锚点 (Preserve original user intent)
+    const anchorMsgs = historyMessages.slice(0, 2);
+    const recentMsgs = historyMessages.slice(cutoffIndex);
+    processedHistory = [...anchorMsgs, ...recentMsgs];
+
+    console.log(`[buildHistoryMessages] Truncated history from ${historyMessages.length} to ${processedHistory.length} messages (cutoffIndex=${cutoffIndex})`);
+  }
+
+  // Step 1: 全部转换 (使用经过硬截断的 processedHistory)（只做 content 还原，args 保持原样）
   // 注意：normalizeMessageToolIds 里的 safeArgumentsJson 会把坏 args 改成 "{}"，
   //       所以 removeBrokenToolCalls 必须在它之前跑，否则检测不到原坏 args。
-  const transformed: Message[] = historyMessages.map(m => transformMessage(m));
+  const transformed: Message[] = processedHistory.map(m => transformMessage(m));
   console.log(`[buildHistoryMessages] transformed.length=${transformed.length}, first few roles: ${transformed.slice(0,5).map(m=>m?.role).join(',')}`);
 
   // Step 1.5: 移除"破损的 tool_call"及其对应 tool result

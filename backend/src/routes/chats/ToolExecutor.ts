@@ -1,4 +1,4 @@
-/**
+﻿/**
  * ToolExecutor - 工具调用执行器
  *
  * 处理各种工具调用的执行逻辑
@@ -18,6 +18,7 @@ import { DbService } from '../../services/DbService.js';
 import { getSystemInfo } from '../../services/SystemCommands.js';
 import { toWSLPath, toWindowsPath, getProjectWorkspacePath } from '../../services/PathService.js';
 import { extractToolCalls } from './ModelRequestor.js';
+import { sanitizeToolName } from '../../services/ToolDefinitions.js';
 import { buildToolList, buildToolListForAgent } from '../../services/ToolDefinitions.js';
 
 /**
@@ -341,6 +342,34 @@ function normalizeExecError(
     };
   }
 
+  // === 新增：检测 PowerShell 语法错误 ===
+  // 在 likelySearchCmd 之前优先捕获语法错误，避免误报为"搜索无匹配"
+  const powershellSyntaxErrors = [
+    "is not recognized",
+    "cannot be found",
+    "The term",
+    "Unexpected token",
+    "Missing terminator",
+    "The string is missing the terminator",
+    "missing after ' in argument list",
+    "understanding of expression",
+    "unexpected argument",
+    "terminator ' not found"
+  ];
+  const rawErrMsg = err?.message || '';
+  const isSyntaxError = powershellSyntaxErrors.some(pattern =>
+    rawErrMsg.toLowerCase().includes(pattern.toLowerCase())
+  );
+  if (isSyntaxError) {
+    return {
+      error: `PowerShell 语法错误: ${cmdPreview} - ${rawErrMsg}`,
+      _exitCode: exitCode,
+      _errorType: 'syntax',
+      _note: '命令格式无效，请检查管道符前后空格、引号匹配、特殊字符转义等。例如：cmd|Select-String 应改为 cmd | Select-String'
+    };
+  }
+  // =======================================
+
   // 经典 grep/findstr "无匹配" 模式：exit=1 且输出全空
   // 仅对 grep/findstr/Select-String 类命令适用，对其他命令（如 mvn、java）应报告真实错误
   const likelySearchCmd = /\bgrep\b|\bfindstr\b|\bSelect-String\b/i.test(originalCommand);
@@ -527,7 +556,9 @@ export async function executeToolCall(
       return await executeFileIO(project, args, allProjectAgents, allEnabledSkills, reply);
     default:
       // 尝试从项目技能中查找
-      const skill = allEnabledSkills.find((s: any) => s.name === fn);
+      // 🔧 工具名规整对齐：生成侧把含空格/中文等非法字符的技能名（如 "Self-Improvement Skill"）
+      // 规整为合法 function name；这里调用端用同样的 sanitize 反向匹配原始 skill.name。
+      const skill = allEnabledSkills.find((s: any) => sanitizeToolName(s.name) === fn || s.name === fn);
       if (skill) {
         return { info: `技能 "${fn}" 已收到参数`, skillContent: skill.rawContent || skill.description };
       }
@@ -778,7 +809,7 @@ async function handleWriteFile(project: any, args: any): Promise<ToolResult> {
   const absPath = path.resolve(project.workspace, result.path);
   return {
     success: true,
-    message: `✅ 文件已成功写入`,
+    message: `✅ 文件已成功写入: ${result.path}`,
     workspace: project.workspace,
     relativePath: result.path,
     absolutePath: absPath.replace(/\\/g, '/'),
@@ -929,12 +960,16 @@ export async function executeShellCommand(project: any, args: any): Promise<Tool
   }
 
   // 安全检查：禁止不带路径的目录操作命令
+  // 修复：mkdir -p xxx 这类带参数的命令，路径参数在 parts[2]，不应被拦截
   const trimmedCmd = effectiveCommand.trim();
   const dangerousCmds = ['mkdir', 'md', 'rmdir', 'rm', 'del', 'rm -rf', 'del /f /s /q'];
   for (const dangerous of dangerousCmds) {
     if (trimmedCmd === dangerous || trimmedCmd.startsWith(dangerous + ' ')) {
       const parts = trimmedCmd.split(/\s+/);
-      if (parts.length < 2 || parts[1].startsWith('-')) {
+      // 需要至少一个路径参数(parts[1] 是路径 或 parts[2] 是路径(当 parts[1] 是选项时))
+      const hasPath = parts.length >= 2 && !parts[1].startsWith('-') ||
+                      parts.length >= 3 && parts[1].startsWith('-');
+      if (!hasPath) {
         return {
           error: `命令 "${dangerous}" 缺少路径参数。请提供完整命令，如 "${dangerous} src/utils"`,
           suggestion: '如果要创建目录，请使用完整路径参数'
@@ -942,6 +977,20 @@ export async function executeShellCommand(project: any, args: any): Promise<Tool
       }
     }
   }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
   // ============================================================
   // 统一路由：根据检测到的系统类型决定执行方式
@@ -992,14 +1041,107 @@ export async function executeShellCommand(project: any, args: any): Promise<Tool
 }
 
 /**
+ * 剥离一层或多层 `powershell [flags] -Command "..."|{...}|'...'` 包装。
+ *
+ * 背景：LLM 常生成 `powershell -NoProfile -Command "..."`，而 executor 又会再包一层，
+ * 变成 `powershell -NoProfile -Command {powershell -NoProfile -Command "..."}`，
+ * 导致引号嵌套损坏与 "The string is missing the terminator" 解析错误。
+ *
+ * 旧正则只匹配 `-Command "..."`（无 -NoProfile）或 `-Command {...}`，漏掉了
+ * `powershell -NoProfile -Command "..."` 这一最常见形态。
+ */
+export function unwrapPowerShellWrappers(cmd: string): string {
+  let current = cmd.trim();
+  for (let i = 0; i < 5; i++) {
+    // powershell[.exe] [common flags...] -Command { ... }
+    const block = current.match(
+      /^powershell(?:\.exe)?(?:\s+(?:-NoProfile|-NonInteractive|-NoLogo|-ExecutionPolicy\s+\S+))*\s+-Command\s+\{([\s\S]*)\}\s*$/i
+    );
+    if (block) {
+      current = block[1].trim();
+      continue;
+    }
+
+    // powershell[.exe] [flags...] -Command "..."
+    // 关键修复：用 lastIndexOf 找末尾引号，而不是 slice(-1)，
+    // 避免命令中有嵌套单引号时正则提前截断（贪婪匹配问题）。
+    // 例如: powershell -Command "cmd1 'arg'; cmd2 | findstr X"
+    //       旧代码会错误地停在第一个 ' 后面的 "，导致命令被截断。
+    const dqPrefix = current.match(
+      /^powershell(?:\.exe)?(?:\s+(?:-NoProfile|-NonInteractive|-NoLogo|-ExecutionPolicy\s+\S+))*\s+-Command\s+"/i
+    );
+    if (dqPrefix) {
+      const quoteStart = dqPrefix[0].length;
+      const quoteEnd = current.lastIndexOf('"');
+      if (quoteEnd > quoteStart) {
+        current = current
+          .slice(quoteStart, quoteEnd)
+          .replace(/\\"/g, '"')
+          .trim();
+        continue;
+      }
+    }
+
+    // powershell[.exe] [flags...] -Command '...'
+    const sqPrefix = current.match(
+      /^powershell(?:\.exe)?(?:\s+(?:-NoProfile|-NonInteractive|-NoLogo|-ExecutionPolicy\s+\S+))*\s+-Command\s+'/i
+    );
+    if (sqPrefix && current.endsWith("'") && current.length > sqPrefix[0].length) {
+      current = current
+        .slice(sqPrefix[0].length, -1)
+        .replace(/''/g, "'")
+        .trim();
+      continue;
+    }
+
+    // 宽松回退：flags 顺序/种类不固定时仍尝试剥离
+    const loose = current.match(
+      /^powershell(?:\.exe)?(?:\s+-\w+(?:\s+(?!-)\S+)*)*?\s+-Command\s+(?:\{([\s\S]*)\}|"([\s\S]*)"|'([\s\S]*)')\s*$/i
+    );
+    if (loose) {
+      const inner = (loose[1] ?? loose[2] ?? loose[3] ?? '').trim();
+      if (!inner || inner === current) break;
+      current = loose[2] ? inner.replace(/\\"/g, '"') : inner;
+      continue;
+    }
+
+    break;
+  }
+  return current;
+}
+
+/**
+ * 修复 Select-String -Pattern 的常见引号损坏。
+ *
+ * 典型坏例（来自把 \"'...\" 错误转成 ''...）：
+ *   -Pattern ''content': 'package com.example.ruleengine'
+ * 目标：
+ *   -Pattern "'content': 'package com.example.ruleengine'"
+ *
+ * 合法 PowerShell 单引号转义以 ''' 开头（如 -Pattern '''foo'''），不在此修复范围。
+ */
+export function repairSelectStringPatternQuotes(cmd: string): string {
+  // -Pattern ''X...（非 ''' 合法转义）→ 视为「目标字面量以单引号开头」的损坏串
+  return cmd.replace(
+    /-Pattern\s+''(?!')([^\n]*?)(?=\s*\||\s*$)/g,
+    (_full, rest: string) => {
+      const patternText = "'" + rest;
+      const escaped = patternText.replace(/`/g, '``').replace(/"/g, '`"');
+      return `-Pattern "${escaped}"`;
+    }
+  );
+}
+
+/**
  * 执行 PowerShell 命令
  *
  * 问题修复：
  * 1. 末尾反斜杠（如 C:\）：PowerShell -Command "..." 中 \ 在闭合 " 前被当作转义符 → 替换为 /
  * 2. shell 重定向（2>&1）：PowerShell 不识别 → 直接剥离
- * 3. 引号嵌套：改用 -Command {block} 语法，避免引号解析问题
+ * 3. 引号嵌套：先 unwrap 嵌套 powershell 包装，再用 execFile 传 -Command 参数（避免再包一层 {block}）
  * 4. LLM 把 bash 习惯带过来：\$ → $（PowerShell 用 ` 反引号作转义，\ 是字面字符，
  *    \$ 会被解析为字面 \$ + 后续 token，导致 "Unexpected token '\$_.Exception.Message'"）
+ * 5. 禁止把 \" 盲目换成 '：会破坏 -Pattern "'...'" 这类含单引号的搜索串
  */
 async function executePowerShellCommand(command: string, cwd: string, timeoutMs: number = 60000): Promise<ToolResult> {
   return new Promise((resolve) => {
@@ -1094,35 +1236,11 @@ async function executePowerShellCommand(command: string, cwd: string, timeoutMs:
   // 清理命令中的 shell/bash 特有语法（PowerShell 不识别）
   // 注意：不在这里剥离 ; 命令链，因为 LLM 经常生成 "pwd ; ls -la" 这样的复合命令，
   // 每个分段都需要独立转换。只剥离 2>/dev/null 和 2>&1。
-  let cleanCmd = command;
-
-  // ── 修复 Issue 5：剥离嵌套的 PowerShell 调用 ──
-  // LLM 有时会生成 powershell -NoProfile -Command {powershell -NoProfile -Command "..."}
-  // 外层已经被 convertCmdToPowerShell 处理过，内层是冗余的二次包装。
-  // 检测并提取最内层的实际命令块。
-  const nestedPsRegex = /powershell\s+-NoProfile\s+-Command\s+\{((?:[^{}]|\{[^{}]*\})+)\}/i;
-  const nestedMatch = cleanCmd.match(nestedPsRegex);
-  if (nestedMatch) {
-    const innerBlock = nestedMatch[1];
-    // 如果内部已经是纯 PowerShell 命令（不含外层 powershell 关键字），直接使用
-    if (!/^powershell\s/i.test(innerBlock.trim())) {
-      cleanCmd = innerBlock;
-    }
-  }
-
-  // 处理 powershell -Command "..."（双引号包裹的版本）
-  // LLM 有时生成: powershell -Command "(Get-Content 'file' -Encoding Byte -TotalCount 20) -join ','"
-  // 外层 {block} 会把它变成: powershell -NoProfile -Command {powershell -Command "(...)"}
-  // 需要提取内部的 "..." 内容
-  const nestedPsQuoteRegex = /powershell\s+-Command\s+"([^"]+)"/i;
-  const nestedQuoteMatch = cleanCmd.match(nestedPsQuoteRegex);
-  if (nestedQuoteMatch) {
-    const innerCmd = nestedQuoteMatch[1];
-    // 如果内部不包含 powershell 关键字，直接使用内部命令
-    if (!/powershell\s/i.test(innerCmd)) {
-      cleanCmd = innerCmd;
-    }
-  }
+  //
+  // 关键：先完整剥离嵌套 powershell -NoProfile -Command "..."/{...} 包装，
+  // 再做语法清理；最后用 execFile 把脚本作为单一 -Command 参数传入，
+  // 避免再包一层 {block} 造成二次引号解析。
+  let cleanCmd = unwrapPowerShellWrappers(command);
 
   cleanCmd = cleanCmd
     // 修复 npx tsc 解析错误包的问题
@@ -1130,14 +1248,15 @@ async function executePowerShellCommand(command: string, cwd: string, timeoutMs:
     .replace(/^npx\s+typescript\b/i, `node '${cwd}\\node_modules\\typescript\\lib\\tsc.js'`)
     // 剥离 2>&1 等必须在 npx 替换之后（否则 npx tsc 2>&1 中的 2>&1 会把 tsc 命令吞掉）
     .replace(/\s*2>\/dev\/null\s*;?\s*/g, ' ')           // 剥离 2>/dev/null（含前后分号）
+    .replace(/\s*2>nul\s*;?\s*/gi, ' ')                  // 剥离 2>nul（含前后分号）
     .replace(/\s*2>\s*&1\s*(\||;|$)/g, '$1')             // 剥离 2>&1（末尾、管道前、分号前）
     .replace(/\s*>\s*&\d\s*$/g, '')                      // 剥离 >&2 等
     .replace(/\s*\|\s*tee\s+[^\s]*/gi, '')               // 剥离 | tee
     .replace(/\s*;\s*exit\s*\$?\w+/gi, '');              // 剥离 ; exit $?
 
     // 剥离 PowerShell 参数 -Raw / -Encoding 等（LLM 有时会混用 type/file -Raw 语法）
-    cleanCmd = cleanCmd.replace(/\s+(?:-Raw|-Encoding|-Width)\s*\S*\s*$/g, '');
-
+    // 修复：-Raw 剥离不应吞掉引号字符（如 -Raw" → 吞掉结尾 " 导致 PowerShell 报 missing terminator）
+    cleanCmd = cleanCmd.replace(/\s+(?:-Raw|-Encoding|-Width)(?:\s+\S+)?\s*$/g, "");
     // 修复 Windows 路径末尾的反斜杠（PowerShell -Command 中会转义闭合引号）
     // 将 D:\ 末尾反斜杠改为正斜杠，PowerShell 兼容
     cleanCmd = cleanCmd.replace(/([A-Za-z]):\\(?=\s*(['"]|\s*[-&|]|$))/g, '$1:/');
@@ -1145,9 +1264,9 @@ async function executePowerShellCommand(command: string, cwd: string, timeoutMs:
     // ── 修复 Windows 路径中的前向斜杠 ──
     // PowerShell 路径可以使用 /，但某些情况下（如 -Path "src/main/java"）会被 PowerShell 解释为
     // 相对路径，而 cwd 是 D:\... 时可能找不到。统一将 / 替换为 \ 以确保路径正确。
-    cleanCmd = cleanCmd.replace(/-Path\s+'([^']+)'/g, (m, p) => `-Path '${p.replace(/\//g, '\\')}'`);
-    cleanCmd = cleanCmd.replace(/-Path\s+"([^"]+)"/g, (m, p) => `-Path "${p.replace(/\//g, '\\')}"`);
-    cleanCmd = cleanCmd.replace(/-Filter\s+"([^"]+)"/g, (m, p) => `-Filter "${p.replace(/\//g, '\\')}"`);
+    cleanCmd = cleanCmd.replace(/-Path\s+'([^']+)'/g, (_m, p) => `-Path '${p.replace(/\//g, '\\')}'`);
+    cleanCmd = cleanCmd.replace(/-Path\s+"([^"]+)"/g, (_m, p) => `-Path "${p.replace(/\//g, '\\')}"`);
+    cleanCmd = cleanCmd.replace(/-Filter\s+"([^"]+)"/g, (_m, p) => `-Filter "${p.replace(/\//g, '\\')}"`);
 
     // 修复 bash 风格 && 为 PowerShell 风格 ;（PowerShell 不支持 && 作为命令分隔符）
     cleanCmd = cleanCmd.replace(/\s*&\s*&\s*/g, '; ');
@@ -1161,42 +1280,28 @@ async function executePowerShellCommand(command: string, cwd: string, timeoutMs:
     // 把 \$ 替换为 $（LLM 常见错误：把 bash 的 \$variable 习惯带进 PowerShell）
     // PowerShell 的转义符是反引号 `，\ 是字面字符
     // 典型 bug 场景: catch 块里写 \$_.Exception.Message → PowerShell 报 "Unexpected token"
-    // 极少数情况: LLM 想用 \$ 作为正则字面 $ (如 '[regex]"$foo"'），破坏可接受，
-    // 因为 LLM 不会写复杂正则，且这种场景可改用 [regex]::Escape('$') 规避
     cleanCmd = cleanCmd.replace(/\\\$/g, '$');
-
-    // 使用 {block} 语法避免引号嵌套问题
-    // 注意：双大括号 {{ }} 在模板字符串中是单大括号 {}
-    //
-    // 关键修复：LLM 的命令中可能包含 \"（转义的双引号），在 {block} 中
-    // PowerShell 会正确解释，但 child_process.exec 经过 Windows API 层时，
-    // \" 可能被错误解析为字符串终止符，导致后续命令碎片化。
-    // 解决方案：先清理所有 \" 为 PowerShell 原生的 "" 或单引号包裹，
-    // 同时清理 \$ 为原生的 $。
-    cleanCmd = cleanCmd.replace(/\\"/g, "'");  // \" → '（用单引号替代转义双引号）
     cleanCmd = cleanCmd.replace(/\$\$/g, '$');  // $$ → $（防止 $$ 被解释为上一个命令的输出）
 
-    // 清理多余的双引号：""path"" → "path"（LLM 有时会重复引号）
-    cleanCmd = cleanCmd.replace(/""+/g, '"');
+    // 仅做 JSON/转义层残留清理：\" → "（不要改成单引号，否则 -Pattern "'...'" 会变成 ''... 坏串）
+    cleanCmd = cleanCmd.replace(/\\"/g, '"');
 
-    // 保护 PowerShell {block} 中的变量引用：将 $var 替换为 ``$var（转义）
-    // 避免 LLM 生成的 $out, $_, $error 等在 {block} 中被 PowerShell 当作变量解析
-    // 排除已知的内置变量和常见命令
-    cleanCmd = cleanCmd.replace(/\$(?!PSVersionTable|true|false|null|this|PSScriptRoot|PWD|HOME|HOST|Error|Warning|Information|Verbose|Debug|Progress|ConfirmPreference|WhatIfPreference|DebugPreference|InformationPreference|WarningPreference|ErrorActionPreference|VerbosePreference|ConfirmPreference|ProgressPreference|FormatEnumerationLimit|Host|InputObject|OutVariable|OutBuffer|PipelineVariable|WarningAction|WarningVariable|ErrorAction|ErrorVariable|Force|Recurse|Verbose|WarningAction|WarningVariable|WhatIf|Confirm|Credential|Debug|Description|EnableException|ErrorAction|ErrorVariable|Force|InFile|InformationAction|InformationVariable|OutBuffer|OutFile|OutputType|PipelineVariable|ProgressAction|ProgressVariable|ResourceGroupName|SupportsWildcards|Tags|TimeoutSec|TraceParent|TraceState|UseBasicParsing|UseDefaultCredentials|Verbose|WarningAction|WarningVariable|WhatIf|Confirm|Credential|Debug|Description|EnableException|ErrorAction|ErrorVariable|Force|InFile|InformationAction|InformationVariable|OutBuffer|OutFile|OutputType|PipelineVariable|ProgressAction|ProgressVariable|ResourceGroupName|SupportsWildcards|Tags|TimeoutSec|TraceParent|TraceState|UseBasicParsing|UseDefaultCredentials|Verbose|WarningAction|WarningVariable|WhatIf|Confirm|Credential|Debug|Description|EnableException|ErrorAction|ErrorVariable|Force|InFile|InformationAction|InformationVariable|OutBuffer|OutFile|OutputType|PipelineVariable|ProgressAction|ProgressVariable|ResourceGroupName|SupportsWildcards|Tags|TimeoutSec|TraceParent|TraceState|UseBasicParsing|UseDefaultCredentials)\b/g, '`$');
+    // 修复 -Pattern ''... 这类由错误转义产生的损坏串
+    cleanCmd = repairSelectStringPatternQuotes(cleanCmd);
 
-    const psCmd = `powershell -NoProfile -Command {${cleanCmd}}`;
+    // 再次 unwrap：清理/修复后若仍残留 powershell 包装则继续剥离
+    cleanCmd = unwrapPowerShellWrappers(cleanCmd);
 
-    // 关键: 必须显式指定 shell: 'powershell.exe'。
-    // child_process.exec 不传 shell 时, Windows 默认走 cmd.exe,
-    // cmd.exe 会把 -Command { ... | Select-String ... } 中的 | 当作管道运算符,
-    // 错误地把 Select-String 当成独立命令执行, 抛出
-    //   'Select-String' is not recognized as an internal or external command
-    // (即使用户写的是 PowerShell 风格命令, 错误信息仍是 cmd.exe 风格的)
-    exec(psCmd, {
+    console.log(`[Shell] PowerShell -Command (unwrapped): ${cleanCmd.slice(0, 500)}`);
+
+    // 关键：用 execFile 把脚本作为独立 argv 传入 -Command，
+    // 避免 shell: powershell.exe + `powershell -Command {..}` 的双重包装与引号二次解析。
+    // 管道 |、Select-String、内嵌引号均由 PowerShell 引擎按单一脚本解析。
+    execFile('powershell.exe', ['-NoProfile', '-Command', cleanCmd], {
       cwd,
-      shell: 'powershell.exe',
       timeout: timeoutMs,
-      maxBuffer: MAX_OUTPUT
+      maxBuffer: MAX_OUTPUT,
+      windowsHide: true,
     }, (err, stdout, stderr) => {
       if (err) {
         resolve(normalizeExecError(err, stdout, stderr, command));
@@ -1257,6 +1362,7 @@ function convertCmdToPowerShell(cmd: string): string {
     .replace(/\s*2>\/dev\/null\s*(\||$)/g, '$1')       // 剥离 2>/dev/null（含末尾管道）
     .replace(/\s*\|\s*findstr\s+(?:\/R\s+)?(?:"[^"]*"|\S+)\s*$/gi, '')  // 剥离 | findstr ... 管道
     .replace(/\s*2>\s*&1\s*(\||$)/g, '$1')             // 剥离 2>&1（末尾或管道前）
+    .replace(/\s*2>nul\s*(\||$)/gi, ' $1')              // 剥离 2>nul（CMD 重定向，含末尾管道，保留空格）
     .replace(/\s*>\s*&\d\s*$/g, '')                     // 剥离 >&2 等
     .replace(/\s*\|\s*tee\s+[^\s]*\s*$/g, '')           // 剥离 | tee
     .replace(/\s*;\s*exit\s*\$?\w+\s*$/g, '');          // 剥离 ; exit $?
@@ -1758,6 +1864,73 @@ function convertCmdToPowerShell(cmd: string): string {
     return `Get-ChildItem -Filter "${cleanPattern}"`;
   }
 
+  // ── 裸 dir 命令（LLM 可能直接在 PowerShell 环境使用 CMD 风格的 dir）──
+  // 格式: dir [/options] pattern [2>nul] [| Select-String ... | head N]
+  // 例如: dir /s /b *.java 2>nul | head -30 → Get-ChildItem -Recurse -Filter "*.java" | ...
+  // 先剥离 trailing 的 2>nul（与 preCleaned 中一致）
+  const preCleanedForDir = trimmed.replace(/\s*2>nul\s*(\||$)/gi, ' $1');
+  const bareDirWithPipeMatch = preCleanedForDir.match(
+    /^dir\s+(.+?)\s*\|\s*(.+)$/i
+  );
+  if (bareDirWithPipeMatch) {
+    let dirArg = bareDirWithPipeMatch[1].trim();
+    let pipeRight = bareDirWithPipeMatch[2].trim();
+    const hasRecurse = /\/[sS]/.test(dirArg);
+    // 提取文件模式（*.ext），捕获扩展名部分
+    const extMatch = dirArg.match(/\*\.(\w+)/);
+    // 剥离 /s /b 等 dir 开关参数，以及残留的 2>nul
+    dirArg = dirArg.replace(/\s*\/[bBsSoOaAdDpP]+\b/g, '').replace(/\s*2>nul\s*/gi, '').trim();
+
+    let ps = 'Get-ChildItem';
+    if (hasRecurse) ps += ' -Recurse';
+    if (extMatch) {
+      const ext = extMatch[1];
+      ps += ` -Filter "*.${ext}"`;
+    } else if (dirArg) {
+      ps += ` -Filter "${dirArg.replace(/\//g, '\\')}"`;
+    }
+    ps += ' | Select-Object -ExpandProperty FullName';
+
+    // 转换管道右侧：| head N → | Select-Object -First N；| tail N → | Select-Object -Last N
+    const headMatch = pipeRight.match(/^head\s+-?n?\s*(\d+)$/i);
+    if (headMatch) {
+      pipeRight = `Select-Object -First ${headMatch[1]}`;
+    }
+    const tailMatch = pipeRight.match(/^tail\s+-?n?\s*(\d+)$/i);
+    if (tailMatch) {
+      pipeRight = `Select-Object -Last ${tailMatch[1]}`;
+    }
+    ps += ' | ' + pipeRight;
+    return ps;
+  }
+
+  // ── 裸 dir 命令（无管道，纯 dir pattern）──
+  const preCleanedForDirStandalone = trimmed.replace(/\s*2>nul\s*(\||$)/gi, ' $1');
+  const bareDirStandaloneMatch = preCleanedForDirStandalone.match(
+    /^dir\s+(.+)$/i
+  );
+  if (bareDirStandaloneMatch) {
+    let dirArg = bareDirStandaloneMatch[1].trim();
+    // 确认这是 CMD 风格的 dir（含 /switches 或 *.ext），而非 PowerShell 风格的 dir
+    if (/\/[a-zA-Z]/.test(dirArg) || /\*\.?\w*/.test(dirArg)) {
+      const hasRecurse = /\/[sS]/.test(dirArg);
+      const extMatch = dirArg.match(/\*\.(\w+)/);
+      dirArg = dirArg.replace(/\s*\/[bBsSoOaAdDpP]+\b/g, '').replace(/\s*2>nul\s*/gi, '').trim();
+
+      let ps = 'Get-ChildItem';
+      if (hasRecurse) ps += ' -Recurse';
+      if (extMatch) {
+        const ext = extMatch[1];
+        ps += ` -Filter "*.${ext}"`;
+      } else if (dirArg) {
+        ps += ` -Filter "${dirArg.replace(/\//g, '\\')}"`;
+      }
+      ps += ' | Select-Object -ExpandProperty FullName';
+      return ps;
+    }
+    // 不是标准 dir pattern，让后续通用逻辑处理
+  }
+
   // cmd /c "type file" → Get-Content
   const cmdTypeMatch = trimmed.match(/^cmd\s+\/c\s+"type\s+(.+?)"$/i);
   if (cmdTypeMatch) {
@@ -1860,18 +2033,34 @@ function convertCmdToPowerShell(cmd: string): string {
   // 支持 "cmd | head 50"、"cmd | head -n 50"、"cmd | head -50" 三种格式
   const pipeHead = preCleaned.match(/^(.+?)\s*\|\s*head\s+-?n?\s*(\d+)\s*$/);
   if (pipeHead && pipeHead[1]?.trim()) {
-    const leftSide = pipeHead[1].trim();
+    let leftSide = pipeHead[1].trim();
+    // 净化左侧残留的 CMD 语法（dir、2>nul 等）
+    leftSide = leftSide
+        .replace(/\s*2>nul\s*$/gi, '')
+        .replace(/\s*2>&1\s*$/gi, '')
+        .replace(/^dir\s+/i, 'Get-ChildItem ');
     const count = pipeHead[2];
     return `${leftSide} | Select-Object -First ${count}`;
   }
   const pipeTail = preCleaned.match(/^(.+?)\s*\|\s*tail\s+-?n?\s*(\d+)\s*$/);
   if (pipeTail && pipeTail[1]?.trim()) {
-    const leftSide = pipeTail[1].trim();
+    let leftSide = pipeTail[1].trim();
+    // 净化左侧残留的 CMD 语法
+    leftSide = leftSide
+        .replace(/\s*2>nul\s*$/gi, '')
+        .replace(/\s*2>&1\s*$/gi, '')
+        .replace(/^dir\s+/i, 'Get-ChildItem ');
     const count = pipeTail[2];
     return `${leftSide} | Select-Object -Last ${count}`;
   }
 
-  return preCleaned;
+  // 标准化管道符前后空格（修复 "cmd|Select-String" → "cmd | Select-String"）
+  let standardizedCmd = preCleaned.replace(/\s*\|\s*/g, ' | ');
+  // 如果标准化前后有变化，记录警告
+  if (standardizedCmd !== preCleaned) {
+    console.log('[Shell] 管道符前后空格已标准化，原命令可能包含语法问题');
+  }
+  return standardizedCmd;
 }
 
 /**
