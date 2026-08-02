@@ -1272,6 +1272,18 @@ async function executePowerShellCommand(command: string, cwd: string, timeoutMs:
     cleanCmd = cleanCmd.replace(/\s*&\s*&\s*/g, '; ');
     cleanCmd = cleanCmd.replace(/([a-zA-Z0-9_-])\|/g, '$1 |');
 
+    // 修复：cd 命令会返回 DirectoryInfo 对象，如果后面紧跟管道符（如 `cd backend; mvn | Select-String`），
+    // 这个对象会被传入管道，导致 PowerShell 返回 exit code 1（即使命令成功）。
+    // 修复方式：将 `cd` 替换为 `Set-Location`（不返回值），或在 cd 后加分号阻断管道。
+    // 注意：只在 cd 后面紧跟管道符或命令时才修复，避免破坏正常的 cd 命令。
+    cleanCmd = cleanCmd.replace(/\bcd\s+(.+?)(?=\||;|$)/gi, (match, path) => {
+      // 检查 cd 后面是否紧跟管道符或分号
+      if (path.trim().endsWith('|') || path.trim().endsWith(';')) {
+        return `Set-Location ${path}`;
+      }
+      return match;
+    });
+
     // 修复 LLM 常见的 pip install + python3 -c 连写问题
     // LLM 有时会生成: pip install akshare -q python3 -c "..."
     // 中间缺少分号或 &&，应拆分为两条命令
