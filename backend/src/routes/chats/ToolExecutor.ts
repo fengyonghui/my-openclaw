@@ -1297,7 +1297,10 @@ async function executePowerShellCommand(command: string, cwd: string, timeoutMs:
     // 关键：用 execFile 把脚本作为独立 argv 传入 -Command，
     // 避免 shell: powershell.exe + `powershell -Command {..}` 的双重包装与引号二次解析。
     // 管道 |、Select-String、内嵌引号均由 PowerShell 引擎按单一脚本解析。
-    execFile('powershell.exe', ['-NoProfile', '-Command', cleanCmd], {
+    // 修复：添加 $ErrorActionPreference = 'Continue' 防止管道组合对象类型时
+    //       PowerShell 误报 exit code 1（stdout 正常但 stderr 为空）。
+    const psCmd = `$ErrorActionPreference = 'Continue'; ${cleanCmd}`;
+    execFile('powershell.exe', ['-NoProfile', '-Command', psCmd], {
       cwd,
       timeout: timeoutMs,
       maxBuffer: MAX_OUTPUT,
