@@ -7,6 +7,18 @@
 
 import { streamModelRequest, PartialToolCall } from './StreamingService.js';
 
+/**
+ * 安全解析工具调用参数，处理 LLM 生成的截断 JSON。
+ */
+function parseToolArgs(rawArgs: string): any {
+  try {
+    return JSON.parse(rawArgs || '{}');
+  } catch {
+    console.warn(`[Streaming] Failed to parse tool args (truncated): ${rawArgs.slice(0, 100)}`);
+    return {};
+  }
+}
+
 // ============================================
 // 配置
 // ============================================
@@ -174,7 +186,7 @@ export async function processStreamingChat(
 
         // 处理工具结果
         const toolName = toolCall.function.name;
-        const toolArgs = JSON.parse(toolCall.function.arguments || '{}');
+        const toolArgs = parseToolArgs(toolCall.function.arguments);
         const cmd = (toolArgs.command || '').toLowerCase();
         const isReadCmd = toolName === 'read_file' || toolName === 'list_files' ||
           (toolName === 'file-io' && (cmd === 'read_file' || cmd === 'read' || cmd === 'list_files' || cmd === 'list'));
@@ -315,7 +327,7 @@ export async function processNonStreamingChat(
         }
 
         const toolName = toolCall.function?.name;
-        const toolArgs = JSON.parse(toolCall.function?.arguments || '{}');
+        const toolArgs = parseToolArgs(toolCall.function?.arguments || '{}');
         const cmd = (toolArgs.command || '').toLowerCase();
         const isReadCmd = toolName === 'read_file' || toolName === 'list_files' ||
           (toolName === 'file-io' && (cmd === 'read_file' || cmd === 'read' || cmd === 'list_files' || cmd === 'list'));
