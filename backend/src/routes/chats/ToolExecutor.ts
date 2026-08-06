@@ -779,8 +779,8 @@ function handleJsonParseError(rawArgs: string, parseError: Error): ToolResult {
     const errorPos = posMatch ? parseInt(posMatch[1]) : 0;
     
     return {
-      error: 'JSON 参数被截断，无法写入。请分多次写入或先用 read_file 检查文件大小。',
-      suggestion: '将文件分成多个小块，分多次写入。先使用 write_file 创建文件骨架，再用 edit_file 分批添加内容。'
+      error: 'JSON 参数被截断，无法执行工具调用。',
+      suggestion: '请分步骤操作：1. 先用 read_file 读取目标文件；2. 用 edit_file 分小块替换（每次替换 20-50 行）；3. 不要一次性生成超大 oldText/newText。'
     };
   }
 }
@@ -1041,6 +1041,24 @@ export async function executeShellCommand(project: any, args: any): Promise<Tool
 }
 
 /**
+ * 从 start 位置开始，找到第一个未被反斜杠转义的 '"' 字符位置。
+ * 用于正确解析 powershell -Command "..." 的闭合引号，避免被内嵌的错误消息引号干扰。
+ * 例如: `"netstat -ano - Command failed: foo "bar" baz"` → 返回最后一个 " 的位置
+ * 例如: `"netstat -ano - Command failed: ..."` (内嵌引号后还有内容) → 跳过内嵌引号
+ */
+function findLastUnescapedQuote(str: string, start: number): number {
+  for (let i = str.length - 1; i >= start; i--) {
+    if (str[i] !== '"') continue;
+    // 检查是否被反斜杠转义：数前面的反斜杠个数
+    let backslashes = 0;
+    let j = i - 1;
+    while (j >= 0 && str[j] === '\\') { backslashes++; j--; }
+    if (backslashes % 2 === 0) return i; // 偶数个反斜杠 → 未转义
+  }
+  return -1; // 未找到
+}
+
+/**
  * 剥离一层或多层 `powershell [flags] -Command "..."|{...}|'...'` 包装。
  *
  * 背景：LLM 常生成 `powershell -NoProfile -Command "..."`，而 executor 又会再包一层，
@@ -1049,6 +1067,10 @@ export async function executeShellCommand(project: any, args: any): Promise<Tool
  *
  * 旧正则只匹配 `-Command "..."`（无 -NoProfile）或 `-Command {...}`，漏掉了
  * `powershell -NoProfile -Command "..."` 这一最常见形态。
+ *
+ * 额外修复（2026-08-04）：使用 findLastUnescapedQuote 而非 lastIndexOf 查找闭合引号，
+ * 防止 LLM 将上一条命令的错误信息拼入新命令时（如 `"netstat -ano - Command failed: ..."`）
+ * 错误匹配到内嵌错误消息的末尾引号导致引号不匹配。
  */
 export function unwrapPowerShellWrappers(cmd: string): string {
   let current = cmd.trim();
@@ -1063,16 +1085,16 @@ export function unwrapPowerShellWrappers(cmd: string): string {
     }
 
     // powershell[.exe] [flags...] -Command "..."
-    // 关键修复：用 lastIndexOf 找末尾引号，而不是 slice(-1)，
-    // 避免命令中有嵌套单引号时正则提前截断（贪婪匹配问题）。
-    // 例如: powershell -Command "cmd1 'arg'; cmd2 | findstr X"
-    //       旧代码会错误地停在第一个 ' 后面的 "，导致命令被截断。
+    // 关键修复：用 findLastUnescapedQuote 找真正匹配的闭合引号，而不是 lastIndexOf。
+    // 原因：当 LLM 把上一条命令的错误信息拼入新命令时（如 `... "netstat -ano - Command failed: ..."`），
+    // lastIndexOf('"') 会错误地停在错误信息末尾的引号上，导致引号不匹配报 "missing terminator"。
+    // findLastUnescapedQuote 逐字符扫描，跳过被 \` 转义的引号，找到真正的字符串末尾。
     const dqPrefix = current.match(
       /^powershell(?:\.exe)?(?:\s+(?:-NoProfile|-NonInteractive|-NoLogo|-ExecutionPolicy\s+\S+))*\s+-Command\s+"/i
     );
     if (dqPrefix) {
       const quoteStart = dqPrefix[0].length;
-      const quoteEnd = current.lastIndexOf('"');
+      const quoteEnd = findLastUnescapedQuote(current, quoteStart);
       if (quoteEnd > quoteStart) {
         current = current
           .slice(quoteStart, quoteEnd)
@@ -2033,6 +2055,32 @@ function convertCmdToPowerShell(cmd: string): string {
     const converted = convertCmdToPowerShell(inner);
     // 剥离可能再次出现的 cmd /c 包裹
     return converted.replace(/^cmd\s+\/c\s+"(.+)"$/i, '$1').trim();
+  }
+
+  // ── CMD if exist / if not exist → PowerShell Test-Path ─────────────
+  // LLM 常在 Windows 上生成 CMD 风格的 if exist，PowerShell 不识别此语法。
+  // 格式: if exist "path" (echo TRUE) else (echo FALSE)
+  // 格式: if exist path (echo TRUE) else (echo FALSE)
+  // 格式: if not exist "path" (echo TRUE)
+  const ifExistMatch = trimmed.match(
+    /^if\s+(not\s+)?exist\s+(?:"([^"]+)"|(\S+))\s+\(echo\s+([^\)]+)\)(?:\s+else\s+\(echo\s+([^\)]+)\))?/i
+  );
+  if (ifExistMatch) {
+    const notExist = ifExistMatch[1] !== undefined;
+    const quotedPath = ifExistMatch[2] || '';
+    const unquotedPath = ifExistMatch[3] || '';
+    const trueBranch = ifExistMatch[4];
+    const falseBranch = ifExistMatch[5];
+    const path = `${quotedPath}${unquotedPath}`.replace(/\//g, '\\');
+    let ps = `(Test-Path "${path}")`;
+    if (notExist) ps = `(-not (Test-Path "${path}"))`;
+    if (falseBranch !== undefined) {
+      // if exist ... else ... → ternary
+      ps = `${ps} ? Write-Output "${trueBranch}" : Write-Output "${falseBranch}"`;
+    } else {
+      ps = `${ps} && Write-Output "${trueBranch}"`;
+    }
+    return ps;
   }
 
   // 复合命令：按 ; 拆分后逐段转换，再拼接

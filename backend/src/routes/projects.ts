@@ -87,8 +87,8 @@ export async function ProjectRoutes(fastify: FastifyInstance) {
   });
 
   // 获取所有全局 Agent
-  fastify.get('/:id/agents/global', async () => {
-    return await DbService.getAgents();
+  fastify.get('/:id/agents/global', async (request) => {
+    const { id } = request.params as { id: string }; return await DbService.getAgents(id);
   });
 
   // 开启/关闭项目 Agent

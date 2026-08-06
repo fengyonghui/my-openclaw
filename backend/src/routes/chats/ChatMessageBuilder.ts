@@ -281,6 +281,7 @@ Use these commands for shell_exec tool. DO NOT guess commands.
   - \`cd dir && command\` — cmd.exe 中 \`&&\` 可用但语义稍异，**最稳是把 cd 去掉（executor 已自动设 cwd）**
   - \`cd dir & command\` — cmd.exe 的 \`&\` 是"异步"，**绝对不要用** → 整个命令失败
   - \`command 2>&1 | tail\` — cmd.exe 不识别 \`2>&1\`（bash 语法），PowerShell 支持
+  - \`if exist path (echo X) else (echo Y)\` — **CMD 语法，PowerShell 不支持**，改用 \`if (Test-Path "path") { ... } else { ... }\`
   - \`$VAR\` — cmd.exe 不展开变量，PowerShell 支持
   - \`$(command)\` — bash 命令替换，cmd.exe 用 \`%VAR%\` 或 PowerShell 用 \`$(command)\`
 - **简化规则**：Windows 上执行复杂 shell 命令，**优先用 powershell -NoProfile -Command 包裹**（已自动处理 \\\$ 转义、2>&1、路径等）

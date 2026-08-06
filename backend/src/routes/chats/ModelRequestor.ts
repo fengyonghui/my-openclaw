@@ -132,13 +132,13 @@ function extractToolCallsFromContent(content: string): any[] {
   const codeBlockPattern = /```(?:javascript|json|js)?\s*([\s\S]*?)```/gi;
   while ((match = codeBlockPattern.exec(content)) !== null) {
     const codeContent = match[1].trim();
-    
+
     // 在代码块中查找工具调用
     const innerMatch = codeContent.match(/(delegate_to_agent|list_files|read_file|write_file|edit_file|shell_exec)\s*\(\s*([\s\S]*?)\s*\)/);
     if (innerMatch) {
       const toolName = innerMatch[1];
       const argsStr = innerMatch[2].trim();
-      
+
       if (!toolCalls.some(tc => tc.function.name === toolName)) {
         let args: any = {};
         try {
@@ -146,10 +146,32 @@ function extractToolCallsFromContent(content: string): any[] {
         } catch {
           args = parseJsObject(argsStr);
         }
-        
+
         if (Object.keys(args).length > 0) {
           toolCalls.push(createToolCall(toolName, args));
         }
+      }
+    }
+  }
+
+  // 4. 匹配 MiniMax 推理模型格式: <|start|>assistant<|channel|>analysis to=functions.read_file code<|message|>{...}<|call|>
+  // 格式: to=functions.{toolName} ... <|message|>{args}...<|call|>
+  // 注意：一个 content 中可能包含多个分析块（多次工具调用），用非贪婪匹配收集所有
+  const minimaxPattern = /to=functions\.(\w+)\s+code<\|message\|>([\s\S]*?)<\|call\|>/gi;
+  while ((match = minimaxPattern.exec(content)) !== null) {
+    const toolName = match[1];
+    const argsStr = match[2].trim();
+
+    if (!toolCalls.some(tc => tc.function.name === toolName)) {
+      let args: any = {};
+      try {
+        args = JSON.parse(argsStr);
+      } catch {
+        args = parseJsObject(argsStr);
+      }
+
+      if (Object.keys(args).length > 0) {
+        toolCalls.push(createToolCall(toolName, args));
       }
     }
   }

@@ -16,6 +16,7 @@ import { parseApiError, setModelRateLimited, calculateBackoff } from '../service
 import { projectRuntimeManager } from '../services/ProjectRuntimeManager.js';
 import { autoSaveMemory } from '../services/MemoryAutoSaveService.js';
 import { parseAttachments, buildMessageWithAttachments } from '../services/FileParserService.js';
+import { LoopGuard } from '../services/LoopGuard.js';
 
 /**
  * 安全地将工具结果序列化为 JSON 字符串。
@@ -42,6 +43,20 @@ function safeToolContent(result: any): string {
       const cleaned = JSON.parse(JSON.stringify(obj).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, ''));
       return JSON.stringify(cleaned);
     }
+  }
+}
+
+/**
+ * 安全解析工具调用参数，处理 LLM 生成的截断 JSON（Unterminated string 等）。
+ * 复用 ToolExecutor 中的 JSON 修复逻辑，避免 executeToolCall 修复后再次用原始截断字符串解析报错。
+ */
+function parseToolArgs(rawArgs: string): any {
+  try {
+    return JSON.parse(rawArgs || '{}');
+  } catch {
+    // LLM 截断的 JSON（如 Unterminated string at position 17629）→ 降级为空对象
+    console.warn(`[Chats] Failed to parse tool args (truncated): ${rawArgs.slice(0, 100)}`);
+    return {};
   }
 }
 
@@ -435,6 +450,45 @@ export async function ChatRoutes(fastify: FastifyInstance) {
   });
 
   // ============================================
+  // GET /:id/status - 查询聊天流状态
+  // 返回：{ streaming: boolean, lastActivity: number }
+  // 用于前端在用户重开对话时判断是否还有正在进行的流
+  // （2026-07-17 实测：原版关闭对话框后丢失流状态，重开看不到新消息）
+  // ============================================
+  fastify.get('/:id/status', async (request) => {
+    const { id } = request.params as { id: string };
+    const session = projectRuntimeManager.getChatSession(id);
+    if (!session) {
+      return { streaming: false, lastActivity: 0, exists: false };
+    }
+
+    // 🛡️ Stale 自愈：流式状态若长时间无活动（lastActiveAt 不更新），
+    // 极可能是 SSE 控制器卡在 await 上（如模型 429 反复重试），
+    // finally 块无法执行，导致 session.status 永远停在 'streaming'，
+    // 前端也因此无限轮询。这里在每次 status 读取时主动判断并清理。
+    const STREAMING_STALE_MS = 5 * 60 * 1000; // 5 分钟无活动视为卡死
+    let stale = false;
+    if (session.status === 'streaming' && session.lastActiveAt &&
+        Date.now() - session.lastActiveAt > STREAMING_STALE_MS) {
+      stale = true;
+      console.warn(`[Status] Chat ${id} session stale (lastActive ${Math.round((Date.now() - session.lastActiveAt) / 1000)}s ago), auto-recovering`);
+      try {
+        session.abortController?.abort();
+      } catch {}
+      projectRuntimeManager.stopStreaming(id);
+      projectRuntimeManager.removeChatSession(id);
+    }
+
+    return {
+      exists: !stale,
+      streaming: !stale && session.status === 'streaming',
+      lastActivity: session.lastActiveAt,
+      status: stale ? 'stale' : session.status,
+      stale,
+    };
+  });
+
+  // ============================================
   // POST / - 创建聊天
   // ============================================
   fastify.post('/', async (request) => {
@@ -576,6 +630,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
     reply.raw.setHeader('Cache-Control', 'no-cache');
     reply.raw.setHeader('Connection', 'keep-alive');
     reply.raw.setHeader('Access-Control-Allow-Origin', '*');
+    (reply.raw.socket as any)?.setNoDelay(true);
     reply.raw.write(`data: ${JSON.stringify({ chunk: '' })}\n\n`);
 
     // 创建 AbortController
@@ -625,7 +680,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
 
       // 获取配置
       const enabledAgentIds = targetProject?.enabledAgentIds || [];
-      const allGlobalAgents = await DbService.getAgents();
+      const allGlobalAgents = await DbService.getAgents(targetProject.id);
       const projectPrivateAgents = targetProject?.projectAgents || [];
       // 私有 Agent（isPrivate=true 或 ID 以 PA_ 开头）不受 enabledAgentIds 过滤
       // 全局 Agent 需要先 toggle 才能出现在 enabledAgentIds 中
@@ -756,7 +811,15 @@ export async function ChatRoutes(fastify: FastifyInstance) {
             let delegateRetryCount = 0;  // 委派重试次数（防无限循环）
             let caseBInProgress = false;  // 安全网 Case B 重试中：tool_choice 不再 required（让 LLM 给 final）
             const MAX_DELEGATE_RETRY = 3;  // 允许 3 次安全网重试 (Case A/B/C), 1 次太严: LLM 改完一个文件后报"接下来改下一个" 又被吞 (2026-06-05 实测)
-            while (guard++ < 8) {
+            // 🛡️ LoopGuard: 综合循环检测（相同签名 / 消息停滞 / 工具无 final）
+            // 防止 LLM 反复触发 Case A/B/C/D 安全网而陷入死循环（2026-07-17 实测）
+            const loopGuard = new LoopGuard({
+              maxIterations: 8,            // 与 guard < 8 对齐
+              sameSignatureStreakLimit: 3, // 与现有 repeatCallCount 一致
+              noMessageGrowthStreakLimit: 3, // Case C 反复注入 system prompt 而 finalMessages 长度没增加 → 3 轮必停
+            });
+            while (loopGuard.canContinue()) {
+              guard++;  // 保留兼容现有日志（[DEBUG] 等用）
               // 构建消息列表：system 消息始终放在 messages 数组首位（OpenAI 标准格式）
               // 避免部分 provider 不支持独立的 system 字段导致请求失败
               const allMessages = [systemMessage, ...finalMessages];
@@ -828,6 +891,15 @@ export async function ChatRoutes(fastify: FastifyInstance) {
                 console.warn('[Sanitize] Removed all tool messages, retrying with', reqBody.messages.length, 'messages');
               }
 
+              // 🛡️ 请求级超时（2026-07-20）：防止上游 provider hang
+              // （如 429 后流不返回、代理层无响应）导致 controller 永远卡在 await,
+              // 进而使 session.status 永久停在 'streaming' 引发前端无限轮询。
+              const MODEL_TIMEOUT_MS = 3 * 60 * 1000; // 3 分钟
+              const requestSignal = AbortSignal.any([
+                abortController.signal, // 用户点 Stop 时触发
+                AbortSignal.timeout(MODEL_TIMEOUT_MS), // 请求超时触发
+              ]);
+
               const res = await fetch(apiUrl, {
                 method: 'POST',
                 headers: {
@@ -835,7 +907,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
                   'Authorization': `Bearer ${modelCfg.apiKey}`
                 },
                 body: JSON.stringify(reqBody),
-                signal: abortController.signal
+                signal: requestSignal
               });
 
               if (!res.ok) {
@@ -909,6 +981,14 @@ export async function ChatRoutes(fastify: FastifyInstance) {
       }
       lastToolCallSignature = currentSignature;
 
+      // 🛡️ LoopGuard: 工具调用 tick（计入 consecutive tool calls）
+      // 即使签名不同，只要持续调工具不输出 final reply，6 轮后也会 abort
+      loopGuard.tick({
+        toolCallSignature: currentSignature,
+        messageCount: finalMessages.length,
+        toolName: normalizedToolCalls[0]?.function?.name,
+      });
+
                 // 🔧 NOTE: We no longer stream message.content here because it often contains
                 // <think>...[/think] thinking blocks which pollute the UI.
                 // The final response will be streamed after tool calls are processed.
@@ -945,7 +1025,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
                       chatId,
                       projectId: targetProject.id,
                       toolName: toolCall.function?.name || 'unknown',
-                      toolArgs: JSON.parse(toolCall.function?.arguments || '{}'),
+                      toolArgs: parseToolArgs(toolCall.function?.arguments),
                     });
                   } catch (err: any) {
                     toolResult = { error: err.message };
@@ -983,6 +1063,14 @@ export async function ChatRoutes(fastify: FastifyInstance) {
               // 空响应检测：模型返回内容为空或只有 thinking 标签
               const contentTrimmed = (fullAssistantContent || '').toString().trim();
               const isThinkingOnly = /^<\/?(?:think|thinking)[\s\S]*?>$/i.test(contentTrimmed);
+              // 🛡️ LoopGuard: 检测到循环则不再注入新 prompt，直接 break
+              if (loopGuard.shouldAbort()) {
+                reply.raw.write(`data: ${JSON.stringify({
+                  chunk: `\n\n⚠️ 检测到 agent 循环（${loopGuard.abortReason()}），已自动停止。请重新描述您的需求。`
+                })}\n\n`);
+                break;
+              }
+
               if ((!contentTrimmed || isThinkingOnly) && !anyToolCalled) {
                 console.warn(`[Coord] ⚠️ 模型返回空响应 (contentLen=${contentTrimmed.length}, isThinking=${isThinkingOnly}) — 强制重试`);
                 if (isThinkingOnly) {
@@ -1148,6 +1236,8 @@ export async function ChatRoutes(fastify: FastifyInstance) {
               if (fullAssistantContent) {
                 reply.raw.write(`data: ${JSON.stringify({ chunk: fullAssistantContent })}\n\n`);
               }
+              // 🛡️ LoopGuard: 记一次成功轮（无 tool name = 终止了 tool call 累计）
+              loopGuard.tick({ messageCount: finalMessages.length });
               success = true;
               currentModelSuccess = true;
               pickedModelCfg = modelCfg;
@@ -1240,7 +1330,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
       reply.raw.write(`data: [DONE]\n\n`);
 
     } catch (err: any) {
-      console.error('[SSE Error Final]', err.message);
+      console.log('[SSE] Chat stopped (abort)', err.message);
 
       // 🔧 如果有部分内容，发送它
       if (partialContent) {
@@ -1386,7 +1476,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
           };
 
           const enabledAgentIds = targetProject?.enabledAgentIds || [];
-          const allGlobalAgents = await DbService.getAgents();
+          const allGlobalAgents = await DbService.getAgents(targetProject.id);
           const projectPrivateAgents = targetProject?.projectAgents || [];
           // 私有 Agent（isPrivate=true 或 ID 以 PA_ 开头）不受 enabledAgentIds 过滤
           const allProjectAgents = [
@@ -1496,7 +1586,14 @@ export async function ChatRoutes(fastify: FastifyInstance) {
 
           // 判断 system message 是否已在 finalMessages[0]（compaction 分支会放入）
           const hasSystemInMessages = finalMessages.length > 0 && finalMessages[0]?.role === 'system';
-          while (guard++ < MAX_GUARDS) {
+          // 🛡️ LoopGuard: /resend 端点也加循环保护（防止 LLM 反复触发空响应重试）
+          const resendLoopGuard = new LoopGuard({
+            maxIterations: 8,
+            sameSignatureStreakLimit: 3,
+            noMessageGrowthStreakLimit: 3,
+          });
+          while (resendLoopGuard.canContinue()) {
+            guard++;
             const reqBody: any = {
               model: modelCfg.modelId,
               messages: finalMessages,
@@ -1531,6 +1628,12 @@ export async function ChatRoutes(fastify: FastifyInstance) {
               console.log(`[Req Msg ${i}] role=${m.role}, contentType=${contentType}${tcPresent}, contentLen=${String(m.content||'').length}`);
             }
 
+            // 🛡️ 请求级超时（2026-07-20）：防止上游 provider hang 导致 controller 永远卡在 await。
+            const MODEL_TIMEOUT_MS = 3 * 60 * 1000; // 3 分钟
+            const resendRequestSignal = AbortSignal.any([
+              abortController.signal,
+              AbortSignal.timeout(MODEL_TIMEOUT_MS),
+            ]);
             const apiUrl = `${modelCfg.baseUrl.replace(/\/+$/, '')}/chat/completions`;
             const res = await fetch(apiUrl, {
               method: 'POST',
@@ -1539,7 +1642,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
                 'Authorization': `Bearer ${modelCfg.apiKey}`
               },
               body: JSON.stringify(reqBody),
-              signal: abortController.signal
+              signal: resendRequestSignal
             });
 
             if (!res.ok) {
@@ -1639,14 +1742,14 @@ export async function ChatRoutes(fastify: FastifyInstance) {
                     chatId,
                     projectId: targetProject.id,
                     toolName: toolCall.function?.name || 'unknown',
-                    toolArgs: JSON.parse(toolCall.function?.arguments || '{}'),
+                    toolArgs: parseToolArgs(toolCall.function?.arguments),
                   });
                 } catch (err: any) {
                   toolResult = { error: err.message };
                 }
 
                 const toolName = toolCall.function?.name;
-                const toolArgs = JSON.parse(toolCall.function?.arguments || '{}');
+                const toolArgs = parseToolArgs(toolCall.function?.arguments);
                 const cmd = (toolArgs.command || '').toLowerCase();
                 const isReadCmd = toolName === 'read_file' || toolName === 'list_files' ||
                   (toolName === 'file-io' && (cmd === 'read_file' || cmd === 'read' || cmd === 'list_files' || cmd === 'list'));
@@ -1702,6 +1805,16 @@ export async function ChatRoutes(fastify: FastifyInstance) {
               lastError = `空响应: finish=${rawChoice?.finish_reason}, prompt_tokens=${data.usage?.prompt_tokens}, completion_tokens=${data.usage?.completion_tokens}`;
               continue;
             }
+
+            // 🛡️ LoopGuard: /resend 循环保护
+            if (resendLoopGuard.shouldAbort()) {
+              reply.raw.write(`data: ${JSON.stringify({
+                chunk: `\n\n⚠️ /resend 检测到循环（${resendLoopGuard.abortReason()}），已自动停止。`
+              })}\n\n`);
+              lastError = 'LoopGuard: ' + resendLoopGuard.abortReason();
+              break;
+            }
+            resendLoopGuard.tick({ messageCount: finalMessages.length });
 
             // 无工具调用，退出循环
             success = true;

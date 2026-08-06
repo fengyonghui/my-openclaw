@@ -1,6 +1,6 @@
 # My-OpenClaw 项目记忆
 
-> 最后更新：2026-06-03
+> 最后更新：2026-08-03
 
 ## 项目概述
 
@@ -153,6 +153,24 @@
 4. ✅ 新建会话时 `agentId/modelId` 未保存 → 已修复
 5. ✅ mammoth 不支持 `.doc` 二进制格式 → 已修复（MinerU + 二进制扫描）
 6. ✅ LLM 工具调用失败处理增强 (v0.3.16) → 已修复（JSON 解析、空响应检测等）
+7. ✅ `handleJsonParseError` 兜底错误消息对 edit_file 场景不准确 → 已修复（2026-08-03，`ToolExecutor.ts:782-783`）
+8. ✅ `chats.ts` / `StreamingChatHandler.ts` 中 `executeToolCall` 之后重复 `JSON.parse(原始截断 args)` 导致 "Unterminated string" 异常 → 已修复（2026-08-03）
+   - `chats.ts` 3 处直接 `JSON.parse(toolCall.function.arguments)` 改为 `parseToolArgs()`（安全降级为空对象）
+   - `StreamingChatHandler.ts` 2 处同理
+9. ✅ `convertCmdToPowerShell` 缺少 CMD `if exist` 转换规则 → 已修复（2026-08-03，`ToolExecutor.ts:2038-2062`）
+   - LLM 生成 CMD 风格的 `if exist D:\path\file.jar (echo JAR_FOUND) else (echo JAR_NOT_FOUND)` 命令
+   - `convertCmdToPowerShell` 无匹配规则，直接透传，PowerShell 解析报 "Missing '(' after 'if'"
+   - 新增转换：`if exist/unquoted-or-quoted-path (echo TRUE) [else (echo FALSE)]` → PowerShell `Test-Path` ternary
+   - 同步更新 system prompt 警告 LLM 不要用 CMD 的 `if exist`
+10. ✅ `unwrapPowerShellWrappers` 用 `lastIndexOf('"')` 找闭合引号 → 已修复（2026-08-04，`ToolExecutor.ts:1049-1100`）
+    - LLM 把上一条命令的错误信息拼入新命令时（如 `"netstat -ano - Command failed: ..."`），
+      `lastIndexOf` 停在错误信息末尾的引号上，导致引号不匹配报 "The string is missing the terminator"
+    - 新增 `findLastUnescapedQuote()` 逐字符扫描，跳过 `\"` 转义引号，找到真正匹配的闭合引号
+    - 已处理：`if exist`、`Unterminated string`（`parseToolArgs` 安全降级）、`Tee-Object` 管道等场景
+11. ✅ MiniMax 推理模型工具调用格式未匹配 → 已修复（2026-08-04，`ModelRequestor.ts`）
+    - MiniMax 推理模型输出格式: `to=functions.read_file code<|message|>{...}<|call|>`
+    - `extractToolCallsFromContent` 原有 3 种匹配模式（`<invoke>` / JS函数调用 / Markdown代码块），未覆盖此格式
+    - 新增第 4 种模式正则：`/to=functions\.(\w+)\s+code<\|message\|>([\s\S]*?)<\|call\|>/gi`
 
 ## Agent 角色
 - `architect_agent.md` - 系统架构师
@@ -237,3 +255,44 @@
 - [技术决策] 版本号展示需与 release 一致，决定通过后端 GET /api/version 接口动态获取。（来源: 用户在对话 [5] 中的要求及助手在对话 [10] 中的总结）
 - [技术决策] 后端新增 GET /api/version 接口，从根目录 package.json 中读取 version 字段并返回。（来源: 工具在对话 [7]、[8] 中的操作及助手在对话 [10] 中的总结）
 - [技术决策] 前端 ProjectListPage.tsx 等页面移除了静态导入版本号，改为动态调用后端接口获取。（来源: 助手在对话 [10] 中的总结）
+
+
+## 2026-07-06 自动提取
+**摘要**: 在stock项目中成功添加了私有成员“高级基金经理”，并更新了db.json配置文件。
+
+- [项目信息] stock项目新增了私有成员“高级基金经理”，包含角色、描述、类型和ID等信息。（来源: 用户在消息[1]中要求添加，助手在消息[2]中确认完成）
+- [技术决策] 项目成员等数据持久化存储在 backend/data/db.json 文件中。（来源: 助手在消息[2]中展示的实际修改文件路径）
+## 📝 2026/07/06 17:19
+- [自动提取] 在stock项目中成功添加了私有成员“高级基金经理”，并更新了db.json配置文件。
+
+- stock项目新增了私有成员“高级基金经理”，包含角色、描述、类型和ID等信息。
+- 项目成员等数据持久化存储在 backend/data/db.json 文件中。
+**摘要**: 为 stock 项目在 backend/data/db.json 中配置并新增了 Finance 分类的技能。
+
+- [项目信息] 为 `stock` 项目添加了 Finance 分类下的技能配置，修改了 `backend/data/db.json`。（来源: 助手在消息[2]中的回复）
+- [技术决策] 使用 `backend/data/db.json` 文件中的 `availableSkills` 字段来配置和存储可用技能。（来源: 助手在消息[2]中的回复）
+## 📝 2026/07/06 17:50
+- [自动提取] 为 stock 项目在 backend/data/db.json 中配置并新增了 Finance 分类的技能。
+
+- 为 `stock` 项目添加了 Finance 分类下的技能配置，修改了 `backend/data/db.json`。
+- 使用 `backend/data/db.json` 文件中的 `availableSkills` 字段来配置和存储可用技能。
+
+
+## 2026-07-07 自动提取
+**摘要**: 为 stock 项目配置了 Finance 技能，并安装了 ClawHub 搜索结果中的 stock 相关技能。
+
+- [项目信息] 为 `stock` 项目添加了 Finance 分类下的 6 个技能配置，修改了 `backend/data/db.json`。（来源: 第[8]条助手回复）
+- [项目信息] 将 ClawHub 搜索结果中的 stock 相关技能加入 `stock` 项目，修改了 lock.json 和 SKILL.md。（来源: 第[10]条助手回复）
+- [技术决策] 使用临时脚本 `tmp-install-stock.mjs` 来执行 stock 相关技能的安装。（来源: 第[10]条助手回复）
+## 📝 2026/07/07 09:53
+- [自动提取] 为 stock 项目配置了 Finance 技能，并安装了 ClawHub 搜索结果中的 stock 相关技能。
+
+- 为 `stock` 项目添加了 Finance 分类下的 6 个技能配置，修改了 `backend/data/db.json`。
+- 将 ClawHub 搜索结果中的 stock 相关技能加入 `stock` 项目，修改了 lock.json 和 SKILL.md。
+- 使用临时脚本 `tmp-install-stock.mjs` 来执行 stock 相关技能的安装。
+
+## 2026-08-03 自动提取
+**摘要**: 修复了 ToolExecutor 中 handleJsonParseError 兜底错误消息对 edit_file 场景不准确的问题。
+
+- [技术决策] 将兜底错误消息从"无法写入/分多次写入"改为"无法执行工具调用/分步骤 read_file + edit_file 小块替换"，适用于所有被截断的工具调用（edit_file、write_file 等）。修复文件：`backend/src/routes/chats/ToolExecutor.ts:782-783`。（来源: 用户报告 edit_file Unterminated string 错误后分析并修复）
+- [项目信息] `handleJsonParseError` 支持 5 种 JSON 修复策略（Unterminated string / Unexpected end / 控制字符 / 单引号 / 片段提取），全部失败后返回结构化错误。（来源: 代码分析）

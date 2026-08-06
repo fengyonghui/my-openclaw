@@ -422,20 +422,20 @@ export const TOOL_ALIASES: Record<string, string> = {
  */
 export function generateToolDefinitionForSkill(skill: any): ToolDefinition | null {
   const name = skill.name || skill.id;
-  
+
   // 1. 检查是否有预定义的工具定义
   if (SKILL_TOOL_DEFINITIONS[name]) {
     return SKILL_TOOL_DEFINITIONS[name];
   }
-  
+
   // 2. 从 rawContent 中解析参数
   const rawContent = skill.rawContent || skill.content || '';
   const frontmatter = parseSkillFrontmatter(rawContent);
   const extractedParams = extractParametersFromContent(rawContent);
-  
+
   // 3. 构建工具定义
   const description = frontmatter.description || skill.description || `Execute ${name} skill`;
-  
+
   // 如果没有提取到参数，使用通用参数
   const properties: Record<string, ToolParameter> = Object.keys(extractedParams).length > 0
     ? extractedParams
@@ -443,9 +443,14 @@ export function generateToolDefinitionForSkill(skill: any): ToolDefinition | nul
         input: { type: 'string', description: 'Input for the skill' },
         options: { type: 'string', description: 'Additional options (JSON format)' }
       };
-  
+
+  // 🔧 工具名规整：skill.name 可能含空格/中文等非法字符（如 "Self-Improvement Skill"），
+  // OpenAI 兼容 API 要求 function name 仅含 a-zA-Z0-9_-，否则 HTTP 400。
+  // 执行端（ToolExecutor）用同样的 sanitize 反查匹配 skill。
+  const safeName = sanitizeToolName(name);
+
   return {
-    name: name,
+    name: safeName,
     description: description,
     parameters: {
       type: 'object',
@@ -485,9 +490,12 @@ export function buildToolListForAgent(
 
   if (agentName && AGENT_TOOL_FILTERS[agentName]) {
     const allowedTools = AGENT_TOOL_FILTERS[agentName];
+    // 🔧 双向 sanitize 对齐：tools 里的技能工具名已被 sanitize 规整，
+    // 未来若有人往 allowedTools 加了含空格/中文的技能名，也需要 sanitize 后才能匹配。
+    const allowedSet = new Set(allowedTools.map(t => sanitizeToolName(t)));
     const filtered = tools.filter((t: any) => {
       const name = t.function?.name || t.name;
-      return allowedTools.includes(name);
+      return allowedSet.has(name);
     });
     console.log(`[ToolFilter] Agent "${agentName}" restricted to: ${allowedTools.join(', ')}`);
     return filtered;
@@ -579,6 +587,8 @@ export function buildToolList(
 
     const def = generateToolDefinitionForSkill(skill);
     if (def) {
+      // 🔧 防重复：用规整后的 def.name 去重，避免两个 sanitize 后撞名的技能重复添加
+      if (addedToolNames.has(def.name)) continue;
       tools.push({ type: 'function', function: def });
       addedToolNames.add(def.name);
     }
@@ -592,6 +602,27 @@ export function buildToolList(
  */
 export function resolveToolName(toolName: string): string {
   return TOOL_ALIASES[toolName.toLowerCase()] || toolName;
+}
+
+/**
+ * 规整工具名为 OpenAI 兼容 API 合法的 function name。
+ *
+ * 背景：技能的工具名直接来自 skill.name（如 "Self-Improvement Skill"），
+ * 但 OpenAI function name 只允许 a-z A-Z 0-9 _ - 。含空格/中文/标点的名称
+ * 会被上游拒绝（HTTP 400: invalid function name），导致整个请求失败、
+ * 继而 fallback 到配额耗尽的模型触发 429，最终生成彻底卡死。
+ *
+ * 规整规则：非法字符统一替换为下划线，连续下划线折叠，首尾修剪。
+ * 内置工具名本就合法，经此函数处理后保持不变。
+ */
+export function sanitizeToolName(name: string): string {
+  if (!name) return name;
+  // 把所有非 [a-zA-Z0-9_-] 的字符替换为下划线，折叠连续下划线
+  let s = String(name).replace(/[^a-zA-Z0-9_-]+/g, '_');
+  s = s.replace(/_+/g, '_').replace(/^_+|_+$/g, '');
+  // 兜底：若全被替换光（例如纯中文名），给一个稳定前缀避免空名
+  if (!s) s = 'skill_tool';
+  return s;
 }
 
 /**
