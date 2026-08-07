@@ -1320,6 +1320,28 @@ async function executePowerShellCommand(command: string, cwd: string, timeoutMs:
     // 仅做 JSON/转义层残留清理：\" → "（不要改成单引号，否则 -Pattern "'...'" 会变成 ''... 坏串）
     cleanCmd = cleanCmd.replace(/\\"/g, '"');
 
+    // ── PowerShell -Command 中的 curl -d JSON 引号转义修复 ──────────────────
+    // LLM 生成 curl -d "{"key":"value"}" 时，内层 " 会被 PowerShell 当作字符串结束符，
+    // 导致 "The string is missing the terminator" 错误。
+    // 修复：定位命令末尾的 -d "..." 参数，将内层未转义的 " 替换为 PowerShell 转义 ``"
+    const curlDMatch = cleanCmd.match(/\s*-d\s+"([\s\S]*)"\s*$/);
+    if (curlDMatch) {
+      const jsonBody = curlDMatch[1];
+      // 检测内层未转义的引号（排除 \ 转义的引号）
+      let hasInnerUnescaped = false;
+      let bs = 0;
+      for (let i = 0; i < jsonBody.length; i++) {
+        if (jsonBody[i] === '\\') { bs++; continue; }
+        if (jsonBody[i] === '"' && bs % 2 === 0) { hasInnerUnescaped = true; break; }
+        bs = 0;
+      }
+      if (hasInnerUnescaped) {
+        const escapedBody = jsonBody.replace(/(?<!\\)"/g, '`"');
+        cleanCmd = cleanCmd.slice(0, cleanCmd.length - curlDMatch[0].length) + ' -d "' + escapedBody + '"';
+        console.log(`[Shell] Fixed curl -d inner quotes (escaped ${jsonBody.split('"').length - 2} inner quotes)`);
+      }
+    }
+
     // 修复 -Pattern ''... 这类由错误转义产生的损坏串
     cleanCmd = repairSelectStringPatternQuotes(cleanCmd);
 
