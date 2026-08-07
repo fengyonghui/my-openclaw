@@ -168,6 +168,10 @@
     - 新增 `findLastUnescapedQuote()` 逐字符扫描，跳过 `\"` 转义引号，找到真正匹配的闭合引号
     - 已处理：`if exist`、`Unterminated string`（`parseToolArgs` 安全降级）、`Tee-Object` 管道等场景
 11. ✅ MiniMax 推理模型工具调用格式未匹配 → 已修复（2026-08-04，`ModelRequestor.ts`）
+12. ✅  缺少 curl -d JSON 引号转义 → 已修复（2026-08-07，）
+   - LLM 生成 curl -d "{"key":"value"}" 时，内层 " 被 PowerShell 当作字符串结束符
+   - 新增末尾 -d "..." 匹配：扫描内层未转义引号，替换为 PowerShell 转义形式 "
+   - 已处理：curl POST JSON body、双引号内嵌 JSON、单引号 JSON（跳过）
     - MiniMax 推理模型输出格式: `to=functions.read_file code<|message|>{...}<|call|>`
     - `extractToolCallsFromContent` 原有 3 种匹配模式（`<invoke>` / JS函数调用 / Markdown代码块），未覆盖此格式
     - 新增第 4 种模式正则：`/to=functions\.(\w+)\s+code<\|message\|>([\s\S]*?)<\|call\|>/gi`
