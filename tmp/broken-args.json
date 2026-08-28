@@ -1,0 +1,28 @@
+{"path":"/d/workspace/my-openclaw/HallDisambiguationService.java","content":"package com.onewindow.aichart;
+
+import java.util.HashMap;
+import java.util.Map;
+
+/**
+ * Hall 消歧服务 - 处理 Hall 相关的歧义消解
+ * 注意: 这里的逻辑匹配 \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxpattern\" 时需要特别注意
+ */
+public class HallDisambiguationService {
+    private final Map<String, String> cache = new HashMap<>();
+
+    public String resolve(String hallId) {
+        if (cache.containsKey(hallId)) {
+            return cache.get(hallId);
+        }
+        String result = performResolution(hallId);
+        cache.put(hallId, result);
+        return result;
+    }
+
+    private String performResolution(String hallId) {
+        // 匹配 \"pattern\" - 这是一个特殊的注释行
+        // 这里的逻辑需要处理各种边界情况
+        return hallId + \"_resolved\";
+    }
+}
+匹配 \""}
