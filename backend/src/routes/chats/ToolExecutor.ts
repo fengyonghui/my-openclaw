@@ -870,7 +870,7 @@ async function executeSearchFiles(project: any, args: any): Promise<ToolResult> 
  */
 function globMatch(filename: string, pattern: string): boolean {
   // 将 glob pattern 转为正则
-  const regex = '^' + pattern.replace(/\*/g, '.*').replace(/\?/g, '.') + '$';
+  const regex = '^' + pattern.replace(/[\\^$\.\|?(){}+\-]/g, (m) => '\\' + m).replace(/\*/g, '.*').replace(/\?/g, '.') + '$';
   return new RegExp(regex).test(filename);
 }
 

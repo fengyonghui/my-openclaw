@@ -1345,6 +1345,13 @@ export async function ChatRoutes(fastify: FastifyInstance) {
       } else if (err.name === 'AbortError' || err.message?.includes('aborted')) {
         console.log(`[SSE] Chat ${chatId} was stopped by user`);
       } else {
+        // 保存错误消息到数据库，确保前端能显示
+        await ProjectChatService.addMessageToChat(getProjectWorkspacePath(targetProject.workspace), chatId, {
+          role: 'assistant',
+          content: `
+
+❌ 彻底失败: ${err.message}`
+        });
         reply.raw.write(`data: ${JSON.stringify({ chunk: `\n\n❌ 彻底失败: ${err.message}` })}\n\n`);
         reply.raw.write(`data: [DONE]\n\n`);
       }

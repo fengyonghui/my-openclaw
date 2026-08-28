@@ -127,31 +127,16 @@ export function AgentsPage({ projectId, onSaved }: { projectId: string; onSaved?
   const handleAgentModelChange = async (agentId: string, modelId: string, isProjectCopy?: boolean) => {
     setUpdatingAgentModel(agentId);
     try {
-      let res;
-      if (isProjectCopy) {
-        // 项目副本：PATCH 到项目 agent 文件
-        res = await fetch(`http://localhost:3001/api/v1/projects/${projectId}/agents/${agentId}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ defaultModelId: modelId })
-        });
-        if (res.ok) fetchData();
-      } else {
-        // 全局 agent 或私有 agent：PATCH 到 /api/v1/agents/
-        res = await fetch(`http://localhost:3001/api/v1/agents/${agentId}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ defaultModelId: modelId })
-        });
-        if (res.ok) {
-          setAllGlobalAgents(prev => prev.map(a =>
-            a.id === agentId ? { ...a, defaultModelId: modelId } : a
-          ));
-          setProjectPrivateAgents(prev => prev.map(a =>
-            a.id === agentId ? { ...a, defaultModelId: modelId } : a
-          ));
-        }
-      }
+      // 统一 PATCH 到项目 agent 文件（workspace/agents/），
+      // 因为 getAgents 优先从 workspace/agents/ 加载，
+      // 而不是 backend/agents/（全局 agent 库）。
+      // 私有 agent 同理：项目副本写 workspace/agents/ 才能被 getAgents 读到。
+      const res = await fetch(`http://localhost:3001/api/v1/projects/${projectId}/agents/${agentId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ defaultModelId: modelId })
+      });
+      if (res.ok) fetchData();
     } catch (err) {
       console.error('更新模型失败:', err);
     }

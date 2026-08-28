@@ -1,6 +1,6 @@
 import { useMemo, useState, useCallback, useEffect } from 'react';
 import { AppShell } from './components/layout/AppShell';
-import { ChatDetailPage } from './pages/ChatDetailPage';
+import { ChatDetailPage } from './components/chat';
 import { ProjectDashboardPage } from './pages/ProjectDashboardPage';
 import { ProjectListPage } from './pages/ProjectListPage';
 import { FilesPage } from './pages/FilesPage';
@@ -25,16 +25,7 @@ export default function App() {
 
   const pageContent = useMemo(() => {
     if (!projectId) {
-      return (
-        <>
-          <ProjectListPage onSelectProject={(id) => { setProjectId(id); setView('dashboard'); }} />
-        </>
-      );
-    }
-
-    // When viewing chat, skip rendering the dashboard/page entirely
-    if (view === 'chat') {
-      return null;
+      return <ProjectListPage onSelectProject={(id) => { setProjectId(id); setView('dashboard'); }} />;
     }
 
     const page = (() => {
@@ -49,16 +40,16 @@ export default function App() {
     })();
 
     return (
-      <AppShell
-        currentProjectName={projectId}
-        currentProjectDescription="OpenClaw 项目工作区"
-        activeNav={view === 'dashboard' ? 'chats' : (view === 'metadata' ? 'metadata' : view)}
-        onNavigate={setView}
-        onSwitchProject={() => setProjectId(null)}
-        contextPanel={<ContextPanel projectId={projectId} refreshKey={refreshKey} />}
-      >
-        {page}
-      </AppShell>
+        <AppShell
+            currentProjectName={projectId || ''}
+            currentProjectDescription="OpenClaw 项目工作区"
+            activeNav={view === 'dashboard' ? 'chats' : (view === 'metadata' ? 'metadata' : view)}
+            onNavigate={setView}
+            onSwitchProject={() => setProjectId(null)}
+            contextPanel={<ContextPanel projectId={projectId} refreshKey={refreshKey} />}
+        >
+          {view === 'chat' ? null : page}
+        </AppShell>
     );
   }, [view, projectId, triggerRefresh, refreshKey]);
 
