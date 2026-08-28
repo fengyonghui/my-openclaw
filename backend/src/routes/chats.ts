@@ -10,7 +10,7 @@ import { DbService } from '../services/DbService.js';
 import { ProjectChatService } from '../services/ProjectChatService.js';
 import { getProjectWorkspacePath } from '../services/PathService.js';
 import * as fs from 'fs';
-import { pruneContext, compactContext, getContextStats, Message } from '../services/ContextManager.js';
+import { pruneContext, compactContext, getContextStats, Message, getModelContextWindow, type ContextWindowConfig } from '../services/ContextManager.js';
 import { buildToolList } from '../services/ToolDefinitions.js';
 import { parseApiError, setModelRateLimited, calculateBackoff } from '../services/RateLimitHandler.js';
 import { projectRuntimeManager } from '../services/ProjectRuntimeManager.js';
@@ -724,12 +724,22 @@ export async function ChatRoutes(fastify: FastifyInstance) {
       // 原则：system prompt 优先，历史消息次之；总 token 不能超过 contextWindow
       // ═══════════════════════════════════════════════════════════════════════
 
+      // Step 0: 先获取主模型以确定上下文窗口（避免小窗口模型如 mx27-h 报错）
+      const FALLBACK_LIMIT = 8;
+      const activeModelId = chat?.modelId || targetProject?.defaultModel;
+      const primaryModel = allModels.find(m => m.id === activeModelId) || allModels[0];
+      const fallbackModels = allModels.filter(m => m.id !== primaryModel.id).slice(0, FALLBACK_LIMIT);
+      const modelsToTry = [primaryModel, ...fallbackModels];
+
       // Step 1: 估算 system prompt token 大小（chars / 4 是粗略估计）
       const sysMsgLen = (systemMessage?.content?.length || 0);
       const sysPromptTokens = Math.round(sysMsgLen / 4);
-      const CONTEXT_WINDOW = 128_000;
-      // 保留 4K buffer 给 max_tokens 和其他开销
-      const historyBudget = Math.max(CONTEXT_WINDOW - sysPromptTokens - 4_000, 8_000);
+
+      // 根据主模型的实际上下文窗口动态调整历史消息预算
+      const primaryModelCfg = modelsToTry[0];
+      const CONTEXT_WINDOW = getModelContextWindow(primaryModelCfg as any);
+      // 保留 4K buffer 给 max_tokens 和其他开销，最低 2K 防止小窗口模型失败
+      const historyBudget = Math.max(CONTEXT_WINDOW - sysPromptTokens - 4_000, 2_000);
 
       // Step 2: 滑动窗口 — 动态 budget，保留前 2 条消息（意图锚点）
       let apiMessages = buildHistoryMessages(historyMessages, historyBudget, 2);
@@ -767,6 +777,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
       // Step 6: 如果 [system + history] 超过 80% context window，触发 compaction
       const combinedUsagePercent = Math.round((combinedTokens / CONTEXT_WINDOW) * 100);
       if (combinedUsagePercent > 80) {
+            // Using resendContextWindow for compaction check
         console.log(`[Context] ⚠️ Combined context exceeds 80% of ${CONTEXT_WINDOW} — triggering compaction...`);
         const { compacted, summary } = await compactContext(prunedMessagesFixed as Message[]);
         const compactStats = getContextStats(compacted as Message[]);
@@ -776,17 +787,9 @@ export async function ChatRoutes(fastify: FastifyInstance) {
         finalMessages = finalCombined;
       }
 
-      // 构建模型队列：primary + 8 个 fallback（按 db.json 顺序，覆盖常用 provider）
-      // - 之前 .slice(0, 2) 太少：gemini-2.5-pro（实测唯一可工作）排第 7，到不了
-      // - 全部 199 个太多：每次请求 600+ 秒（199×3 retry + rate-limit wait）
-      // - 8 个平衡：能覆盖到 gemini-2.5-pro，总耗时 < 90s
-      // 注：/resend 用另一套去重逻辑（chat.modelId + defaultModel + all），结果也是 199 个，
-      //     但 send 比 resend 频率高得多，必须限制
-      const FALLBACK_LIMIT = 8;
-      const activeModelId = chat?.modelId || targetProject?.defaultModel;
-      const primaryModel = allModels.find(m => m.id === activeModelId) || allModels[0];
-      const fallbackModels = allModels.filter(m => m.id !== primaryModel.id).slice(0, FALLBACK_LIMIT);
-      const modelsToTry = [primaryModel, ...fallbackModels];
+      // 构建模型队列已在上文完成（modelsToTry 在第 789 行）
+      // 上下文窗口预算也已在上文计算（CONTEXT_WINDOW, historyBudget 在第 794-796 行）
+      // 直接启动主循环
 
       let success = false;
       let lastError = '';
@@ -1521,15 +1524,14 @@ export async function ChatRoutes(fastify: FastifyInstance) {
           // Step 1: 估算 system prompt token 大小
           const sysMsgLen = (systemMessage?.content?.length || 0);
           const sysPromptTokens = Math.round(sysMsgLen / 4);
-          const CONTEXT_WINDOW = 128_000;
-          const historyBudget = Math.max(CONTEXT_WINDOW - sysPromptTokens - 4_000, 8_000);
-
-          // Step 2: 滑动窗口 — 动态 budget，保留前 2 条意图锚点
-          let historyMessages = buildHistoryMessages(chat?.messages || [], historyBudget, 2);
+          // 根据模型实际上下文窗口动态调整预算（避免小窗口模型如 mx27-h 报错）
+          const resendContextWindow = getModelContextWindow(model as any);
+          const resendHistoryBudget = Math.max(resendContextWindow - sysPromptTokens - 4_000, 2_000);
+          let historyMessages = buildHistoryMessages(chat?.messages || [], resendHistoryBudget, 2);
 
           // Step 3: 初步工具结果修剪
           const prunedMessages = pruneContext(historyMessages as Message[], {
-            contextWindow: historyBudget,
+            contextWindow: resendHistoryBudget,
             keepLastAssistants: 3
           });
           const contextStats = getContextStats(prunedMessages as Message[]);
@@ -1567,19 +1569,20 @@ export async function ChatRoutes(fastify: FastifyInstance) {
           // Step 5: 两层验证
           const combinedTokens = sysPromptTokens + Math.round((prunedMessagesFixed.reduce((s: number, m: any) => s + (m.content?.length || 0), 0)) / 4);
           console.log(`[Context] System prompt: ${sysMsgLen} chars (~${sysPromptTokens} tokens)`);
-          console.log(`[Context] History budget: ${historyBudget} tokens (dynamic)`);
+          console.log(`[Context] History budget: ${resendHistoryBudget} tokens (dynamic, per-model)`);
           console.log(`[Context] History: ${prunedMessagesFixed.length} msgs (~${contextStats.estimatedTokens} tokens, ${contextStats.usagePercent}% of history budget)`);
-          console.log(`[Context] Combined total: ~${combinedTokens} tokens (~${Math.round((combinedTokens / CONTEXT_WINDOW) * 100)}% of ${CONTEXT_WINDOW} context window)`);
+          console.log(`[Context] Combined total: ~${combinedTokens} tokens (~${Math.round((combinedTokens / resendContextWindow) * 100)}% of ${resendContextWindow} context window)`);
 
           // Step 6: 超过 80% 则 compaction
-          const combinedUsagePercent = Math.round((combinedTokens / CONTEXT_WINDOW) * 100);
+          const combinedUsagePercent = Math.round((combinedTokens / resendContextWindow) * 100);
           if (combinedUsagePercent > 80) {
-            console.log(`[Context] ⚠️ Combined context exceeds 80% of ${CONTEXT_WINDOW} — triggering compaction...`);
+            // Using resendContextWindow for compaction check
+            console.log(`[Context] ⚠️ Combined context exceeds 80% of ${resendContextWindow} — triggering compaction...`);
             const { compacted } = await compactContext(prunedMessagesFixed as Message[]);
             const compactStats = getContextStats(compacted as Message[]);
             const finalCombined = [systemMessage, ...compacted];
             const finalTokens = sysPromptTokens + compactStats.estimatedTokens;
-            console.log(`[Context] Compaction done: ${compactStats.messageCount} msgs (~${compactStats.estimatedTokens} tokens). Final combined: ~${finalTokens} tokens (~${Math.round((finalTokens / CONTEXT_WINDOW) * 100)}%)`);
+            console.log(`[Context] Compaction done: ${compactStats.messageCount} msgs (~${compactStats.estimatedTokens} tokens). Final combined: ~${finalTokens} tokens (~${Math.round((finalTokens / resendContextWindow) * 100)}%)`);
             finalMessages = finalCombined;
           }
 

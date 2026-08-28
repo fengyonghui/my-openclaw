@@ -10,6 +10,7 @@
  * 优化版本：
  * - generateSummary 区分文本和工具结果，工具结果简洁化
  * - 支持 LLM 摘要（compactContext 传入模型配置时启用）
+ * - 支持 per-model 上下文窗口（根据模型配置自动选择）
  */
 
 import * as fs from 'fs';
@@ -60,6 +61,14 @@ export interface ModelConfig {
   apiKey: string;
   modelId: string;
   name?: string;
+}
+
+export interface ContextWindowConfig {
+  id?: string;
+  modelId?: string;
+  name?: string;
+  contextWindow?: number;
+  maxTokens?: number;
 }
 
 export interface CompactionResult {
@@ -394,4 +403,42 @@ export function getContextStats(messages: Message[], config: ContextConfig = {})
     needsPruning: toolResultChars > 40_000,
     needsCompaction: usagePercent > 80,
   };
+}
+
+// ============================================================
+// 模型上下文窗口获取
+// ============================================================
+
+export interface ModelConfig {
+  baseUrl: string;
+  apiKey: string;
+  modelId: string;
+  name?: string;
+}
+
+export interface ContextWindowConfig {
+  id?: string;
+  modelId?: string;
+  name?: string;
+  contextWindow?: number;
+  maxTokens?: number;
+}
+
+/**
+ * 根据模型配置获取上下文窗口大小
+ * - 优先使用模型配置中的 contextWindow
+ * - 其次使用 maxTokens * 4（粗略估算）
+ * - 最后使用默认值 128000
+ */
+export function getModelContextWindow(modelCfg?: ContextWindowConfig): number {
+  if (!modelCfg) return DEFAULT_CONTEXT_WINDOW;
+  // 模型明确配置了 contextWindow
+  if (modelCfg.contextWindow && modelCfg.contextWindow > 0) {
+    return modelCfg.contextWindow;
+  }
+  // 根据 maxTokens 估算（maxTokens 通常占 context 的 25-50%）
+  if (modelCfg.maxTokens && modelCfg.maxTokens > 0) {
+    return Math.max(modelCfg.maxTokens * 4, 8192);
+  }
+  return DEFAULT_CONTEXT_WINDOW;
 }
