@@ -2545,10 +2545,10 @@ async function runMemberAgentLoop(
   }
 
   const PREFERRED_MODEL_IDS = [
-    'gemini-2.5-pro', 'MiniMax-M3',
-    'mx27', 'mx27-h', 'z-ai/glm5',
-    'claude-sonnet-4-6', 'claude-opus-4-6-thinking',
-    'gpt-4o', 'o3', 'o3-mini', 'o4-mini',
+    'MiniMax-M3', 'mx27',
+    'mx27', ,
+    ,
+    ,
   ];
   const MEMBER_FALLBACK_LIMIT = 7;
   const triedModelIds = new Set<string>();
