@@ -789,7 +789,70 @@ export function buildHistoryMessages(
   // Step 4: Token 预算滑动窗口
   const result = slidingWindowByTokens(filtered, maxTokens, preserveHeadCount);
   console.log(`[buildHistoryMessages] slidingWindowByTokens returned ${result.length} messages`);
-  return result;
+
+  // Step 5: 滑动窗口裁剪后再次过滤孤儿
+  // slidingWindow 可能截断消息，导致新的孤儿 tool_call/tool_result
+  const finalResult = filterOrphanToolCalls(result);
+  console.log(`[buildHistoryMessages] after second orphan filter: ${result.length} → ${finalResult.length}`);
+  return finalResult;
+}
+
+/**
+ * 过滤孤儿 tool_call / tool_result
+ * 用于 slidingWindow 裁剪后的二次清理
+ */
+function filterOrphanToolCalls(messages: Message[]): Message[] {
+  const declaredIds = new Set<string>();
+  const pairedIds = new Set<string>();
+  for (const m of messages) {
+    if (m.role === 'assistant' && m.tool_calls) {
+      for (const tc of m.tool_calls) {
+        if (tc.id) declaredIds.add(tc.id);
+      }
+    } else if (m.role === 'tool' && m.tool_call_id) {
+      if (declaredIds.has(m.tool_call_id)) {
+        pairedIds.add(m.tool_call_id);
+      }
+    }
+  }
+
+  const filtered: Message[] = [];
+  let droppedOrphanToolResult = 0;
+  let droppedUnpairedAssistant = 0;
+
+  for (const m of messages) {
+    if (m.role === 'tool') {
+      if (m.tool_call_id && declaredIds.has(m.tool_call_id)) {
+        filtered.push(m);
+      } else {
+        droppedOrphanToolResult++;
+      }
+    } else if (m.role === 'assistant' && Array.isArray((m as any).tool_calls) && (m as any).tool_calls.length > 0) {
+      const tcs = (m as any).tool_calls as any[];
+      const survivingTcs = tcs.filter(tc => pairedIds.has(tc.id));
+      if (survivingTcs.length === tcs.length) {
+        filtered.push(m);
+      } else if (survivingTcs.length > 0) {
+        filtered.push({ ...m, tool_calls: survivingTcs } as Message);
+        droppedUnpairedAssistant += (tcs.length - survivingTcs.length);
+      } else {
+        const content = (m as any).content;
+        const contentEmpty = !content || (typeof content === 'string' && content.trim() === '');
+        if (!contentEmpty) {
+          const { tool_calls, ...rest } = m as any;
+          filtered.push(rest as Message);
+        }
+        droppedUnpairedAssistant += tcs.length;
+      }
+    } else {
+      filtered.push(m);
+    }
+  }
+
+  if (droppedOrphanToolResult > 0 || droppedUnpairedAssistant > 0) {
+    console.warn(`[buildHistoryMessages] ⚠️ slidingWindow created ${droppedOrphanToolResult} orphan tool result(s), ${droppedUnpairedAssistant} unpaired assistant tool_call(s)`);
+  }
+  return filtered;
 }
 
 /**
