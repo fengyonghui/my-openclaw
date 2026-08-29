@@ -2544,12 +2544,7 @@ async function runMemberAgentLoop(
     return { success: false, finalContent: '', iterations: 0, toolCallCount: 0, error: `Agent "${targetAgent.name}" 没有配置可用模型` };
   }
 
-  const PREFERRED_MODEL_IDS = [
-    'MiniMax-M3', 'mx27',
-    'mx27', ,
-    ,
-    ,
-  ];
+  const PREFERRED_MODEL_IDS = ['MiniMax-M3', 'mx27'];
   const MEMBER_FALLBACK_LIMIT = 7;
   const triedModelIds = new Set<string>();
   const preferredQueue = PREFERRED_MODEL_IDS
