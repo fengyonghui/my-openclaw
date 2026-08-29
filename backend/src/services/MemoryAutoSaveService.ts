@@ -90,7 +90,7 @@ ${messagesText}
         'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'gemini-3-flash',
+        model: 'mx27',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.3,
         max_tokens: 600,
