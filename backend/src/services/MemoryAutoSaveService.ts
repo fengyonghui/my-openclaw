@@ -111,8 +111,11 @@ ${messagesText}
     if (!content) return null;
 
     let jsonStr = content;
-    if (content.startsWith('```')) {
-      const match = content.match(/```(?:json)?\n?([\s\S]*?)\n?```/);
+    // Remove <thinking>...</thinking> tags that models may include
+    jsonStr = jsonStr.replace(/<thinking>[\s\S]*?<\/thinking>/g, '').trim();
+    // Extract JSON from code blocks if present
+    if (jsonStr.startsWith('```')) {
+      const match = jsonStr.match(/```(?:json)?\n?([\s\S]*?)\n?```/);
       if (match) jsonStr = match[1];
     }
 
