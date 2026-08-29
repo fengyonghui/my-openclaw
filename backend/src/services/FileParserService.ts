@@ -479,7 +479,7 @@ async function callVisionOcr(base64Data: string, mimeType: string, fileName: str
 
   const imageMime = mimeType.includes('png') ? 'png' : mimeType.includes('gif') ? 'gif' : mimeType.includes('webp') ? 'webp' : 'jpeg';
   const body = JSON.stringify({
-    model: 'gemini-2.5-flash',
+    model: 'MiniMax-M3',
     messages: [{
       role: 'user',
       content: [
