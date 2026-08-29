@@ -111,12 +111,14 @@ ${messagesText}
     if (!content) return null;
 
     let jsonStr = content;
-    // Remove <thinking>...</thinking> tags that models may include
-    jsonStr = jsonStr.replace(/<thinking>[\s\S]*?<\/thinking>/g, '').trim();
+    // Remove thinking tags in all formats: <thinking>...</thinking> or 歇尔...歇尔
+    jsonStr = jsonStr.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '');
+    jsonStr = jsonStr.replace(/歇尔[\s\S]*?歇尔/gi, '');
+    jsonStr = jsonStr.trim();
     // Extract JSON from code blocks if present
-    if (jsonStr.startsWith('```')) {
-      const match = jsonStr.match(/```(?:json)?\n?([\s\S]*?)\n?```/);
-      if (match) jsonStr = match[1];
+    const codeBlockMatch = jsonStr.match(/```(?:json)?\n?([\s\S]*?)\n?```/);
+    if (codeBlockMatch) {
+      jsonStr = codeBlockMatch[1].trim();
     }
 
     const result = JSON.parse(jsonStr) as ExtractResult;
