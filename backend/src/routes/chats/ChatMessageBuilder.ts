@@ -12,6 +12,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import * as crypto from 'crypto';
 import { loadMemoryFile } from './MemoryFileHandler.js';
 import { getSystemInfo, getSystemCommands } from '../../services/SystemCommands.js';
 
@@ -414,12 +415,19 @@ ${availableDelegates.length > 0 ? `- To delegate a task to a team member: **USE 
 // 工具函数
 // ============================================================
 
-/** 规范化 tool_call ID（确保 call_ 前缀格式） */
+/** 规范化 tool_call ID（确保 call_ 前缀格式）
+ * 使用模块级缓存确保相同输入产生相同输出，避免 DB 重建时 ID 漂移导致孤儿 tool result。
+ */
+const _tcIdCache = new Map<string, string>();
+
 export function normalizeToolCallId(id: string | undefined): string {
-  if (!id || !id.startsWith('call_')) {
-    return `call_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  if (id && id.startsWith('call_')) return id;
+  const key = id ?? '__null__';
+  if (!_tcIdCache.has(key)) {
+    const hash = crypto.createHash('md5').update(key).digest('hex').slice(0, 12);
+    _tcIdCache.set(key, `call_${hash}`);
   }
-  return id;
+  return _tcIdCache.get(key)!;
 }
 
 /** 规范化消息中的所有 tool_call IDs */
