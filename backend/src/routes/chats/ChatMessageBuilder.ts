@@ -800,6 +800,7 @@ export function buildHistoryMessages(
 
   // Step 5: 滑动窗口裁剪后再次过滤孤儿
   // slidingWindow 可能截断消息，导致新的孤儿 tool_call/tool_result
+  // （递归分支也会通过 filterOrphanToolCalls 调用自身，确保不产生孤儿）
   const finalResult = filterOrphanToolCalls(result);
   console.log(`[buildHistoryMessages] after second orphan filter: ${result.length} → ${finalResult.length}`);
   return finalResult;
@@ -808,6 +809,11 @@ export function buildHistoryMessages(
 /**
  * 过滤孤儿 tool_call / tool_result
  * 用于 slidingWindow 裁剪后的二次清理
+ *
+ * 策略：
+ * - 孤儿 tool result（无对应 assistant 声明）→ 删除
+ * - 孤儿 assistant tool_call（无对应 tool result）→ 删除整条 assistant 消息
+ *   （而非仅过滤 tool_calls 列表，因为 MiniMax 要求 tool_call 和 tool result 严格配对）
  */
 function filterOrphanToolCalls(messages: Message[]): Message[] {
   const declaredIds = new Set<string>();
@@ -841,9 +847,11 @@ function filterOrphanToolCalls(messages: Message[]): Message[] {
       if (survivingTcs.length === tcs.length) {
         filtered.push(m);
       } else if (survivingTcs.length > 0) {
-        filtered.push({ ...m, tool_calls: survivingTcs } as Message);
-        droppedUnpairedAssistant += (tcs.length - survivingTcs.length);
+        // 部分 tool_call 是孤儿：删除整条 assistant 消息
+        // （partial 保留会导致 MiniMax 认为 tool_call 无 result，报 2013）
+        droppedUnpairedAssistant += tcs.length;
       } else {
+        // 全部未配对 → 若有文本内容则保留文本，否则删除整条
         const content = (m as any).content;
         const contentEmpty = !content || (typeof content === 'string' && content.trim() === '');
         if (!contentEmpty) {
@@ -961,7 +969,10 @@ function slidingWindowByTokens(
     const newTail = result.slice(preserveHeadCount);
     const halfTail = newTail.slice(Math.floor(newTail.length / 2));
     console.log(`[slidingWindow] RECURSIVE call with ${halfTail.length} messages`);
-    return [...headMessages, ...halfTail];
+    // 递归返回前再次过滤孤儿，防止截断产生新的 tool_call/tool_result 不配对
+    const recursiveResult = filterOrphanToolCalls([...headMessages, ...halfTail]);
+    console.log(`[slidingWindow] RECURSIVE after orphan filter: ${headMessages.length + halfTail.length} → ${recursiveResult.length}`);
+    return recursiveResult;
   }
 
   return result;
