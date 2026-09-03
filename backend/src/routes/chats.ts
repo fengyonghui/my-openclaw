@@ -327,6 +327,7 @@ import {
   buildSystemMessage,
   buildHistoryMessages,
   cleanMentions,
+  filterOrphanToolCalls,
   extractToolCalls,
   type ToolCall
 } from './chats/index.js';
@@ -785,6 +786,8 @@ export async function ChatRoutes(fastify: FastifyInstance) {
         const finalTokens = sysPromptTokens + compactStats.estimatedTokens;
         console.log(`[Context] Compaction done: ${compactStats.messageCount} msgs (~${compactStats.estimatedTokens} tokens). Final combined: ~${finalTokens} tokens (~${Math.round((finalTokens / CONTEXT_WINDOW) * 100)}%)`);
         finalMessages = finalCombined;
+        // 过滤 compaction 后残留的孤儿 tool_call/tool_result
+        finalMessages = filterOrphanToolCalls(finalMessages as Message[]) as any[];
       }
 
       // 构建模型队列已在上文完成（modelsToTry 在第 789 行）
@@ -1584,6 +1587,8 @@ export async function ChatRoutes(fastify: FastifyInstance) {
             const finalTokens = sysPromptTokens + compactStats.estimatedTokens;
             console.log(`[Context] Compaction done: ${compactStats.messageCount} msgs (~${compactStats.estimatedTokens} tokens). Final combined: ~${finalTokens} tokens (~${Math.round((finalTokens / resendContextWindow) * 100)}%)`);
             finalMessages = finalCombined;
+            // 过滤 compaction 后残留的孤儿 tool_call/tool_result
+            finalMessages = filterOrphanToolCalls(finalMessages as Message[]) as any[];
           }
 
           const tools = buildToolList(targetProject, allProjectAgents, coordinatorAgentId, allEnabledSkills);

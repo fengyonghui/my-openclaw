@@ -36,6 +36,7 @@ export {
   buildHistoryMessages,
   normalizeToolCallId,
   cleanMentions,
+  filterOrphanToolCalls,
   type Message,
   type ChatContext
 } from './ChatMessageBuilder.js';

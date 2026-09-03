@@ -815,7 +815,7 @@ export function buildHistoryMessages(
  * - 孤儿 assistant tool_call（无对应 tool result）→ 删除整条 assistant 消息
  *   （而非仅过滤 tool_calls 列表，因为 MiniMax 要求 tool_call 和 tool result 严格配对）
  */
-function filterOrphanToolCalls(messages: Message[]): Message[] {
+export function filterOrphanToolCalls(messages: Message[]): Message[] {
   const declaredIds = new Set<string>();
   const pairedIds = new Set<string>();
   for (const m of messages) {
@@ -1015,4 +1015,5 @@ export default {
   buildHistoryMessages,
   cleanMentions,
   invalidateSystemCache,
+  filterOrphanToolCalls,
 };
