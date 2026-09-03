@@ -934,11 +934,11 @@ export async function executeShellCommand(project: any, args: any): Promise<Tool
   let effectiveCommand = command.trim();
   console.log(`[Shell] effectiveCommand: "${effectiveCommand.slice(0, 200)}"`);
   console.log(`[Shell] effectiveCommand bytes: ${JSON.stringify(effectiveCommand).slice(0, 200)}`);
-  // 匹配: cd [drive:]\\path [&& 后面的内容]
+  // 匹配: cd [drive:]\\path [&&|; 后面的内容]
   // Windows: cd D:\\xxx && ..., cd "D:\\xxx" && ..., cd /d D:\\xxx && ...
   // Linux/WSL: cd /path && ...
   // 使用 [^] 替代 . 来匹配任意字符（含换行），避免需要 es2018 的 s 标志
-  const cdAndPattern = /^cd\s+(['"]?)([^'"\n]+)\1\s*&&?\s*([\s\S]*)$/;
+  const cdAndPattern = /^cd\s+(['"]?)([^'"\n]+)\1\s*(?:&&|;)\s*([\s\S]*)$/;
   const cdMatch = effectiveCommand.match(cdAndPattern);
   console.log(`[Shell] cdMatch: ${cdMatch ? 'MATCHED' : 'NO MATCH'}`);
   if (cdMatch) {
@@ -1298,10 +1298,10 @@ async function executePowerShellCommand(command: string, cwd: string, timeoutMs:
     // 这个对象会被传入管道，导致 PowerShell 返回 exit code 1（即使命令成功）。
     // 修复方式：将 `cd` 替换为 `Set-Location`（不返回值），或在 cd 后加分号阻断管道。
     // 注意：只在 cd 后面紧跟管道符或命令时才修复，避免破坏正常的 cd 命令。
-    cleanCmd = cleanCmd.replace(/\bcd\s+(.+?)(?=\||;|$)/gi, (match, path) => {
-      // 检查 cd 后面是否紧跟管道符或分号
-      if (path.trim().endsWith('|') || path.trim().endsWith(';')) {
-        return `Set-Location ${path}`;
+    // 关键：正则需捕获末尾的分号/管道符（\2），否则 path 不含分隔符导致 endsWith 检查失效。
+    cleanCmd = cleanCmd.replace(/\bcd\s+(.*?)(\||;|$)/gi, (match, path, delim) => {
+      if (delim === '|' || delim === ';') {
+        return `Set-Location ${path}${delim}`;
       }
       return match;
     });
