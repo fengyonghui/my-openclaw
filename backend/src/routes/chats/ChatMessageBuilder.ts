@@ -865,10 +865,31 @@ function filterOrphanToolCalls(messages: Message[]): Message[] {
     }
   }
 
+  // Step 2: 二次扫描 — 上一步可能把 tool_call 从 assistant 剥离，
+  // 导致对应的 tool result 变成孤儿（declaredIds 有，但 filtered 中已无声明）。
+  // MiniMax 严格校验：tool result 必须紧跟声明它的 assistant tool_call，
+  // 即使 tool result 在 declaredIds 里，只要 filtered 里没人声明就删除。
+  const filteredDeclaredIds = new Set<string>();
+  for (const m of filtered) {
+    if (m.role === 'assistant' && m.tool_calls) {
+      for (const tc of m.tool_calls) {
+        if (tc.id) filteredDeclaredIds.add(tc.id);
+      }
+    }
+  }
+  const finalResult: Message[] = [];
+  for (const m of filtered) {
+    if (m.role === 'tool' && m.tool_call_id && !filteredDeclaredIds.has(m.tool_call_id)) {
+      droppedOrphanToolResult++;
+    } else {
+      finalResult.push(m);
+    }
+  }
+
   if (droppedOrphanToolResult > 0 || droppedUnpairedAssistant > 0) {
     console.warn(`[buildHistoryMessages] ⚠️ slidingWindow created ${droppedOrphanToolResult} orphan tool result(s), ${droppedUnpairedAssistant} unpaired assistant tool_call(s)`);
   }
-  return filtered;
+  return finalResult;
 }
 
 /**
