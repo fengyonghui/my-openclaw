@@ -918,7 +918,8 @@ function slidingWindowByTokens(
 
   if (olderHalf.length === 0) {
     // 没有中间部分，只保留头部 + 最近部分
-    return [...headMessages, ...recentHalf];
+    const r = [...headMessages, ...recentHalf];
+    return filterOrphanToolCalls(r);
   }
 
   // 计算后半部分 token 数
@@ -933,7 +934,8 @@ function slidingWindowByTokens(
   if (actualBudgetForOlder <= 0) {
     // 预算不够，只保留头部 + 最近部分
     console.log(`[slidingWindow] budget exhausted, returning head(${headMessages.length}) + recent(${recentHalf.length})`);
-    return [...headMessages, ...recentHalf];
+    const r = [...headMessages, ...recentHalf];
+    return filterOrphanToolCalls(r);
   }
 
   // 对 olderHalf 做均匀采样（按比例）
@@ -975,7 +977,7 @@ function slidingWindowByTokens(
     return recursiveResult;
   }
 
-  return result;
+  return filterOrphanToolCalls(result);
 }
 
 /** 清理消息中的 @AgentName 提及 */
