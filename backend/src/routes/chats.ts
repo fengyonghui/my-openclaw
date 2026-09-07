@@ -816,6 +816,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
             let anyToolCalled = false;  // 追踪本轮 agent loop 是否真调过工具（防 LLM 敷衍）
             let delegateRetryCount = 0;  // 委派重试次数（防无限循环）
             let caseBInProgress = false;
+            let editFileStuckCount = 0;
             let editFileStuckCount = 0;  // 安全网 Case B 重试中：tool_choice 不再 required（让 LLM 给 final）
             const MAX_DELEGATE_RETRY = 3;  // 允许 3 次安全网重试 (Case A/B/C), 1 次太严: LLM 改完一个文件后报"接下来改下一个" 又被吞 (2026-06-05 实测)
             // 🛡️ LoopGuard: 综合循环检测（相同签名 / 消息停滞 / 工具无 final）
@@ -987,7 +988,25 @@ export async function ChatRoutes(fastify: FastifyInstance) {
             editFileStuckCount++;
             console.warn(`[Coord] ⚠️ edit_file 连续 ${editFileStuckCount} 次返回"无变化"，终止循环`);
             if (editFileStuckCount >= 3) {
+              
+          // 特殊处理：edit_file 连续失败（oldText===newText）→ 直接终止，避免死循环耗尽 Token
+          const isEditFileStuck = toolName === 'edit_file' &&
+            lastResultInfo?.includes('替换未产生任何变化') &&
+            lastResultInfo?.includes('oldText 和 newText 相同');
+
+          if (isEditFileStuck) {
+            editFileStuckCount++;
+            console.warn(`[Coord] ⚠️ edit_file 连续 ${editFileStuckCount} 次返回"无变化"，终止循环`);
+            if (editFileStuckCount >= 3) {
               reply.raw.write(`data: ${JSON.stringify({
+                chunk: '\n\n⚠️ 编辑失败：连续多次尝试修改文件但未产生任何变化。可能原因：1) 文件内容已符合预期 2) oldText 与文件实际内容不匹配。请重新读取文件后确认内容。',
+                suggestion: '建议：1) 先用 read_file 确认文件当前内容 2) 再调用 edit_file 并提供准确的 oldText 3) 或改用 write_file 重写整个文件'
+              })}\n\n`);
+              break;
+            }
+          }
+
+reply.raw.write(`data: ${JSON.stringify({
                 chunk: '
 
 ⚠️ 编辑失败：连续多次尝试修改文件但未产生任何变化。可能原因：1) 文件内容已符合预期 2) oldText 与文件实际内容不匹配。请重新读取文件后确认内容。',
