@@ -815,7 +815,8 @@ export async function ChatRoutes(fastify: FastifyInstance) {
 			let repeatCallCount = 0;
             let anyToolCalled = false;  // 追踪本轮 agent loop 是否真调过工具（防 LLM 敷衍）
             let delegateRetryCount = 0;  // 委派重试次数（防无限循环）
-            let caseBInProgress = false;  // 安全网 Case B 重试中：tool_choice 不再 required（让 LLM 给 final）
+            let caseBInProgress = false;
+            let editFileStuckCount = 0;  // 安全网 Case B 重试中：tool_choice 不再 required（让 LLM 给 final）
             const MAX_DELEGATE_RETRY = 3;  // 允许 3 次安全网重试 (Case A/B/C), 1 次太严: LLM 改完一个文件后报"接下来改下一个" 又被吞 (2026-06-05 实测)
             // 🛡️ LoopGuard: 综合循环检测（相同签名 / 消息停滞 / 工具无 final）
             // 防止 LLM 反复触发 Case A/B/C/D 安全网而陷入死循环（2026-07-17 实测）
@@ -976,7 +977,25 @@ export async function ChatRoutes(fastify: FastifyInstance) {
           const lastToolResult = finalMessages.filter((m: any) => m.role === 'tool').pop();
           const lastResultInfo = lastToolResult?.content ? `最后工具结果: ${lastToolResult.content.slice(0, 200)}` : '';
           
-          reply.raw.write(`data: ${JSON.stringify({ 
+                    // 特殊处理：edit_file 连续失败（oldText===newText）→ 直接终止，避免死循环耗尽 Token
+          const isEditFileStuck = toolName === 'edit_file' &&
+            lastResultInfo?.includes('替换未产生任何变化') &&
+            lastResultInfo?.includes('oldText 和 newText 相同');
+
+          if (isEditFileStuck) {
+            editFileStuckCount++;
+            console.warn(`[Coord] edit_file 连续 ${editFileStuckCount} 次返回"无变化"，终止循环`);
+            if (editFileStuckCount >= 3) {
+              reply.raw.write(`data: ${JSON.stringify({
+                chunk: '\n\n⚠️ 编辑失败：连续多次尝试修改文件但未产生任何变化。请重新读取文件后确认内容。',
+                suggestion: '建议：1) 先用 read_file 确认文件当前内容 2) 再调用 edit_file 并提供准确的 oldText 3) 或改用 write_file 重写整个文件'
+              })}\n\n`);
+              // 直接跳出外层模型循环，不再重试
+              break;
+            }
+          }
+
+reply.raw.write(`data: ${JSON.stringify({ 
             chunk: '\n\n⚠️ 检测到重复的工具调用（连续3次），已自动停止。请尝试重新描述您的需求。',
             suggestion: `工具 "${toolName}" 被连续调用3次但未能完成。请检查：1) 工具参数是否正确 2) 工作目录是否存在 3) 尝试用更简单的步骤分解任务。${lastResultInfo ? ' 上次执行结果: ' + lastResultInfo : ''}`
           })}\n\n`);
