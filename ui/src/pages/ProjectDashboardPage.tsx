@@ -21,12 +21,14 @@ export function ProjectDashboardPage({ projectId, onOpenChat, onProjectUpdated }
         setLoading(true);
         const [projRes, chatRes, modelRes, agentRes] = await Promise.all([
           fetch(`http://localhost:3001/api/v1/projects/${projectId}`),
-          fetch(`http://localhost:3001/api/v1/projects/${projectId}/chats`),
+          fetch(`http://localhost:3001/api/v1/projects/${projectId}/chats?page=1&limit=100`),
           fetch(`http://localhost:3001/api/v1/models`),
           fetch(`http://localhost:3001/api/v1/projects/${projectId}/agents`)
         ]);
         setProject(await projRes.json());
-        setChats(await chatRes.json());
+        // 处理分页响应
+        const chatData = await chatRes.json();
+        setChats(Array.isArray(chatData) ? chatData : (chatData.data || []));
         setModels(await modelRes.json());
         setProjectAgents(await agentRes.json());
       } catch (err) { console.error(err); } finally { setLoading(false); }

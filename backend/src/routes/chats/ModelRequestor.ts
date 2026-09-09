@@ -175,7 +175,27 @@ function extractToolCallsFromContent(content: string): any[] {
       }
     }
   }
-  
+
+  // 5. 匹配 MiniMax-M3 新格式: <tool_call>{"name":"...","arguments":{...}}</tool_call>
+  // 注意：< 和 t 之间可能含零宽字符 U+200B（model 故意插入防止解析），标签是 tool_call 而非 invoke
+  // 内容是 JSON，包含 name 和 arguments 字段
+  const jsonToolCallPattern = /<​?\s*tool_call\s*>\s*([\s\S]*?)\s*<​?\s*\/\s*tool_call\s*>/gi;
+  while ((match = jsonToolCallPattern.exec(content)) !== null) {
+    const raw = match[1].trim();
+    let parsed: any;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      console.warn('[extractToolCalls] Skipping <tool_call> with invalid JSON:', raw.slice(0, 80));
+      continue;
+    }
+    const toolName: string | undefined = parsed?.name;
+    const args: any = parsed?.arguments ?? {};
+    if (toolName && !toolCalls.some(tc => tc.function.name === toolName)) {
+      toolCalls.push(createToolCall(toolName, args));
+    }
+  }
+
   console.log(`[extractToolCalls] Found ${toolCalls.length} tool calls from content`);
   return toolCalls.filter(validateToolCallArguments);
 }

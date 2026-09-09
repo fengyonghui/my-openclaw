@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { MessageSquare } from 'lucide-react';
 import { useProject } from '../../contexts/ProjectContext';
 import { useChatHooks } from './chat-hooks';
 import { useChatActions } from './chat-actions';
@@ -89,67 +90,84 @@ function ChatDetailImpl({
 
       {hooks.windowState !== 'minimized' && (
         <>
-          {hooks.showAgentPicker && (
-            <AgentPicker
-              agents={projectAgents}
-              currentAgentId={hooks.chat?.agentId}
-              onSelect={(id) => actions.handleUpdateChat({ agentId: id })}
-              onClose={() => hooks.setShowAgentPicker(false)}
-            />
+          {hooks.loading ? (
+            <div className="flex-1 flex items-center justify-center">
+              <div className="text-center">
+                <div className="relative w-16 h-16 mx-auto mb-4">
+                  <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 animate-pulse opacity-20" />
+                  <div className="absolute inset-2 rounded-xl bg-white shadow-lg flex items-center justify-center">
+                    <MessageSquare className="w-8 h-8 text-indigo-500 animate-bounce" />
+                  </div>
+                </div>
+                <p className="text-sm font-medium text-slate-500">加载对话历史...</p>
+                <p className="text-xs text-slate-400 mt-1">{hooks.chat?.title || '对话'}</p>
+              </div>
+            </div>
+          ) : (
+            <>
+              {hooks.showAgentPicker && (
+                <AgentPicker
+                  agents={projectAgents}
+                  currentAgentId={hooks.chat?.agentId}
+                  onSelect={(id) => actions.handleUpdateChat({ agentId: id })}
+                  onClose={() => hooks.setShowAgentPicker(false)}
+                />
+              )}
+
+              {hooks.showModelPicker && (
+                <ModelPicker
+                  models={hooks.models}
+                  activeModelId={hooks.activeModelId}
+                  onSwitch={(id) => {
+                    actions.handleUpdateChat({ modelId: id });
+                    hooks.setShowModelPicker(false);
+                  }}
+                  onClose={() => hooks.setShowModelPicker(false)}
+                />
+              )}
+
+              <MessageList
+                messages={hooks.messages}
+                scrollRef={hooks.scrollRef}
+                currentAgentName={hooks.currentAgent?.name}
+                isTyping={hooks.isTyping}
+                handleResend={(m: Message) => actions.handleResend(m, hooks.setMessages, hooks.setIsTyping)}
+                handleDelete={(m: Message) => actions.handleDelete(m, hooks.setMessages)}
+              />
+
+              <InputArea
+                attachments={hooks.attachments}
+                isRecording={hooks.isRecording}
+                voiceInput={hooks.voiceInput}
+                input={hooks.input}
+                isTyping={hooks.isTyping}
+                canSend={hooks.canSend}
+                fileInputRef={hooks.fileInputRef}
+                textareaRef={hooks.textareaRef}
+                onFileChange={(e) => {
+                  if (e.target.files) {
+                    Array.from(e.target.files).forEach(f => hooks.addFileAsAttachment(f));
+                    e.target.value = '';
+                  }
+                }}
+                onInput={hooks.setInput}
+                onVoiceInput={hooks.setVoiceInputLocal}
+                onToggleVoice={hooks.toggleVoice}
+                onSend={() => actions.handleSend(
+                  hooks.buildUserContent(),
+                  hooks.attachments,
+                  hooks.setMessages,
+                  hooks.setIsTyping,
+                  hooks.setInput,
+                  hooks.setAttachments,
+                  hooks.setVoiceInputLocal,
+                )}
+                onStop={actions.handleStop}
+                onRemoveAttachment={hooks.removeAttachment}
+                onRecordingTextChange={hooks.setVoiceInputLocal}
+              />
+            </>
           )}
-
-          {hooks.showModelPicker && (
-            <ModelPicker
-              models={hooks.models}
-              activeModelId={hooks.activeModelId}
-              onSwitch={(id) => {
-                actions.handleUpdateChat({ modelId: id });
-                hooks.setShowModelPicker(false);
-              }}
-              onClose={() => hooks.setShowModelPicker(false)}
-            />
-          )}
-
-          <MessageList
-            messages={hooks.messages}
-            scrollRef={hooks.scrollRef}
-            currentAgentName={hooks.currentAgent?.name}
-            isTyping={hooks.isTyping}
-            handleResend={(m: Message) => actions.handleResend(m, hooks.setMessages, hooks.setIsTyping)}
-            handleDelete={(m: Message) => actions.handleDelete(m, hooks.setMessages)}
-          />
-
-          <InputArea
-            attachments={hooks.attachments}
-            isRecording={hooks.isRecording}
-            voiceInput={hooks.voiceInput}
-            input={hooks.input}
-            isTyping={hooks.isTyping}
-            canSend={hooks.canSend}
-            fileInputRef={hooks.fileInputRef}
-            textareaRef={hooks.textareaRef}
-            onFileChange={(e) => {
-              if (e.target.files) {
-                Array.from(e.target.files).forEach(f => hooks.addFileAsAttachment(f));
-                e.target.value = '';
-              }
-            }}
-            onInput={hooks.setInput}
-            onVoiceInput={hooks.setVoiceInputLocal}
-            onToggleVoice={hooks.toggleVoice}
-            onSend={() => actions.handleSend(
-              hooks.buildUserContent(),
-              hooks.attachments,
-              hooks.setMessages,
-              hooks.setIsTyping,
-              hooks.setInput,
-              hooks.setAttachments,
-              hooks.setVoiceInputLocal,
-            )}
-            onStop={actions.handleStop}
-            onRemoveAttachment={hooks.removeAttachment}
-            onRecordingTextChange={hooks.setVoiceInputLocal}
-          />
         </>
       )}
     </div>

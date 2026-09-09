@@ -9,6 +9,7 @@ export interface ChatHooksReturn {
   input: string;
   messages: Message[];
   isTyping: boolean;
+  loading: boolean;
   showAgentPicker: boolean;
   showModelPicker: boolean;
   modelSearchQuery: string;
@@ -77,6 +78,7 @@ export function useChatHooks(
   const [input, setInputLocal] = useState('');
   const [messages, setMessagesLocal] = useState<Message[]>([]);
   const [isTyping, setIsTypingLocal] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [showAgentPicker, setShowAgentPicker] = useState(false);
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [modelSearchQuery, setModelSearchQuery] = useState('');
@@ -215,6 +217,7 @@ export function useChatHooks(
 
   // 数据初始化
   const initData = useCallback(async () => {
+    setLoading(true);
     try {
       const [pRes, mRes, cRes] = await Promise.all([
         fetch(`http://localhost:3001/api/v1/projects/${projectId}`),
@@ -258,6 +261,7 @@ export function useChatHooks(
         return { ...m, content };
       }).filter((m: any) => !(m.role === 'assistant' && !m.content?.trim() && m.tool_calls?.length)));
     } catch (err) { console.error(err); }
+    finally { setLoading(false); }
   }, [projectId, chatId]);
 
   useEffect(() => {
@@ -390,7 +394,7 @@ export function useChatHooks(
   }, [input, voiceInput, attachments]);
 
   return {
-    project, models, chat, input, messages, isTyping,
+    project, models, chat, input, messages, isTyping, loading,
     showAgentPicker, showModelPicker, modelSearchQuery,
     isEditingTitle, newTitle, windowState, attachments,
     isRecording, recognition, voiceInput,
