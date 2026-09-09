@@ -9,6 +9,7 @@ import { DbService } from '../services/DbService.js';
 import { pruneContext, compactContext, getContextStats, Message } from '../services/ContextManager.js';
 import { buildToolList } from '../services/ToolDefinitions.js';
 import { parseApiError, setModelRateLimited, calculateBackoff } from '../services/RateLimitHandler.js';
+import { projectRuntimeManager } from '../services/ProjectRuntimeManager.js';
 
 // 导入模块化组件
 import {
@@ -43,6 +44,28 @@ export async function ChatRoutes(fastify: FastifyInstance) {
   fastify.get('/:id', async (request) => {
     const { id } = request.params as { id: string };
     return await DbService.getChat(id);
+  });
+
+  // ============================================
+  // GET /:id/status - 查询会话实时状态（前端轮询用）
+  // 返回：exists / streaming / lastActivity / stale
+  // - exists: 会话是否在运行时管理器中存在
+  // - streaming: 是否正在流式生成
+  // - lastActivity: 最后活动时间戳（毫秒）
+  // - stale: 流式状态超过 STREAMING_STALE_MS 视为卡死
+  // 与前端 chat-hooks.ts 的 STREAMING_STALE_MS 保持一致（5 分钟）
+  // ============================================
+  fastify.get('/:id/status', async (request) => {
+    const { id } = request.params as { id: string };
+    const session = projectRuntimeManager.getChatSession(id);
+    if (!session) {
+      return { exists: false, streaming: false, lastActivity: 0, stale: false };
+    }
+    const STREAMING_STALE_MS = 5 * 60 * 1000;
+    const lastActivity = session.lastActiveAt;
+    const isStreaming = session.status === 'streaming';
+    const stale = isStreaming && Date.now() - lastActivity > STREAMING_STALE_MS;
+    return { exists: true, streaming: isStreaming, lastActivity, stale };
   });
 
   // ============================================

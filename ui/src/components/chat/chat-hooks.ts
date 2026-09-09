@@ -321,7 +321,10 @@ export function useChatHooks(
           stopped = true;
         }
       } catch (err) {
-        console.warn('[ChatHooks] streaming check failed:', err);
+        // 端点异常（404 / HTML fallback / 网络错误等）必须停止轮询，
+        // 否则会无限请求 — 这是「后端无 /status 端点时永远轮询」bug 的兜底。
+        console.warn('[ChatHooks] streaming check failed, stop polling:', err);
+        stopped = true;
       }
     }
 
