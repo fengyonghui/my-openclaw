@@ -1,9 +1,16 @@
 import { readFile, writeFile, mkdir, stat, readdir, unlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { BUILTIN_FILE_IO_SKILL, BUILTIN_INLINE_PYTHON_SKILL, BUILTIN_SHELL_CMD_SKILL } from './BuiltinSkills.js';
 
-const DB_PATH = path.resolve(process.cwd(), 'data/db.json');
+// __dirname 等价：相对源文件定位，不依赖 process.cwd()
+// （进程可能从任何目录启动 — 用 cwd 会读到错误文件导致数据丢失）
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const BACKEND_ROOT = path.resolve(__dirname, '..', '..');
+const DB_PATH = path.join(BACKEND_ROOT, 'data', 'db.json');
+const GLOBAL_AGENTS_DIR = path.join(BACKEND_ROOT, 'agents');
 const CURRENT_VERSION = 3;
 
 export interface ModelConfig {
@@ -19,30 +26,85 @@ export interface ModelConfig {
 
 export class DbService {
   private static data: any = null;
-  private static tableMetadataCache: Map<string, any> = new Map(); // 缓存：tableName -> metadata
+  private static tableMetadataCache: Map<string, any> = new Map();
+  private static fileMtime: number = 0; // 文件最后修改时间
+  private static lastLoadTime: number = 0;
+  private static cacheTTL: number = 5000; // 5 秒缓存
+
+  // 强制重新加载数据库（用于外部修改文件后）
+  static async reload() {
+    this.data = null;
+    this.fileMtime = 0;
+    this.lastLoadTime = 0;
+    return await this.load();
+  }
 
   static async load() {
     try {
+      // 检查文件是否存在
+      if (!existsSync(DB_PATH)) {
+        console.error('[DbService] DB file not found');
+        const initial = this.createInitialDb();
+        await writeFile(DB_PATH, JSON.stringify(initial, null, 2), 'utf-8');
+        this.data = initial;
+        this.fileMtime = Date.now();
+        this.lastLoadTime = Date.now();
+        return initial;
+      }
+
+      // 检查文件是否变化（使用 mtime 而不是哈希，更快）
+      const fileStat = await stat(DB_PATH);
+      const mtime = fileStat.mtimeMs;
+
+      // 如果文件未变化且在缓存有效期内，返回缓存
+      if (this.data && mtime === this.fileMtime && Date.now() - this.lastLoadTime < this.cacheTTL) {
+        return this.data;
+      }
+
+      // 文件有变化或缓存过期，重新加载
       const content = await readFile(DB_PATH, 'utf-8');
       this.data = JSON.parse(content);
+      this.fileMtime = mtime;
+      this.lastLoadTime = Date.now();
+
       // 版本迁移
       await this.migrateToV3();
       return this.data;
-    } catch (err) {
-      const initial = {
-        version: CURRENT_VERSION,
-        projects: [],
-        agents: [],
-        chats: [],
-        availableModels: [],
-        availableSkills: [],
-        memories: []
-      };
-      await mkdir(path.dirname(DB_PATH), { recursive: true });
-      await writeFile(DB_PATH, JSON.stringify(initial, null, 2), 'utf-8');
+    } catch (err: any) {
+      console.error('[DbService] Failed to load DB:', err.message);
+      // 返回缓存数据，不要重置
+      if (this.data) {
+        return this.data;
+      }
+      const initial = this.createInitialDb();
       this.data = initial;
+      this.fileMtime = 0;
+      this.lastLoadTime = Date.now();
       return initial;
     }
+  }
+
+  // 简单的字符串哈希
+  private static simpleHash(str: string): string {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32bit integer
+    }
+    return hash.toString();
+  }
+
+  private static createInitialDb() {
+    return {
+      version: CURRENT_VERSION,
+      projects: [],
+      agents: [],
+      chats: [],
+      availableModels: [],
+      availableSkills: [],
+      memories: []
+    };
   }
 
   static async save() {
@@ -71,7 +133,7 @@ export class DbService {
 
     // --- v1 → v2: db.json agents 迁移到 backend/agents/ ---
     if (version === 1 && (db.agents ?? []).length > 0) {
-      const globalAgentsDir = path.resolve(process.cwd(), 'agents');
+      const globalAgentsDir = GLOBAL_AGENTS_DIR;
       await mkdir(globalAgentsDir, { recursive: true });
       for (const agent of db.agents) {
         const fileName = this.agentIdToFileName(agent);
@@ -83,7 +145,7 @@ export class DbService {
 
     // --- v2 → v3: backend/agents/ 迁移到各项目 workspace/agents/ ---
     if (version <= 2) {
-      const globalAgentsDir = path.resolve(process.cwd(), 'agents');
+      const globalAgentsDir = GLOBAL_AGENTS_DIR;
       try {
         const files = (await readdir(globalAgentsDir)).filter(f => f.endsWith('.json'));
         for (const proj of db.projects ?? []) {
@@ -363,7 +425,7 @@ export class DbService {
 
   // 全局 agents 回退目录（backend/agents/）
   private static getGlobalAgentsDir(): string {
-    return path.resolve(process.cwd(), 'agents');
+    return GLOBAL_AGENTS_DIR;
   }
 
   static async loadAgentsFromFiles() {
@@ -548,7 +610,7 @@ export class DbService {
     if (!project) throw new Error('项目不存在');
     if (!project.workspace) throw new Error('项目没有 workspace');
 
-    const globalAgentsDir = path.resolve(process.cwd(), 'agents');
+    const globalAgentsDir = GLOBAL_AGENTS_DIR;
     const globalFileName = await this.findGlobalAgentFile(agentId);
     if (!globalFileName) throw new Error('全局 Agent 不存在: ' + agentId);
 
@@ -576,7 +638,7 @@ export class DbService {
 
   // 根据 agentId 在 backend/agents/ 中找到对应文件名
   private static async findGlobalAgentFile(agentId: string): Promise<string | null> {
-    const globalAgentsDir = path.resolve(process.cwd(), 'agents');
+    const globalAgentsDir = GLOBAL_AGENTS_DIR;
     console.log(`[findGlobalAgentFile] Searching in ${globalAgentsDir} for agentId=${agentId}`);
     try {
       const files = (await readdir(globalAgentsDir)).filter(f => f.endsWith('.json'));
