@@ -55,27 +55,35 @@ export async function ProjectRoutes(fastify: FastifyInstance) {
     return await DbService.deleteProject(id);
   });
 
-  // 获取项目下的会话
-  fastify.get('/:id/chats', async (request) => {
+  // 获取项目下的会话（返回摘要，不包含完整消息内容）
+  fastify.get('/:id/chats', async (request, reply) => {
     const { id } = request.params as { id: string };
-    
-    // 获取项目信息
-    const projects = await DbService.getProjects();
-    const project = projects.find((p: any) => p.id === id);
-    
-    if (!project) {
-      return [];
-    }
-    
-    // 从项目目录获取会话
-    const projectPath = getProjectWorkspacePath(project.workspace);
-    console.log(`[Projects] GET /${id}/chats - projectPath: ${projectPath}`);
-    console.log(`[Projects] Path exists: ${fs.existsSync(projectPath)}`);
-    console.log(`[Projects] Chats dir exists: ${fs.existsSync(path.join(projectPath, 'data', 'chats'))}`);
-    
-    const chats = await ProjectChatService.getChatsFromProject(projectPath);
-    console.log(`[Projects] Found ${chats.length} chats`);
-    return chats;
+    const { page = 1, limit = 50 } = request.query as any;
+
+    // 只返回摘要信息，不返回完整消息内容
+    const chats = await DbService.getChats(id);
+    const summaries = chats.map((c: any) => ({
+      id: c.id,
+      projectId: c.projectId,
+      title: c.title || '新对话',
+      updatedAt: c.updatedAt,
+      messageCount: c.messages?.length || 0,
+      lastMessage: c.messages?.[c.messages.length - 1]?.content?.slice(0, 100) || ''
+    }));
+
+    // 分页
+    const pageNum = parseInt(page) || 1;
+    const limitNum = parseInt(limit) || 50;
+    const start = (pageNum - 1) * limitNum;
+    const end = start + limitNum;
+    const paginated = summaries.slice(start, end);
+
+    reply.send({
+      data: paginated,
+      total: summaries.length,
+      page: pageNum,
+      totalPages: Math.ceil(summaries.length / limitNum)
+    });
   });
 
   // 获取项目下的 Agent

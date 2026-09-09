@@ -18,6 +18,7 @@ import { TableMetadataRoutes } from './routes/tableMetadata.js';
 import { VersionRoutes } from './routes/version.js';
 import { bootstrapSystemCommands } from './services/systemBootstrap.js';
 import { restoreHeartbeats } from './services/HeartbeatService.js';
+import { DataSyncService } from './services/DataSyncService.js';
 
 const fastify = Fastify({ logger: true });
 
@@ -65,7 +66,10 @@ fastify.setNotFoundHandler(async (_request, reply) => {
 try {
   // 启动时写入当前系统的正确命令集
   bootstrapSystemCommands();
-  
+
+  // 数据同步：确保文件系统数据已导入数据库
+  await DataSyncService.syncOnStartup();
+
   // 恢复所有心跳调度
   await restoreHeartbeats();
   

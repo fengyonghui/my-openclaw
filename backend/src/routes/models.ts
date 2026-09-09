@@ -2,8 +2,13 @@ import { FastifyInstance } from 'fastify';
 import { DbService } from '../services/DbService.js';
 import { readFile, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const DB_PATH = path.resolve(process.cwd(), 'data/db.json');
+// __dirname 等价：相对源文件定位，不依赖 process.cwd()
+// （进程可能从任何目录启动 — 用 cwd 会读到错误文件导致数据丢失）
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const DB_PATH = path.resolve(__dirname, '..', '..', 'data', 'db.json');
 
 export async function ModelRoutes(fastify: FastifyInstance) {
   // 获取全局模型
@@ -26,7 +31,19 @@ export async function ModelRoutes(fastify: FastifyInstance) {
   // 扫描远程模型 (代理请求 - 增强版)
   fastify.post('/fetch-remote', async (request, reply) => {
     let { baseUrl, apiKey } = request.body as { baseUrl: string, apiKey: string };
-    
+
+    // 如果前端没传，尝试从 db.json 中读取第一个可用模型
+    if (!baseUrl || !apiKey) {
+      const dbContent = await readFile(DB_PATH, 'utf-8');
+      const db = JSON.parse(dbContent);
+      const models = db.availableModels || [];
+      if (models.length > 0) {
+        const firstModel = models.find((m: any) => m.baseUrl) || models[0];
+        baseUrl = baseUrl || firstModel.baseUrl;
+        apiKey = apiKey || firstModel.apiKey;
+      }
+    }
+
     if (!baseUrl) return reply.status(400).send({ error: 'Base URL 不能为空' });
 
     // 1. 基础路径清洗
@@ -84,27 +101,29 @@ export async function ModelRoutes(fastify: FastifyInstance) {
   // 更新当前 provider 下所有可用模型
   fastify.post('/sync-from-provider', async (request, reply) => {
     const { provider, baseUrl, apiKey } = request.body as { provider?: string, baseUrl?: string, apiKey?: string };
-    
-    // 如果没有提供 baseUrl/apiKey，则使用 db.json 中已存在的 glue provider 模型作为参考
-    const dbContent = await readFile(DB_PATH, 'utf-8');
-    const db = JSON.parse(dbContent);
-    
+
     let targetBaseUrl = baseUrl;
     let targetApiKey = apiKey;
-    
+
+    // 如果没有提供 baseUrl/apiKey，则使用 db.json 中已存在的模型配置
     if (!targetBaseUrl || !targetApiKey) {
-      // 从现有模型中查找 glue provider 的配置
-      const glueModels = (db.availableModels || []).filter(m => 
-        m.provider === 'glue' || (m.baseUrl && m.baseUrl.includes('localhost:8080'))
-      );
-      
-      if (glueModels.length === 0) {
-        return reply.status(400).send({ error: '请提供 baseUrl 和 apiKey，或确保 db.json 中已有 glue provider 的模型配置' });
+      const dbContent = await readFile(DB_PATH, 'utf-8');
+      const db = JSON.parse(dbContent);
+      const models = db.availableModels || [];
+
+      if (models.length === 0) {
+        return reply.status(400).send({ error: '请提供 baseUrl 和 apiKey，或确保 db.json 中已有模型配置' });
       }
-      
-      targetBaseUrl = glueModels[0].baseUrl;
-      targetApiKey = glueModels[0].apiKey;
+
+      // 优先使用非 minimax 的模型（更通用）
+      const generalModel = models.find((m: any) => m.provider !== 'minimax') || models[0];
+      targetBaseUrl = targetBaseUrl || generalModel.baseUrl;
+      targetApiKey = targetApiKey || generalModel.apiKey;
     }
+
+    // 读取 db 用于后续操作
+    const dbContent = await readFile(DB_PATH, 'utf-8');
+    const db = JSON.parse(dbContent);
 
     // 1. 基础路径清洗
     let cleanBaseUrl = targetBaseUrl.trim().replace(/\/$/, '');
@@ -152,7 +171,7 @@ export async function ModelRoutes(fastify: FastifyInstance) {
 
       // 保留非目标 provider 的模型
       const targetProvider = provider || 'glue';
-      const otherModels = existingModels.filter(m => {
+      const otherModels = existingModels.filter((m: any) => {
         if (m.provider !== targetProvider) return true;
         // 如果 baseUrl 不包含在目标 URL 中，也保留
         if (targetBaseUrl && !m.baseUrl?.includes(new URL(targetBaseUrl).host)) return true;
@@ -163,7 +182,7 @@ export async function ModelRoutes(fastify: FastifyInstance) {
       const newModels = remoteModels.map((m: any) => {
         const modelId = m.id || m.modelId || '';
         const existing = existingMap.get(modelId);
-        
+
         return {
           id: modelId,
           name: m.name || modelId,
@@ -178,17 +197,24 @@ export async function ModelRoutes(fastify: FastifyInstance) {
       });
 
       // 合并模型列表
-      db.availableModels = [...otherModels, ...newModels];
+      const updatedDb = {
+        ...db,
+        availableModels: [...otherModels, ...newModels]
+      };
 
       // 保存
-      await writeFile(DB_PATH, JSON.stringify(db, null, 2), 'utf-8');
+      await writeFile(DB_PATH, JSON.stringify(updatedDb, null, 2), 'utf-8');
+
+      // 更新内存缓存
+      const DbService = (await import('../services/DbService.js')).DbService;
+      await DbService.reload();
 
       console.log(`[Sync] 完成: 保留 ${otherModels.length} 个非 ${targetProvider} 模型，新增 ${newModels.length} 个 ${targetProvider} 模型`);
 
       return {
         success: true,
         message: `已同步 ${newModels.length} 个 ${targetProvider} 模型`,
-        totalModels: db.availableModels.length,
+        totalModels: updatedDb.availableModels.length,
         newModels: newModels.length,
         existingModels: otherModels.length
       };
