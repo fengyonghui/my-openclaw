@@ -300,3 +300,5 @@
 
 - [技术决策] 将兜底错误消息从"无法写入/分多次写入"改为"无法执行工具调用/分步骤 read_file + edit_file 小块替换"，适用于所有被截断的工具调用（edit_file、write_file 等）。修复文件：`backend/src/routes/chats/ToolExecutor.ts:782-783`。（来源: 用户报告 edit_file Unterminated string 错误后分析并修复）
 - [项目信息] `handleJsonParseError` 支持 5 种 JSON 修复策略（Unterminated string / Unexpected end / 控制字符 / 单引号 / 片段提取），全部失败后返回结构化错误。（来源: 代码分析）
+
+
