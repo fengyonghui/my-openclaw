@@ -88,7 +88,11 @@ export class DataSyncService {
             ...ws,
             defaultModel: db.availableModels?.[0]?.id || '',
             enabledAgentIds: [],
-            enabledSkillIds: [],
+            enabledSkillIds: [
+              'builtin-file-io',
+              'builtin-shell-cmd',
+              'builtin-inline-python-edit',
+            ],
             createdAt: new Date().toISOString()
           });
           console.log('  📁 恢复项目:', ws.id);

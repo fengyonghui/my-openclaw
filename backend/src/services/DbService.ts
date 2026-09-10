@@ -13,6 +13,14 @@ const DB_PATH = path.join(BACKEND_ROOT, 'data', 'db.json');
 const GLOBAL_AGENTS_DIR = path.join(BACKEND_ROOT, 'agents');
 const CURRENT_VERSION = 3;
 
+// 新建项目默认启用的 3 个 builtin 技能 id
+// 与 backend/src/services/BuiltinSkills.ts 中常量保持一致
+const DEFAULT_ENABLED_SKILL_IDS = [
+  BUILTIN_FILE_IO_SKILL.id,
+  BUILTIN_SHELL_CMD_SKILL.id,
+  BUILTIN_INLINE_PYTHON_SKILL.id,
+];
+
 export interface ModelConfig {
   id: string;
   name: string;
@@ -300,7 +308,7 @@ export class DbService {
       defaultAgentId: '1',
       defaultModel: db.availableModels?.[0]?.id || '',
       ignorePatterns: ['node_modules', '.git', 'dist', '.DS_Store', 'package-lock.json'],
-      enabledSkillIds: [],
+      enabledSkillIds: DEFAULT_ENABLED_SKILL_IDS,
       projectSkills: [],
       enabledAgentIds: [],
       projectAgents: [],
@@ -338,7 +346,7 @@ export class DbService {
       defaultAgentId: '1',
       defaultModel: db.availableModels?.[0]?.id || '',
       ignorePatterns: ['node_modules', '.git', 'dist', '.DS_Store', 'package-lock.json'],
-      enabledSkillIds: [],
+      enabledSkillIds: DEFAULT_ENABLED_SKILL_IDS,
       projectSkills: [],
       enabledAgentIds: [],
       projectAgents: [],
