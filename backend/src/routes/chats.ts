@@ -29,6 +29,341 @@ import {
   type Message as ChatMessage
 } from './chats/index.js';
 
+/**
+ * 共享 LLM 流式响应管道
+ * - /send 在保存用户消息后调用
+ * - /resend 在截断用户消息之后的回复后调用
+ *
+ * 假设：用户消息已在 DB 中（send 保存 / resend 截断后保留），
+ * 调用方需自行设置 reply.raw 为 SSE 模式之前不要写入任何字节。
+ */
+async function runChatLLMStream(chatId: string, reply: any): Promise<void> {
+  // 设置 SSE 响应头
+  reply.raw.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  reply.raw.setHeader('Cache-Control', 'no-cache');
+  reply.raw.setHeader('Connection', 'keep-alive');
+  reply.raw.setHeader('Access-Control-Allow-Origin', '*');
+  reply.raw.write(`data: ${JSON.stringify({ chunk: '' })}\n\n`);
+
+  // 创建 AbortController
+  const abortController = new AbortController();
+  setAbortController(chatId, abortController);
+
+  const onAbort = () => {
+    console.log(`[SSE Stop] Chat ${chatId} aborted by user`);
+    try {
+      reply.raw.write(`data: ${JSON.stringify({ chunk: '\n\n⏹️ 已停止生成' })}\n\n`);
+      reply.raw.write(`data: [DONE]\n\n`);
+      reply.raw.end();
+    } catch {}
+  };
+  abortController.signal.addEventListener('abort', onAbort);
+
+  let fullAssistantContent = '';
+
+  try {
+    // 加载数据
+    const projects = await DbService.getProjects();
+    const chats = await DbService.getChats();
+    const chat = chats.find(c => String(c.id) === String(chatId));
+    const project = projects.find(p => p.id === chat?.projectId);
+    const allModels = await DbService.getModels();
+
+    if (!project) throw new Error('未找到所属项目');
+    if (!allModels || allModels.length === 0) throw new Error('系统中未配置任何模型');
+
+    // 获取项目的 Agent 和技能配置
+    const enabledAgentIds = project?.enabledAgentIds || [];
+    const allGlobalAgents = await DbService.getAgents();
+    const projectPrivateAgents = project?.projectAgents || [];
+    const allProjectAgents = [
+      ...allGlobalAgents.filter(a => enabledAgentIds.includes(a.id)),
+      ...projectPrivateAgents
+    ];
+
+    const coordinatorAgentId = project?.coordinatorAgentId || chat?.agentId || '1';
+    const coordinatorAgent = allProjectAgents.find((a: any) => String(a.id) === String(coordinatorAgentId));
+
+    const enabledSkillIds = project?.enabledSkillIds || [];
+    const allGlobalSkills = await DbService.getGlobalSkills();
+    const globalProjectSkills = allGlobalSkills.filter(s => enabledSkillIds.includes(s.id));
+    const projectPrivateSkills = project?.projectSkills || [];
+    const allEnabledSkills = [...globalProjectSkills, ...projectPrivateSkills];
+
+    // 构建系统消息
+    const systemMessage = buildSystemMessage({
+      project,
+      coordinatorAgent,
+      allProjectAgents,
+      allEnabledSkills
+    });
+
+    // 构建工具列表
+    const tools = buildToolList(project, allProjectAgents, coordinatorAgentId, allEnabledSkills);
+
+    // 获取聊天历史
+    const chatWithHistory = await DbService.getChat(chatId);
+    const historyMessages = chatWithHistory?.messages || [];
+
+    // 构建消息
+    let apiMessages = buildHistoryMessages(historyMessages, 100, 2);
+
+    // 上下文管理
+    const prunedMessages = pruneContext(apiMessages as Message[], {
+      contextWindow: 128000,
+      keepLastAssistants: 3,
+      softTrimMaxChars: 4000,
+      softTrimHeadChars: 1500,
+      softTrimTailChars: 1500
+    });
+
+    const contextStats = getContextStats(prunedMessages as Message[]);
+    console.log(`[Context] Messages: ${contextStats.messageCount}, Tokens: ~${contextStats.estimatedTokens}`);
+
+    if (contextStats.needsCompaction) {
+      const { compacted } = await compactContext(prunedMessages as Message[]);
+      apiMessages = compacted as any[];
+    }
+
+    // 构建模型队列
+    const activeModelId = chat?.modelId || project?.defaultModel;
+    const primaryModel = allModels.find(m => m.id === activeModelId) || allModels[0];
+    const fallbackModels = allModels.filter(m => m.id !== primaryModel.id).slice(0, 2);
+    const modelsToTry = [primaryModel, ...fallbackModels];
+
+    // 发送请求
+    const finalMessages = [systemMessage, ...apiMessages];
+
+    let success = false;
+    let lastError = '';
+    let pickedModelCfg: any = null;
+    const MAX_RETRIES = 3;
+
+    // 🛡️ edit_file 死循环防护：连续 3 次返回"无变化"时直接终止
+    // 历史 bug: 旧逻辑 break 后 LoopGuard 重启循环 → LLM 再次生成相同参数 → 无限循环
+    // 每轮 148 条消息 × ~5K token → 快速耗尽 Token 计划 → 所有模型 429
+    let editFileStuckCount = 0;
+    const EDIT_FILE_STUCK_THRESHOLD = 3;
+
+    for (const modelCfg of modelsToTry) {
+      if (success) break;
+
+      console.log(`[Model Try] Using Model: ${modelCfg.name} (${modelCfg.modelId})`);
+      const apiUrl = `${modelCfg.baseUrl.replace(/\/+$/, '')}/chat/completions`;
+
+      let modelRetryCount = 0;
+      let currentModelSuccess = false;
+
+      while (modelRetryCount < MAX_RETRIES && !currentModelSuccess) {
+        try {
+          let guard = 0;
+          while (guard++ < 8) {
+            const reqBody: any = {
+              model: modelCfg.modelId,
+              messages: finalMessages,
+              stream: false,
+              max_tokens: modelCfg.maxTokens || 8192,
+              temperature: modelCfg.temperature || 0.7
+            };
+
+            if (tools.length > 0) {
+              reqBody.tools = tools;
+              reqBody.tool_choice = 'auto';
+            }
+
+            console.log('');
+            console.log('═'.repeat(60));
+            console.log('🤖 MODEL REQUEST');
+            console.log('═'.repeat(60));
+            console.log(` Model: ${modelCfg.name} (${modelCfg.modelId})`);
+            console.log(` API URL: ${apiUrl}`);
+            console.log(` Messages: ${finalMessages.length}`);
+            console.log(` Tools: ${tools.length > 0 ? tools.length : 'none'}`);
+            console.log('═'.repeat(60));
+            console.log('');
+
+            const res = await fetch(apiUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${modelCfg.apiKey}`
+              },
+              body: JSON.stringify(reqBody),
+              signal: abortController.signal
+            });
+
+            if (!res.ok) {
+              const errText = await res.text();
+              throw new Error(`HTTP ${res.status}: ${errText.slice(0, 100)}`);
+            }
+
+            const data: any = await res.json();
+            const choice = data.choices?.[0];
+            const message = choice?.message || {};
+            const toolCalls = extractToolCalls(choice);
+
+            if (toolCalls.length > 0) {
+              // 处理工具调用
+              console.log(`[DEBUG] Processing ${toolCalls.length} tool call(s)`);
+
+              reply.raw.write(`data: ${JSON.stringify({
+                type: 'tool_call',
+                toolCalls: toolCalls.map((tc: any) => ({
+                  id: tc.id,
+                  name: tc.function?.name,
+                  arguments: tc.function?.arguments
+                }))
+              })}\n\n`);
+
+              finalMessages.push({
+                role: 'assistant',
+                content: message.content || '',
+                tool_calls: toolCalls
+              });
+
+              for (const toolCall of toolCalls) {
+                let toolResult: any;
+                try {
+                  toolResult = await executeToolCall(project, toolCall, allProjectAgents, allEnabledSkills, reply);
+                } catch (err: any) {
+                  toolResult = { error: err.message };
+                }
+
+                reply.raw.write(`data: ${JSON.stringify({
+                  type: 'tool_result',
+                  toolCallId: toolCall.id,
+                  toolName: toolCall.function?.name,
+                  result: toolResult
+                })}\n\n`);
+
+                finalMessages.push({
+                  role: 'tool',
+                  tool_call_id: toolCall.id,
+                  content: JSON.stringify(toolResult)
+                });
+
+                // 跟踪 edit_file 无变化错误（连续触发 → 终止循环）
+                const errMsg: string = typeof toolResult?.error === 'string' ? toolResult.error : '';
+                const isEditFileStuck = toolCall.function?.name === 'edit_file' &&
+                  errMsg.includes('替换未产生任何变化') &&
+                  errMsg.includes('oldText 和 newText 相同');
+                if (isEditFileStuck) {
+                  editFileStuckCount++;
+                } else {
+                  editFileStuckCount = 0;
+                }
+              }
+
+              // 🛡️ edit_file 死循环防护：达到阈值时终止所有模型循环
+              if (editFileStuckCount >= EDIT_FILE_STUCK_THRESHOLD) {
+                console.warn(`[Coord] edit_file 连续 ${editFileStuckCount} 次返回"无变化"，终止循环`);
+                reply.raw.write(`data: ${JSON.stringify({
+                  chunk: '\n\n⚠️ 编辑失败：连续多次尝试修改文件但未产生任何变化。请重新读取文件后确认内容。',
+                  suggestion: '建议：1) 先用 read_file 确认文件当前内容 2) 再调用 edit_file 并提供准确的 oldText 3) 或改用 write_file 重写整个文件'
+                })}\n\n`);
+                // 跳出所有模型循环：设置标志 + 跳出 guard while
+                success = true;
+                currentModelSuccess = true;
+                pickedModelCfg = modelCfg;
+                fullAssistantContent = '';
+                break;
+              }
+
+              continue;
+            }
+
+            // 获取最终响应
+            fullAssistantContent = message.content || '';
+            success = true;
+            currentModelSuccess = true;
+            pickedModelCfg = modelCfg;
+            console.log(`[DEBUG] Response content: ${fullAssistantContent?.slice(0, 200)}`);
+            break;
+          }
+        } catch (err: any) {
+          modelRetryCount++;
+          console.error(`[Model Fail] ${modelCfg.name} failed (attempt ${modelRetryCount}/${MAX_RETRIES}): ${err.message}`);
+          lastError = err.message;
+
+          // --- 429 错误专门处理 ---
+          const rateLimitInfo = parseApiError(err);
+          if (rateLimitInfo?.isRateLimited) {
+            setModelRateLimited(modelCfg.id, rateLimitInfo);
+            console.log(`[429] ${modelCfg.name} rate limited. Reset at: ${rateLimitInfo.resetTime?.toISOString()}`);
+
+            reply.raw.write(`data: ${JSON.stringify({
+              type: 'rate_limit',
+              model: modelCfg.name,
+              retryAfter: rateLimitInfo.retryAfter,
+              message: `⚠️ 模型 ${modelCfg.name} 触发限流，正在切换备用模型...`
+            })}\n\n`);
+
+            const waitTime = rateLimitInfo.retryAfter
+              ? rateLimitInfo.retryAfter * 1000
+              : calculateBackoff(modelRetryCount);
+
+            if (modelRetryCount < MAX_RETRIES) {
+              console.log(`[Model] Waiting ${waitTime / 1000}s before retry...`);
+              await new Promise(resolve => setTimeout(resolve, Math.min(waitTime, 30000)));
+            }
+          } else {
+            if (modelRetryCount < MAX_RETRIES) {
+              const backoff = calculateBackoff(modelRetryCount);
+              console.log(`[Model] Retrying ${modelCfg.name} in ${backoff}ms...`);
+              await new Promise(resolve => setTimeout(resolve, backoff));
+            }
+          }
+        }
+      }
+    }
+
+    if (!success || !pickedModelCfg) {
+      throw new Error(`所有模型均不可用。最后错误: ${lastError}`);
+    }
+
+    // 模型切换通知
+    if (pickedModelCfg.id !== activeModelId) {
+      console.log(`[Model Switch] Notifying UI: ${pickedModelCfg.name}`);
+      reply.raw.write(`data: ${JSON.stringify({
+        info: `已自动切换至备用模型: ${pickedModelCfg.name}`,
+        switchedModelId: pickedModelCfg.id
+      })}\n\n`);
+
+      const db = await DbService.load();
+      const chatToUpdate = db.chats.find((c: any) => String(c.id) === String(chatId));
+      if (chatToUpdate) {
+        chatToUpdate.modelId = pickedModelCfg.id;
+        await DbService.save();
+      }
+    }
+
+    // 发送最终响应
+    if (fullAssistantContent) {
+      reply.raw.write(`data: ${JSON.stringify({ chunk: fullAssistantContent })}\n\n`);
+      await DbService.addMessageToChat(chatId, {
+        role: 'assistant',
+        content: fullAssistantContent
+      });
+    }
+
+    reply.raw.write(`data: [DONE]\n\n`);
+
+  } catch (err: any) {
+    console.error('[SSE Error Final]', err.message);
+
+    if (err.name === 'AbortError' || err.message?.includes('aborted')) {
+      console.log(`[SSE] Chat ${chatId} was stopped by user`);
+    } else {
+      reply.raw.write(`data: ${JSON.stringify({ chunk: `\n\n❌ 彻底失败: ${err.message}` })}\n\n`);
+      reply.raw.write(`data: [DONE]\n\n`);
+    }
+  } finally {
+    abortController.signal.removeEventListener('abort', onAbort);
+    clearAbortController(chatId);
+    try { reply.raw.end(); } catch {}
+  }
+}
+
 export async function ChatRoutes(fastify: FastifyInstance) {
   // ============================================
   // GET / - 获取聊天列表
@@ -119,342 +454,17 @@ export async function ChatRoutes(fastify: FastifyInstance) {
       attachments: attachments || []
     } as any);
 
-    // 设置 SSE 响应头
-    reply.raw.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
-    reply.raw.setHeader('Cache-Control', 'no-cache');
-    reply.raw.setHeader('Connection', 'keep-alive');
-    reply.raw.setHeader('Access-Control-Allow-Origin', '*');
-    reply.raw.write(`data: ${JSON.stringify({ chunk: '' })}\n\n`);
-
-    // 创建 AbortController
-    const abortController = new AbortController();
-    setAbortController(chatId, abortController);
-
-    const onAbort = () => {
-      console.log(`[SSE Stop] Chat ${chatId} aborted by user`);
-      try {
-        reply.raw.write(`data: ${JSON.stringify({ chunk: '\n\n⏹️ 已停止生成' })}\n\n`);
-        reply.raw.write(`data: [DONE]\n\n`);
-        reply.raw.end();
-      } catch {}
-    };
-    abortController.signal.addEventListener('abort', onAbort);
-
-    let fullAssistantContent = '';
-
-    try {
-      // 加载数据
-      const projects = await DbService.getProjects();
-      const chats = await DbService.getChats();
-      const chat = chats.find(c => String(c.id) === String(chatId));
-      const project = projects.find(p => p.id === chat?.projectId);
-      const allModels = await DbService.getModels();
-
-      if (!project) throw new Error('未找到所属项目');
-      if (!allModels || allModels.length === 0) throw new Error('系统中未配置任何模型');
-
-      // 处理 MEMORY.md 触发
-      if (content.startsWith('请注意') || content.startsWith('请记住')) {
-        const saved = await saveToMemoryFile(content, project.workspace);
-        if (saved === 'success') {
-          reply.raw.write(`data: ${JSON.stringify({ chunk: '✅ 已自动记录到 MEMORY.md\n\n' })}\n\n`);
-        } else if (saved === 'duplicate') {
-          reply.raw.write(`data: ${JSON.stringify({ chunk: 'ℹ️ 该信息已存在，无需重复记录\n\n' })}\n\n`);
-        }
-      }
-
-      // 获取项目的 Agent 和技能配置
-      const enabledAgentIds = project?.enabledAgentIds || [];
-      const allGlobalAgents = await DbService.getAgents();
-      const projectPrivateAgents = project?.projectAgents || [];
-      const allProjectAgents = [
-        ...allGlobalAgents.filter(a => enabledAgentIds.includes(a.id)),
-        ...projectPrivateAgents
-      ];
-
-      const coordinatorAgentId = project?.coordinatorAgentId || chat?.agentId || '1';
-      const coordinatorAgent = allProjectAgents.find((a: any) => String(a.id) === String(coordinatorAgentId));
-
-      const enabledSkillIds = project?.enabledSkillIds || [];
-      const allGlobalSkills = await DbService.getGlobalSkills();
-      const globalProjectSkills = allGlobalSkills.filter(s => enabledSkillIds.includes(s.id));
-      const projectPrivateSkills = project?.projectSkills || [];
-      const allEnabledSkills = [...globalProjectSkills, ...projectPrivateSkills];
-
-      // 构建系统消息
-      const systemMessage = buildSystemMessage({
-        project,
-        coordinatorAgent,
-        allProjectAgents,
-        allEnabledSkills
-      });
-
-      // 构建工具列表
-      const tools = buildToolList(project, allProjectAgents, coordinatorAgentId, allEnabledSkills);
-
-      // 获取聊天历史
-      const chatWithHistory = await DbService.getChat(chatId);
-      const historyMessages = chatWithHistory?.messages || [];
-
-      // 构建消息
-      let apiMessages = buildHistoryMessages(historyMessages, 100, 2);
-
-      // 上下文管理
-      const prunedMessages = pruneContext(apiMessages as Message[], {
-        contextWindow: 128000,
-        keepLastAssistants: 3,
-        softTrimMaxChars: 4000,
-        softTrimHeadChars: 1500,
-        softTrimTailChars: 1500
-      });
-
-      const contextStats = getContextStats(prunedMessages as Message[]);
-      console.log(`[Context] Messages: ${contextStats.messageCount}, Tokens: ~${contextStats.estimatedTokens}`);
-
-      if (contextStats.needsCompaction) {
-        const { compacted } = await compactContext(prunedMessages as Message[]);
-        apiMessages = compacted as any[];
-      }
-
-      // 构建模型队列
-      const activeModelId = chat?.modelId || project?.defaultModel;
-      const primaryModel = allModels.find(m => m.id === activeModelId) || allModels[0];
-      const fallbackModels = allModels.filter(m => m.id !== primaryModel.id).slice(0, 2);
-      const modelsToTry = [primaryModel, ...fallbackModels];
-
-      // 发送请求
-      const finalMessages = [systemMessage, ...apiMessages];
-
-      let success = false;
-      let lastError = '';
-      let pickedModelCfg: any = null;
-      const MAX_RETRIES = 3;
-
-      // 🛡️ edit_file 死循环防护：连续 3 次返回"无变化"时直接终止
-      // 历史 bug: 旧逻辑 break 后 LoopGuard 重启循环 → LLM 再次生成相同参数 → 无限循环
-      // 每轮 148 条消息 × ~5K token → 快速耗尽 Token 计划 → 所有模型 429
-      let editFileStuckCount = 0;
-      const EDIT_FILE_STUCK_THRESHOLD = 3;
-
-      for (const modelCfg of modelsToTry) {
-        if (success) break;
-
-        console.log(`[Model Try] Using Model: ${modelCfg.name} (${modelCfg.modelId})`);
-        const apiUrl = `${modelCfg.baseUrl.replace(/\/+$/, '')}/chat/completions`;
-
-        let modelRetryCount = 0;
-        let currentModelSuccess = false;
-
-        while (modelRetryCount < MAX_RETRIES && !currentModelSuccess) {
-          try {
-            let guard = 0;
-            while (guard++ < 8) {
-              const reqBody: any = {
-                model: modelCfg.modelId,
-                messages: finalMessages,
-                stream: false,
-                max_tokens: modelCfg.maxTokens || 8192,
-                temperature: modelCfg.temperature || 0.7
-              };
-
-              if (tools.length > 0) {
-                reqBody.tools = tools;
-                reqBody.tool_choice = 'auto';
-              }
-
-              console.log('');
-              console.log('═'.repeat(60));
-              console.log('🤖 MODEL REQUEST');
-              console.log('═'.repeat(60));
-              console.log(` Model: ${modelCfg.name} (${modelCfg.modelId})`);
-              console.log(` API URL: ${apiUrl}`);
-              console.log(` Messages: ${finalMessages.length}`);
-              console.log(` Tools: ${tools.length > 0 ? tools.length : 'none'}`);
-              console.log('═'.repeat(60));
-              console.log('');
-
-              const res = await fetch(apiUrl, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${modelCfg.apiKey}`
-                },
-                body: JSON.stringify(reqBody),
-                signal: abortController.signal
-              });
-
-              if (!res.ok) {
-                const errText = await res.text();
-                throw new Error(`HTTP ${res.status}: ${errText.slice(0, 100)}`);
-              }
-
-              const data: any = await res.json();
-              const choice = data.choices?.[0];
-              const message = choice?.message || {};
-              const toolCalls = extractToolCalls(choice);
-
-              if (toolCalls.length > 0) {
-                // 处理工具调用
-                console.log(`[DEBUG] Processing ${toolCalls.length} tool call(s)`);
-
-                reply.raw.write(`data: ${JSON.stringify({
-                  type: 'tool_call',
-                  toolCalls: toolCalls.map((tc: any) => ({
-                    id: tc.id,
-                    name: tc.function?.name,
-                    arguments: tc.function?.arguments
-                  }))
-                })}\n\n`);
-
-                finalMessages.push({
-                  role: 'assistant',
-                  content: message.content || '',
-                  tool_calls: toolCalls
-                });
-
-                for (const toolCall of toolCalls) {
-                  let toolResult: any;
-                  try {
-                    toolResult = await executeToolCall(project, toolCall, allProjectAgents, allEnabledSkills, reply);
-                  } catch (err: any) {
-                    toolResult = { error: err.message };
-                  }
-
-                  reply.raw.write(`data: ${JSON.stringify({
-                    type: 'tool_result',
-                    toolCallId: toolCall.id,
-                    toolName: toolCall.function?.name,
-                    result: toolResult
-                  })}\n\n`);
-
-                  finalMessages.push({
-                    role: 'tool',
-                    tool_call_id: toolCall.id,
-                    content: JSON.stringify(toolResult)
-                  });
-
-                  // 跟踪 edit_file 无变化错误（连续触发 → 终止循环）
-                  const errMsg: string = typeof toolResult?.error === 'string' ? toolResult.error : '';
-                  const isEditFileStuck = toolCall.function?.name === 'edit_file' &&
-                    errMsg.includes('替换未产生任何变化') &&
-                    errMsg.includes('oldText 和 newText 相同');
-                  if (isEditFileStuck) {
-                    editFileStuckCount++;
-                  } else {
-                    editFileStuckCount = 0;
-                  }
-                }
-
-                // 🛡️ edit_file 死循环防护：达到阈值时终止所有模型循环
-                if (editFileStuckCount >= EDIT_FILE_STUCK_THRESHOLD) {
-                  console.warn(`[Coord] edit_file 连续 ${editFileStuckCount} 次返回"无变化"，终止循环`);
-                  reply.raw.write(`data: ${JSON.stringify({
-                    chunk: '\n\n⚠️ 编辑失败：连续多次尝试修改文件但未产生任何变化。请重新读取文件后确认内容。',
-                    suggestion: '建议：1) 先用 read_file 确认文件当前内容 2) 再调用 edit_file 并提供准确的 oldText 3) 或改用 write_file 重写整个文件'
-                  })}\n\n`);
-                  // 跳出所有模型循环：设置标志 + 跳出 guard while
-                  success = true;
-                  currentModelSuccess = true;
-                  pickedModelCfg = modelCfg;
-                  fullAssistantContent = '';
-                  break;
-                }
-
-                continue;
-              }
-
-              // 获取最终响应
-              fullAssistantContent = message.content || '';
-              success = true;
-              currentModelSuccess = true;
-              pickedModelCfg = modelCfg;
-              console.log(`[DEBUG] Response content: ${fullAssistantContent?.slice(0, 200)}`);
-              break;
-            }
-          } catch (err: any) {
-            modelRetryCount++;
-            console.error(`[Model Fail] ${modelCfg.name} failed (attempt ${modelRetryCount}/${MAX_RETRIES}): ${err.message}`);
-            lastError = err.message;
-
-            // --- 429 错误专门处理 ---
-            const rateLimitInfo = parseApiError(err);
-            if (rateLimitInfo?.isRateLimited) {
-              setModelRateLimited(modelCfg.id, rateLimitInfo);
-              console.log(`[429] ${modelCfg.name} rate limited. Reset at: ${rateLimitInfo.resetTime?.toISOString()}`);
-
-              reply.raw.write(`data: ${JSON.stringify({
-                type: 'rate_limit',
-                model: modelCfg.name,
-                retryAfter: rateLimitInfo.retryAfter,
-                message: `⚠️ 模型 ${modelCfg.name} 触发限流，正在切换备用模型...`
-              })}\n\n`);
-
-              const waitTime = rateLimitInfo.retryAfter
-                ? rateLimitInfo.retryAfter * 1000
-                : calculateBackoff(modelRetryCount);
-
-              if (modelRetryCount < MAX_RETRIES) {
-                console.log(`[Model] Waiting ${waitTime / 1000}s before retry...`);
-                await new Promise(resolve => setTimeout(resolve, Math.min(waitTime, 30000)));
-              }
-            } else {
-              if (modelRetryCount < MAX_RETRIES) {
-                const backoff = calculateBackoff(modelRetryCount);
-                console.log(`[Model] Retrying ${modelCfg.name} in ${backoff}ms...`);
-                await new Promise(resolve => setTimeout(resolve, backoff));
-              }
-            }
-          }
-        }
-      }
-
-      if (!success || !pickedModelCfg) {
-        throw new Error(`所有模型均不可用。最后错误: ${lastError}`);
-      }
-
-      // 模型切换通知
-      if (pickedModelCfg.id !== activeModelId) {
-        console.log(`[Model Switch] Notifying UI: ${pickedModelCfg.name}`);
-        reply.raw.write(`data: ${JSON.stringify({
-          info: `已自动切换至备用模型: ${pickedModelCfg.name}`,
-          switchedModelId: pickedModelCfg.id
-        })}\n\n`);
-
-        const db = await DbService.load();
-        const chatToUpdate = db.chats.find((c: any) => String(c.id) === String(chatId));
-        if (chatToUpdate) {
-          chatToUpdate.modelId = pickedModelCfg.id;
-          await DbService.save();
-        }
-      }
-
-      // 发送最终响应
-      if (fullAssistantContent) {
-        reply.raw.write(`data: ${JSON.stringify({ chunk: fullAssistantContent })}\n\n`);
-        await DbService.addMessageToChat(chatId, {
-          role: 'assistant',
-          content: fullAssistantContent
-        });
-      }
-
-      reply.raw.write(`data: [DONE]\n\n`);
-
-    } catch (err: any) {
-      console.error('[SSE Error Final]', err.message);
-
-      if (err.name === 'AbortError' || err.message?.includes('aborted')) {
-        console.log(`[SSE] Chat ${chatId} was stopped by user`);
-      } else {
-        reply.raw.write(`data: ${JSON.stringify({ chunk: `\n\n❌ 彻底失败: ${err.message}` })}\n\n`);
-        reply.raw.write(`data: [DONE]\n\n`);
-      }
-    } finally {
-      abortController.signal.removeEventListener('abort', onAbort);
-      clearAbortController(chatId);
-      try { reply.raw.end(); } catch {}
+    // MEMORY.md 触发：仅 /send 时处理（resend 不重复触发）
+    const projects = await DbService.getProjects();
+    const chatPre = (await DbService.getChats()).find((c: any) => String(c.id) === String(chatId));
+    const projectPre = projects.find(p => p.id === chatPre?.projectId);
+    if (projectPre && (content.startsWith('请注意') || content.startsWith('请记住'))) {
+      const saved = await saveToMemoryFile(content, projectPre.workspace);
+      console.log(`[Memory] saveToMemoryFile result: ${saved}`);
     }
-  });
 
+    await runChatLLMStream(chatId, reply);
+  });
   // ============================================
   // POST /:id/stop - 停止对话生成
   // ============================================
@@ -472,7 +482,7 @@ export async function ChatRoutes(fastify: FastifyInstance) {
   });
 
   // ============================================
-  // POST /:id/resend - 重发用户消息
+  // POST /:id/resend - 重发用户消息（截断该消息之后的回复，重新触发 LLM 流）
   // ============================================
   fastify.post('/:id/resend', async (request, reply) => {
     const { id: chatId } = request.params as any;
@@ -499,7 +509,9 @@ export async function ChatRoutes(fastify: FastifyInstance) {
     chat.messages = chat.messages.slice(0, msgIndex + 1);
     await DbService.save();
 
-    // 返回截断后的消息列表
-    return { success: true, messages: chat.messages };
+    console.log(`[Resend] ChatID: ${chatId}, re-generating from messageId: ${messageId}`);
+
+    // 复用 /send 的 LLM 流管道（用户消息已存在 DB 中，无需 addMessageToChat）
+    await runChatLLMStream(chatId, reply);
   });
 }
