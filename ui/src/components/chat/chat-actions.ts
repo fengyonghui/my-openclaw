@@ -101,7 +101,7 @@ export interface ChatActionsDeps {
   // SSE 完成后用 DB 重新同步消息，作为"界面以 DB 为准"的最终真相来源。
   // 修复场景：SSE 增量拼接到错误占位 / 通道中途断开 / stale 自愈提前清理 session
   // 时，前端 messages 状态里最终回复可能缺失，但 DB 已经完整持久化。
-  initData: () => Promise<void>;
+  initData: (opts?: { silent?: boolean }) => Promise<void>;
 }
 
 export function useChatActions(deps: ChatActionsDeps) {
@@ -205,7 +205,7 @@ export function useChatActions(deps: ChatActionsDeps) {
           // 🛡️ 流结束后用 DB 重新同步，确保界面以 DB 为准。
           // SSE 增量可能因 onChunk 固定 assistantId 与 onToolResult 新建占位不同步，
           // 或中途断流，导致最终回复没拼到正确槽位；DB 永远是完整真相。
-          initData().catch((e: any) => console.warn('[onDone] resync failed', e?.message));
+          initData({ silent: true }).catch((e: any) => console.warn('[onDone] resync failed', e?.message));
         },
       });
     } catch (err: any) {
@@ -217,7 +217,7 @@ export function useChatActions(deps: ChatActionsDeps) {
         return filtered.map(m => m.id === currentAssistantId && m.status !== "error" ? { ...m, status: undefined } : m);
       });
       // 🛡️ 兜底：catch 路径也用 DB 重新对齐，防止 DB 已落最终回复而界面仍空。
-      initData().catch((e: any) => console.warn('[finally] resync failed', e?.message));
+      initData({ silent: true }).catch((e: any) => console.warn('[finally] resync failed', e?.message));
     }
   };
 
@@ -289,7 +289,7 @@ export function useChatActions(deps: ChatActionsDeps) {
           // 🛡️ 流结束后用 DB 重新同步，确保界面以 DB 为准。
           // SSE 增量可能因 onChunk 固定 assistantId 与 onToolResult 新建占位不同步，
           // 或中途断流，导致最终回复没拼到正确槽位；DB 永远是完整真相。
-          initData().catch((e: any) => console.warn('[onDone] resync failed', e?.message));
+          initData({ silent: true }).catch((e: any) => console.warn('[onDone] resync failed', e?.message));
         },
       });
     } catch (err: any) {
@@ -301,7 +301,7 @@ export function useChatActions(deps: ChatActionsDeps) {
         return filtered.map(m => m.id === currentAssistantId && m.status !== "error" ? { ...m, status: undefined } : m);
       });
       // 🛡️ 兜底：catch 路径也用 DB 重新对齐，防止 DB 已落最终回复而界面仍空。
-      initData().catch((e: any) => console.warn('[finally] resync failed', e?.message));
+      initData({ silent: true }).catch((e: any) => console.warn('[finally] resync failed', e?.message));
     }
   };
 

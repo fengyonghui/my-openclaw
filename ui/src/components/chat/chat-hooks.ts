@@ -216,8 +216,9 @@ export function useChatHooks(
   }, [recognition, isRecording]);
 
   // 数据初始化
-  const initData = useCallback(async () => {
-    setLoading(true);
+  // opts.silent: 跳过 loading 状态切换，用于会话结束后的 DB 同步（避免消息列表闪烁）
+  const initData = useCallback(async (opts: { silent?: boolean } = {}) => {
+    if (!opts.silent) setLoading(true);
     try {
       const [pRes, mRes, cRes] = await Promise.all([
         fetch(`http://localhost:3001/api/v1/projects/${projectId}`),
@@ -261,7 +262,7 @@ export function useChatHooks(
         return { ...m, content };
       }).filter((m: any) => !(m.role === 'assistant' && !m.content?.trim() && m.tool_calls?.length)));
     } catch (err) { console.error(err); }
-    finally { setLoading(false); }
+    finally { if (!opts.silent) setLoading(false); }
   }, [projectId, chatId]);
 
   useEffect(() => {
