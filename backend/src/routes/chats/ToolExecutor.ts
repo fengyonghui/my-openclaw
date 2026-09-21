@@ -914,14 +914,15 @@ export async function executeShellCommand(project: any, args: any): Promise<Tool
   // 验证 cwdArg 是否是有效路径（防止 LLM 生成无效的 cwd 参数）
   if (cwdArg) {
     // 检查是否包含非法字符或过长（可能是 LLM 生成的错误参数）
-    const isValidPath = /^[A-Za-z]:[\\\/]|^[\/\.]|^\w:/.test(cwdArg) && 
-                        !/[\r\n<>|]/.test(cwdArg) && 
+    const isValidPath = /^[A-Za-z]:[\\\/]|^[\/\.]|^\w:/.test(cwdArg) &&
+                        !/[\r\n<>|]/.test(cwdArg) &&
                         cwdArg.length < 500;
     if (!isValidPath) {
       console.log(`[Shell] Invalid cwdArg detected, ignoring: "${cwdArg.slice(0, 100)}..."`);
       cwdArg = undefined;
     }
   }
+
 
   // 调试：输出平台检测结果
   console.log(`[Shell] Detected: platform=${sys.platform}, isWSL=${sys.isWSL}, isWindows=${sys.isWindows}, isLinux=${sys.isLinux}, wslDistro=${sys.wslDistro}`);
@@ -976,6 +977,22 @@ export async function executeShellCommand(project: any, args: any): Promise<Tool
         };
       }
     }
+  }
+
+  // ── Self-kill 防护（任务 2026-09-21）──────────────────────
+  // 背景：LLM 拿到 shell_exec 权限后可 taskkill / Stop-Process / kill 任意 PID，
+  //   包括运行中的 dev server 自己。曾出现 LLM 把 "杀 8088" 误解成 "杀 3001"，
+  //   调用 `taskkill /PID 15608 /F` 把后端 dev server 干掉 → 后续请求 connection refused
+  //   → 前端 network error。修复：在执行前扫描命令字面量，若包含 taskkill /PID $self、
+  //   Stop-Process -Id $self、kill $self 等自毁模式，直接拒绝并提示 LLM 改用 PID 黑名单。
+  //   此处放在 dangerousCmds 检查之后、平台路由之前，确保 effectiveCommand 已 trim/cd-strip。
+  const selfKillCheck = detectSelfKill(effectiveCommand);
+  if (selfKillCheck.violation) {
+    console.warn(`[Shell] ❌ Self-kill blocked: ${selfKillCheck.reason}`);
+    return {
+      error: `拒绝执行：${selfKillCheck.reason}`,
+      suggestion: '请改用 PID 黑名单（如 netstat -ano | findstr :PORT → taskkill /PID <其它端口的PID>）。不要 kill 当前 OpenClaw 后端进程，否则后续请求会全部 network error。'
+    };
   }
 
 
@@ -1038,6 +1055,59 @@ export async function executeShellCommand(project: any, args: any): Promise<Tool
     : localWorkspace;
   console.log(`[Shell] Resolved cwd: ${cwd} (cwdArg=${cwdArg || 'none'})`);
   return executeLinuxCommand(effectiveCommand, cwd, timeoutMs);
+}
+
+/**
+ * Self-kill 防护：检测命令是否尝试杀掉当前进程或父进程。
+ *
+ * 覆盖的自杀模式（按平台分类）：
+ *   Windows cmd:   taskkill /PID <self> [/F] [/T]
+ *                  taskkill /F /PID <self>
+ *                  taskkill -PID <self>
+ *   Windows PS:    Stop-Process -Id <self> [-Force]
+ *                  Stop-Process -ID <self>
+ *   Linux/WSL:     kill <self>      / kill -9 <self> /
+ *                  kill -KILL <self>
+ *
+ * 误报控制：
+ *   - 只对 PID 字面整数匹配（不读变量、不解析 shell 表达式）
+ *   - 父进程 PID 用 process.ppid（dev server 一般是 npx/tsx → node → ts 进程），
+ *     但 tsx watch 还可能启动 tsx 子进程，所以只把"当前进程 PID" 视为禁杀。
+ *
+ * 返回：
+ *   { violation: false } — 不阻断
+ *   { violation: true, reason } — 阻断并把 reason 透出给 LLM
+ */
+export function detectSelfKill(command: string): { violation: boolean; reason?: string } {
+  const selfPid = process.pid;
+  const lower = command.toLowerCase();
+  const selfKillFamily =
+    /\btaskkill\b/.test(lower) ||
+    /\bstop-process\b/.test(lower) ||
+    /\bpkill\b/.test(lower) ||
+    // 单独的 `kill <PID>` 也算自杀命令（Linux/WSL/macOS）
+    /(^|\s|;|\|)kill(\s|-)/.test(lower);
+
+  // 分支 B：pkill / Stop-Process -Name 类无差别杀进程命令 — 不要求 PID 命中 self，直接阻断
+  // （这些命令会按进程名杀掉整个 node/tsx/openclaw 进程族，包括后端自己）
+  if (/\bpkill\b/.test(lower) || /\bstop-process\b.*-name\b/.test(lower)) {
+    return {
+      violation: true,
+      reason: `命令使用 pkill / Stop-Process -Name 按进程名杀进程族，会同时杀掉当前 OpenClaw 后端 (PID=${selfPid})，禁止执行。`
+    };
+  }
+
+  if (!selfKillFamily) return { violation: false };
+
+  // 分支 A：PID 字面整数命中 self（taskkill /PID <self> / kill <self>）
+  const pidMatches = Array.from(command.matchAll(/\b(\d{2,})\b/g)).map(m => Number(m[1]));
+  const targetsSelf = pidMatches.includes(selfPid);
+  if (!targetsSelf) return { violation: false };
+
+  return {
+    violation: true,
+    reason: `命令试图杀掉当前 OpenClaw 后端进程 (PID=${selfPid})。禁止 self-kill，否则 dev server 会崩溃、后续所有请求 network error。`
+  };
 }
 
 /**
