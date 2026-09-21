@@ -515,7 +515,9 @@ export function transformMessage(m: any): Message {
   // /send 端点把解析结果存到 m.parsedAttachments（独立字段，UI 不渲染），
   // 这里合并成 LLM 看到的完整文本；message.content 在存储里保持干净（用户原话）。
   if (m.parsedAttachments && Array.isArray(m.parsedAttachments) && m.parsedAttachments.length > 0) {
+    const origLen = typeof rawContent === 'string' ? rawContent.length : 0;
     rawContent = buildMessageWithAttachments(typeof rawContent === 'string' ? rawContent : '', m.parsedAttachments);
+    console.log(`[transformMessage] merged ${m.parsedAttachments.length} parsedAttachments for role=${m.role}: ${origLen} → ${(rawContent as string).length} chars`);
   }
 
   let base: Message = { role: m.role, content: rawContent };
