@@ -488,8 +488,16 @@ function safeArgumentsJson(args: any): string {
 export function transformMessage(m: any): Message {
   let rawContent = m.content;
 
-  // JSON 字符串还原
-  if (typeof rawContent === 'string') {
+  // JSON 字符串还原 —— 只针对 tool result
+  // 背景 (commit 392e65e)：safeToolContent() 存盘时已 JSON.stringify 一次，
+  // 下游 estimateMessageTokens 看到 object 会再次 stringify，导致双重编码变 `"..."` 字符串。
+  // 修复：从 DB 读取 tool result 时把 JSON 字符串还原为 object，避免下游双重编码。
+  //
+  // 注意 (bug fix 2026-09-18)：之前无差别对所有 role 做 JSON 还原，会把 user 消息里
+  // 纯 JSON 文本（如 `{"question":"..."}`）错误地反序列化为 object，导致请求体里
+  // content 变成 object —— OpenAI 兼容 API 不接受（只接受 string 或 multimodal array），
+  // 引发 LLM 响应被截断。修复后 user / assistant 消息的 content 保持字符串不变。
+  if (m.role === 'tool' && typeof rawContent === 'string') {
     const trimmed = rawContent.trim();
     if ((trimmed.startsWith('{') && trimmed.endsWith('}')) ||
         (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
@@ -515,21 +523,30 @@ export function transformMessage(m: any): Message {
   }
 
   // 多模态附件处理
+  // 背景：附件内容（txt/doc/pdf/excel 等）由 /send 端点先调 parseAttachments 抽成文本，
+  //   再用 buildMessageWithAttachments 合并进 m.content — 这样 LLM 直接读 m.content 就看到内容。
+  // 这里只负责把图片以 image_url 形式嵌入（让模型走 vision）。非图片附件不再生成
+  //   "[附件: name]" 占位符，避免和已合并的文本重复噪声。
   if (m.attachments && m.attachments.length > 0) {
-    const content: any[] = [];
-    if (m.content && m.content.trim()) {
-      content.push({ type: 'text', text: m.content });
-    }
-    m.attachments.forEach((att: any) => {
-      if (att.type?.startsWith('image/') || att.name?.match(/\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i)) {
-        if (att.dataUrl) {
-          content.push({ type: 'image_url', image_url: { url: att.dataUrl } });
-        }
-      } else {
-        content.push({ type: 'text', text: m.content ? `[附件: ${att.name}]` : `[附件: ${att.name}]` });
+    const hasImage = m.attachments.some((att: any) =>
+      att.type?.startsWith('image/') || att.name?.match(/\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i)
+    );
+    if (hasImage) {
+      const content: any[] = [];
+      if (m.content && m.content.trim()) {
+        content.push({ type: 'text', text: m.content });
       }
-    });
-    return { ...base, content: content.length > 0 ? content : m.content || '' };
+      m.attachments.forEach((att: any) => {
+        if (att.type?.startsWith('image/') || att.name?.match(/\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i)) {
+          if (att.dataUrl) {
+            content.push({ type: 'image_url', image_url: { url: att.dataUrl } });
+          }
+        }
+      });
+      return { ...base, content: content.length > 0 ? content : m.content || '' };
+    }
+    // 没有图片：直接用 m.content（已包含附件解析后的文本）
+    return base;
   }
 
   return base;

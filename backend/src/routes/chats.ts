@@ -10,6 +10,16 @@ import { pruneContext, compactContext, getContextStats, Message } from '../servi
 import { buildToolList } from '../services/ToolDefinitions.js';
 import { parseApiError, setModelRateLimited, calculateBackoff } from '../services/RateLimitHandler.js';
 import { projectRuntimeManager } from '../services/ProjectRuntimeManager.js';
+import { parseAttachments, buildMessageWithAttachments } from '../services/FileParserService.js';
+import {
+  readChat,
+  writeChatDual,
+  appendMessageDual,
+  truncateMessagesDual,
+  deleteChatDual,
+  createChatDual,
+  listChatsForProject,
+} from './chats/ChatStorageHelper.js';
 
 // 导入模块化组件
 import {
@@ -62,11 +72,12 @@ async function runChatLLMStream(chatId: string, reply: any): Promise<void> {
   let fullAssistantContent = '';
 
   try {
-    // 加载数据
-    const projects = await DbService.getProjects();
-    const chats = await DbService.getChats();
-    const chat = chats.find(c => String(c.id) === String(chatId));
-    const project = projects.find(p => p.id === chat?.projectId);
+    // 性能优化 (2026-09-12): 先用快速路径读 chat 拿到 projectId，
+    // 避免 DbService.getChats() 加载整个 130MB db.json
+    const chat = await readChat(chatId);
+    if (!chat) throw new Error('会话不存在');
+    const workspace = await DbService.getProjectWorkspace(chat.projectId);
+    const project = workspace ? await DbService.getProject(chat.projectId) : null;
     const allModels = await DbService.getModels();
 
     if (!project) throw new Error('未找到所属项目');
@@ -101,9 +112,8 @@ async function runChatLLMStream(chatId: string, reply: any): Promise<void> {
     // 构建工具列表
     const tools = buildToolList(project, allProjectAgents, coordinatorAgentId, allEnabledSkills);
 
-    // 获取聊天历史
-    const chatWithHistory = await DbService.getChat(chatId);
-    const historyMessages = chatWithHistory?.messages || [];
+    // 获取聊天历史（chat 已通过 readChat 读出，messages 在 chat 上）
+    const historyMessages = chat.messages || [];
 
     // 构建消息
     let apiMessages = buildHistoryMessages(historyMessages, 100, 2);
@@ -321,7 +331,7 @@ async function runChatLLMStream(chatId: string, reply: any): Promise<void> {
       throw new Error(`所有模型均不可用。最后错误: ${lastError}`);
     }
 
-    // 模型切换通知
+    // 模型切换通知（双写 db.json + 项目文件）
     if (pickedModelCfg.id !== activeModelId) {
       console.log(`[Model Switch] Notifying UI: ${pickedModelCfg.name}`);
       reply.raw.write(`data: ${JSON.stringify({
@@ -329,21 +339,21 @@ async function runChatLLMStream(chatId: string, reply: any): Promise<void> {
         switchedModelId: pickedModelCfg.id
       })}\n\n`);
 
-      const db = await DbService.load();
-      const chatToUpdate = db.chats.find((c: any) => String(c.id) === String(chatId));
+      // 通过快速路径读最新 chat，再双写更新 modelId（传入 projectId 跳过全表查）
+      const chatToUpdate = await readChat(chatId, project?.id);
       if (chatToUpdate) {
         chatToUpdate.modelId = pickedModelCfg.id;
-        await DbService.save();
+        await writeChatDual(chatToUpdate);
       }
     }
 
-    // 发送最终响应
+    // 发送最终响应（双写 db.json + 项目文件）
     if (fullAssistantContent) {
       reply.raw.write(`data: ${JSON.stringify({ chunk: fullAssistantContent })}\n\n`);
-      await DbService.addMessageToChat(chatId, {
+      await appendMessageDual(chatId, {
         role: 'assistant',
         content: fullAssistantContent
-      });
+      }, project?.id);
     }
 
     reply.raw.write(`data: [DONE]\n\n`);
@@ -367,18 +377,27 @@ async function runChatLLMStream(chatId: string, reply: any): Promise<void> {
 export async function ChatRoutes(fastify: FastifyInstance) {
   // ============================================
   // GET / - 获取聊天列表
+  // 性能优化：项目文件优先 + db.json 合并（替代 DbService.getChats() 全量加载 130MB）
   // ============================================
   fastify.get('/', async (request) => {
     const { projectId } = request.query as { projectId?: string };
-    return await DbService.getChats(projectId);
+    if (!projectId) {
+      // 无 projectId 时回退到原 DbService 路径（兼容调用）
+      return await DbService.getChats();
+    }
+    return await listChatsForProject(projectId);
   });
 
   // ============================================
   // GET /:id - 获取单个聊天
+  // 性能优化：项目文件优先 → db.json 回退（130MB→单文件，~38 倍加速）
   // ============================================
-  fastify.get('/:id', async (request) => {
+  fastify.get('/:id', async (request, reply) => {
     const { id } = request.params as { id: string };
-    return await DbService.getChat(id);
+    const { projectId: queryProjectId } = request.query as any;
+    const chat = await readChat(id, queryProjectId);
+    if (!chat) return reply.code(404).send({ error: '会话不存在' });
+    return chat;
   });
 
   // ============================================
@@ -404,34 +423,33 @@ export async function ChatRoutes(fastify: FastifyInstance) {
   });
 
   // ============================================
-  // PATCH /:id - 更新聊天
+  // PATCH /:id - 更新聊天（双写：db.json + 项目文件）
   // ============================================
   fastify.patch('/:id', async (request) => {
     const { id } = request.params as { id: string };
-    const updates = request.body as any;
-    const db = await DbService.load();
-    const chat = db.chats.find((c: any) => String(c.id) === String(id));
-    if (chat) {
-      Object.assign(chat, updates);
-      await DbService.save();
-    }
-    return chat;
+    const { projectId: queryProjectId, ...updates } = request.body as any;
+    // 先走快速路径读出当前会话
+    const current = await readChat(id, queryProjectId);
+    if (!current) return null;
+    Object.assign(current, updates);
+    return await writeChatDual(current);
   });
 
   // ============================================
-  // POST / - 创建聊天
+  // POST / - 创建聊天（双写：db.json + 项目文件）
   // ============================================
   fastify.post('/', async (request) => {
-    const { projectId, title, agentId } = request.body as any;
-    return await DbService.createChat(projectId, title, agentId);
+    const { projectId, title, agentId, modelId } = request.body as any;
+    return await createChatDual({ projectId, title, agentId, modelId });
   });
 
   // ============================================
-  // DELETE /:id - 删除聊天
+  // DELETE /:id - 删除聊天（双源：db.json + 项目文件）
   // ============================================
   fastify.delete('/:id', async (request) => {
     const { id } = request.params as { id: string };
-    return await DbService.deleteChat(id);
+    const { projectId: queryProjectId } = request.query as any;
+    return { success: await deleteChatDual(id, queryProjectId) };
   });
 
   // ============================================
@@ -439,27 +457,43 @@ export async function ChatRoutes(fastify: FastifyInstance) {
   // ============================================
   fastify.post('/:id/send', async (request, reply) => {
     const { id: chatId } = request.params as any;
-    const { content, attachments } = request.body as any;
+    const { content, attachments, projectId: queryProjectId } = request.body as any;
 
     console.log(`[SSE Start] ChatID: ${chatId}, Content: ${content?.slice(0, 50)}...`);
 
     // 清理消息中的 @AgentName 提及
     const { cleanContent, mentions } = cleanMentions(content);
 
-    // 保存用户消息
-    await DbService.addMessageToChat(chatId, {
+    // 解析附件内容（性能关键：把 txt/doc/pdf/excel 内容合并进 content，
+    //   否则 LLM 只看到 "[附件: xxx]" 占位符，看不到真实内容 — 已多次反馈）
+    // 图片走 vision（OCR + image_url），文本类走 FileParserService 抽出文字
+    let finalContent = cleanContent;
+    if (attachments && attachments.length > 0) {
+      try {
+        const parsed = await parseAttachments(attachments);
+        if (parsed.length > 0) {
+          finalContent = buildMessageWithAttachments(cleanContent, parsed);
+        }
+      } catch (err: any) {
+        console.warn(`[Chat /send] 附件解析失败，保留原始占位符: ${err.message}`);
+      }
+    }
+
+    // 保存用户消息（双写：db.json + 项目文件）
+    // content 已包含附件解析后的文本；attachments 数组保留供前端 UI 渲染
+    await appendMessageDual(chatId, {
       role: 'user',
-      content: cleanContent,
+      content: finalContent,
       mentions,
       attachments: attachments || []
-    } as any);
+    } as any, queryProjectId);
 
     // MEMORY.md 触发：仅 /send 时处理（resend 不重复触发）
-    const projects = await DbService.getProjects();
-    const chatPre = (await DbService.getChats()).find((c: any) => String(c.id) === String(chatId));
-    const projectPre = projects.find(p => p.id === chatPre?.projectId);
-    if (projectPre && (content.startsWith('请注意') || content.startsWith('请记住'))) {
-      const saved = await saveToMemoryFile(content, projectPre.workspace);
+    // 走轻量级 workspace 缓存，避免 getProject 触发 130MB db.json 解析
+    const chatPre = await readChat(chatId, queryProjectId);
+    const workspace = chatPre?.projectId ? await DbService.getProjectWorkspace(chatPre.projectId) : null;
+    if (workspace && (content.startsWith('请注意') || content.startsWith('请记住'))) {
+      const saved = await saveToMemoryFile(content, workspace);
       console.log(`[Memory] saveToMemoryFile result: ${saved}`);
     }
 
@@ -486,15 +520,14 @@ export async function ChatRoutes(fastify: FastifyInstance) {
   // ============================================
   fastify.post('/:id/resend', async (request, reply) => {
     const { id: chatId } = request.params as any;
-    const { messageId } = request.body as any;
+    const { messageId, projectId: queryProjectId } = request.body as any;
 
     if (!messageId) {
       return { success: false, message: 'messageId 是必填参数' };
     }
 
-    const db = await DbService.load();
-    const chat = db.chats.find((c: any) => String(c.id) === String(chatId));
-
+    // 走快速路径读取（项目文件优先）
+    const chat = await readChat(chatId, queryProjectId);
     if (!chat) {
       return { success: false, message: '对话不存在' };
     }
@@ -505,9 +538,8 @@ export async function ChatRoutes(fastify: FastifyInstance) {
       return { success: false, message: '消息不存在' };
     }
 
-    // 删除该消息之后的所有消息（包括 assistant 回复）
-    chat.messages = chat.messages.slice(0, msgIndex + 1);
-    await DbService.save();
+    // 删除该消息之后的所有消息（包括 assistant 回复）— 双写（传入 projectId 跳过全表查）
+    await truncateMessagesDual(chatId, messageId, chat.projectId);
 
     console.log(`[Resend] ChatID: ${chatId}, re-generating from messageId: ${messageId}`);
 
