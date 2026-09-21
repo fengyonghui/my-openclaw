@@ -56,11 +56,37 @@ export class ProjectDataService {
   getChats(): ProjectChat[] {
     const chatsDir = this.getChatsDir();
     const files = fs.readdirSync(chatsDir).filter(f => f.endsWith('.json'));
-    
+
     return files.map(file => {
       const content = fs.readFileSync(path.join(chatsDir, file), 'utf-8');
       return JSON.parse(content);
     }).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  }
+
+  // 并发版 getChats（性能优化 2026-09-12）：用 Promise.all 并发读取，避免
+  // N×单文件读取的串行阻塞。适用于 dashboard 列表等多文件场景。
+  async getChatsAsync(): Promise<ProjectChat[]> {
+    const chatsDir = this.getChatsDir();
+    let files: string[];
+    try {
+      files = await fs.promises.readdir(chatsDir);
+    } catch {
+      return [];
+    }
+    files = files.filter(f => f.endsWith('.json'));
+    const chats = await Promise.all(
+      files.map(async (file) => {
+        try {
+          const content = await fs.promises.readFile(path.join(chatsDir, file), 'utf-8');
+          return JSON.parse(content);
+        } catch {
+          return null;
+        }
+      })
+    );
+    return chats
+      .filter((c): c is ProjectChat => c !== null)
+      .sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime());
   }
 
   // 获取单个会话

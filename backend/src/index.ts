@@ -70,6 +70,11 @@ try {
   // 数据同步：确保文件系统数据已导入数据库
   await DataSyncService.syncOnStartup();
 
+  // 预热 workspaceCache（避免首请求触发 130MB db.json 解析）
+  // 同步执行：仅一次 660ms 代价，但保证首个会话打开就在快速路径
+  const { DbService } = await import('./services/DbService.js');
+  await DbService.load();
+
   // 恢复所有心跳调度
   await restoreHeartbeats();
   

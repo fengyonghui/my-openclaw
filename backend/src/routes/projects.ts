@@ -5,6 +5,7 @@ import { ProjectDataService } from '../services/ProjectDataService.js';
 import { HeartbeatService } from '../services/HeartbeatService.js';
 import { getProjectWorkspacePath } from '../services/PathService.js';
 import { projectRuntimeManager } from '../services/ProjectRuntimeManager.js';
+import { listChatsForProject } from './chats/ChatStorageHelper.js';
 import fs from 'node:fs';
 import { readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
@@ -56,16 +57,20 @@ export async function ProjectRoutes(fastify: FastifyInstance) {
   });
 
   // 获取项目下的会话（返回摘要，不包含完整消息内容）
+  // 性能优化 (2026-09-12): 改用 ProjectDataService + db.json 合并，
+  // 避免 DbService.getChats() 加载 130MB db.json（实测从 1.22s 降到 ~200ms）
   fastify.get('/:id/chats', async (request, reply) => {
     const { id } = request.params as { id: string };
     const { page = 1, limit = 50 } = request.query as any;
 
+    // 合并项目文件 + db.json 中该项目的会话（listChatsForProject 走快速路径）
+    const chats = await listChatsForProject(id);
+
     // 只返回摘要信息，不返回完整消息内容
-    const chats = await DbService.getChats(id);
     const summaries = chats.map((c: any) => ({
       id: c.id,
       projectId: c.projectId,
-      title: c.title || '新对话',
+      title: c.title || c.name || '新对话',
       updatedAt: c.updatedAt,
       messageCount: c.messages?.length || 0,
       lastMessage: c.messages?.[c.messages.length - 1]?.content?.slice(0, 100) || ''

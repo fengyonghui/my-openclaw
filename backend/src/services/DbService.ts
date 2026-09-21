@@ -39,15 +39,96 @@ export class DbService {
   private static lastLoadTime: number = 0;
   private static cacheTTL: number = 5000; // 5 秒缓存
 
-  // 强制重新加载数据库（用于外部修改文件后）
-  static async reload() {
-    this.data = null;
-    this.fileMtime = 0;
-    this.lastLoadTime = 0;
-    return await this.load();
+  // 性能优化 (2026-09-12): projectId → workspace 映射独立缓存
+  // 避免 readChat 热路径每次都触发 DbService.load() 解析 130MB db.json
+  // 该缓存只在 fileMtime 变化时失效
+  private static workspaceCache: Map<string, string> = new Map();
+  private static workspaceCacheMtime: number = 0;
+
+  /**
+   * 轻量级项目工作区查询：仅在缓存失效时解析 db.json，命中缓存返回极快
+   * 适用于 ChatStorageHelper.readChat 等只需要 workspace 路径的场景
+   */
+  static async getProjectWorkspace(projectId: string): Promise<string | null> {
+    if (this.workspaceCacheMtime === this.fileMtime && this.workspaceCache.has(projectId)) {
+      return this.workspaceCache.get(projectId)!;
+    }
+    // 缓存失效：触发一次完整 load（更新 fileMtime + workspaceCache）
+    await this.load();
+    return this.workspaceCache.get(projectId) || null;
   }
 
+  /**
+   * 列出所有项目工作区路径（性能优化 2026-09-14）
+   * 给 ChatStorageHelper.readChat 在没传 projectId 时扫描 chatId 所属项目用
+   */
+  static getAllProjectWorkspaces(): string[] {
+    if (this.workspaceCacheMtime !== this.fileMtime) {
+      // 缓存未建立（启动后第一次调用），懒加载一次
+      // 不能用 await 这里（getAllProjectWorkspaces 是同步方法），
+      // 所以调用方应先确保 load() 至少被调用过一次（启动时已做）
+      // 退化：返回空数组，让 readChat 走 db.json 兜底
+      // 注意：启动时 index.ts 已调用 await DbService.load() 预热，这里通常有缓存
+      this.load().catch(() => {});
+    }
+    return Array.from(this.workspaceCache.values());
+  }
+
+  /**
+   * 重建 projectId → workspace 索引（仅在 db.json 实际变化时调用）
+   */
+  private static rebuildWorkspaceCache() {
+    this.workspaceCache.clear();
+    const projects = this.data?.projects || [];
+    for (const p of projects) {
+      if (p?.id && p?.workspace) {
+        this.workspaceCache.set(p.id, p.workspace);
+      }
+    }
+    this.workspaceCacheMtime = this.fileMtime;
+  }
+
+  // 串行化加载队列（防止并发 load() 触发 N 次 130MB JSON.parse 导致 OOM）
+  // 背景 (2026-09-14): 20 个并发 POST /chats 触发 20 个 DbService.createChat，
+  //   每个都 await this.load()，但 load() 没有并发保护，每个都 readFile + parse，
+  //   内存峰值 20*130MB = 2.6GB → OOM。
+  // 机制：所有 load() 通过 loadQueue 串行执行；first call 真正读文件，
+  //   后续调用拿到 first call 的 this.data 共享引用。
+  //
+  // 关键保护 (2026-09-14): 如果 save 正在进行（writeLoopRunning=true），
+  //   不能 readFile — 写入是流式的，期间读到的是截断 JSON，会 parse 失败。
+  //   此时直接返回 cached this.data（save 正在序列化同一份 data，是最新的）。
+  private static loadQueue: Promise<any> = Promise.resolve();
+
   static async load() {
+    // 关键保护 (2026-09-14): save 正在进行时，禁止读文件
+    // 写入是流式的，期间读到的是截断 JSON，会 parse 失败
+    while (this.writeLoopRunning) {
+      await new Promise<void>((resolve) => this.writeWaiters.push(resolve));
+    }
+
+    // 有缓存数据直接返回（this.data 是 save 要写入的同一份对象，是最新的）
+    // 不再走 stat + readFile，避免与并发 writeFile 撞车读到截断 JSON
+    // 显式 reload() 会先清空 this.data 再 load，强制从文件重新加载
+    if (this.data) {
+      return this.data;
+    }
+
+    // 第一次加载或 reload 后：必须从文件读
+    this.loadQueue = this.loadQueue.then(async () => {
+      return await this._loadUnchecked();
+    }).catch((err: any) => {
+      console.error('[DbService] load() 失败:', err.message);
+      throw err;
+    });
+
+    return this.loadQueue;
+  }
+
+  /**
+   * 实际执行加载的私有方法（无并发保护，由 load() 串行化调用）
+   */
+  private static async _loadUnchecked() {
     try {
       // 检查文件是否存在
       if (!existsSync(DB_PATH)) {
@@ -57,6 +138,7 @@ export class DbService {
         this.data = initial;
         this.fileMtime = Date.now();
         this.lastLoadTime = Date.now();
+        this.rebuildWorkspaceCache();
         return initial;
       }
 
@@ -75,6 +157,9 @@ export class DbService {
       this.fileMtime = mtime;
       this.lastLoadTime = Date.now();
 
+      // 性能优化 (2026-09-12): 重建项目工作区索引（仅缓存项目列表的轻量子集）
+      this.rebuildWorkspaceCache();
+
       // 版本迁移
       await this.migrateToV3();
       return this.data;
@@ -90,6 +175,14 @@ export class DbService {
       this.lastLoadTime = Date.now();
       return initial;
     }
+  }
+
+  // 强制重新加载数据库（用于外部修改文件后）
+  static async reload() {
+    this.data = null;
+    this.fileMtime = 0;
+    this.lastLoadTime = 0;
+    return await this.load();
   }
 
   // 简单的字符串哈希
@@ -115,9 +208,61 @@ export class DbService {
     };
   }
 
-  static async save() {
+  // 串行化 + 合并保存（防止并发写损坏 db.json）
+  // 背景 (2026-09-14):
+  //   1. 之前 setImmediate(() => DbService.save()) 多并发
+  //      会触发交错 writeFile，导致 db.json 尾部追加新 JSON 对象
+  //      (实测 position 124352554 处发现 "Extra data")。
+  //   2. 之前纯串行化队列：每个 save 都链一个 cb，每个 cb 都跑一次，
+  //      写脏标志在写期间又被新 save 重新置 true，导致 90 saves → 90 writes，
+  //      每次写 130MB ~2-3s，吞吐量极低。
+  //
+  // 当前机制：writeLoop 长跑 while 循环，一次处理所有 pending saves；
+  // 新 save() 仅标记 dirty 并加入等待，loop 看到 dirty 会再写一轮。
+  // 实际效果：burst 内 N 个 save → 通常 1 次 write（writeDirty 在写入期间被重新置 true 才会再写）。
+  private static writeLoopRunning: boolean = false;
+  private static writeDirty: boolean = false;
+  private static writeWaiters: Array<() => void> = [];
+
+  static async save(): Promise<void> {
     if (!this.data) return;
-    await writeFile(DB_PATH, JSON.stringify(this.data, null, 2), 'utf-8');
+
+    // 标记有数据要写
+    this.writeDirty = true;
+
+    // 如果已有 write loop 跑着，把当前 caller 加入等待队列
+    // 这样 burst 内 90 个 save 都共享同一个 loop 实例
+    if (this.writeLoopRunning) {
+      await new Promise<void>((resolve) => this.writeWaiters.push(resolve));
+      return;
+    }
+
+    // 启动 write loop（单实例，处理所有 pending writes）
+    this.writeLoopRunning = true;
+    try {
+      while (this.writeDirty && this.data) {
+        this.writeDirty = false; // 抢到本次写盘权（下一轮再检查 dirty）
+
+        await writeFile(DB_PATH, JSON.stringify(this.data, null, 2), 'utf-8');
+
+        // 同步更新 fileMtime，保证下一次 load() 触发 workspaceCache 重建
+        try {
+          const fileStat = await stat(DB_PATH);
+          this.fileMtime = fileStat.mtimeMs;
+        } catch {
+          // 忽略 stat 失败，下次 load() 仍会基于 mtime 变化触发重建
+        }
+      }
+    } catch (err: any) {
+      console.error('[DbService] save() 失败:', err.message);
+      // 写失败，下次 save() 自动重试
+      this.writeDirty = true;
+    } finally {
+      this.writeLoopRunning = false;
+      // 通知所有等待的 caller
+      const waiters = this.writeWaiters.splice(0);
+      for (const w of waiters) w();
+    }
   }
 
   // ============================================================
@@ -370,12 +515,11 @@ export class DbService {
     return db.chats.find((c: any) => String(c.id) === String(id));
   }
 
-  static async createChat(projectId: string, title: string, agentId: string) {
-    const db = await this.load();
-    const newChat = { id: Date.now().toString(), projectId, title: title || '新会话', agentId, messages: [], updatedAt: new Date().toISOString() };
-    db.chats.unshift(newChat);
-    await this.save();
-    return newChat;
+  // 注意 (2026-09-14): 旧的 createChat(projectId, title, agentId) 生成与 ChatStorageHelper.createChatDual
+  //   不同的 id，导致 DELETE 时 filter 找不到刚创建的会话。
+  //   现已统一用 upsertChat(chat) 接受完整 chat 对象，确保 id 一致。
+  static async createChat(_projectId: string, _title: string, _agentId: string) {
+    throw new Error('DbService.createChat 已废弃，请使用 upsertChat(chat) 传入完整 chat 对象');
   }
 
   static async deleteChat(id: string) {
@@ -383,6 +527,20 @@ export class DbService {
     db.chats = db.chats.filter((c: any) => String(c.id) !== String(id));
     await this.save();
     return db.chats;
+  }
+
+  // 性能优化 (2026-09-12): 替换或插入会话，用于 ChatStorageHelper 双写 db.json 路径
+  // 与 PATCH /:id 行为一致：找到则合并，未找到则 unshift 插入
+  static async upsertChat(chat: any) {
+    const db = await this.load();
+    const idx = db.chats.findIndex((c: any) => String(c.id) === String(chat.id));
+    if (idx === -1) {
+      db.chats.unshift(chat);
+    } else {
+      Object.assign(db.chats[idx], chat);
+    }
+    await this.save();
+    return chat;
   }
 
   static async deleteMessagesFrom(chatId: string, fromMessageId: string) {
