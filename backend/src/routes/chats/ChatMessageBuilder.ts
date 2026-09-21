@@ -15,6 +15,7 @@ import * as os from 'os';
 import * as crypto from 'crypto';
 import { loadMemoryFile } from './MemoryFileHandler.js';
 import { getSystemInfo, getSystemCommands } from '../../services/SystemCommands.js';
+import { buildMessageWithAttachments } from '../../services/FileParserService.js';
 
 // ============================================================
 // 类型定义
@@ -509,6 +510,14 @@ export function transformMessage(m: any): Message {
     }
   }
 
+  // 附件解析内容合并 —— 仅在 LLM 请求边界生效（不写入 m.content，不影响 UI 存储）
+  // 背景 (2026-09-21)：附件内容不应出现在对话框 UI，只在调用 LLM 时传入。
+  // /send 端点把解析结果存到 m.parsedAttachments（独立字段，UI 不渲染），
+  // 这里合并成 LLM 看到的完整文本；message.content 在存储里保持干净（用户原话）。
+  if (m.parsedAttachments && Array.isArray(m.parsedAttachments) && m.parsedAttachments.length > 0) {
+    rawContent = buildMessageWithAttachments(typeof rawContent === 'string' ? rawContent : '', m.parsedAttachments);
+  }
+
   let base: Message = { role: m.role, content: rawContent };
 
   if (m.role === 'tool') {
@@ -523,18 +532,18 @@ export function transformMessage(m: any): Message {
   }
 
   // 多模态附件处理
-  // 背景：附件内容（txt/doc/pdf/excel 等）由 /send 端点先调 parseAttachments 抽成文本，
-  //   再用 buildMessageWithAttachments 合并进 m.content — 这样 LLM 直接读 m.content 就看到内容。
-  // 这里只负责把图片以 image_url 形式嵌入（让模型走 vision）。非图片附件不再生成
-  //   "[附件: name]" 占位符，避免和已合并的文本重复噪声。
+  // 背景：附件内容（txt/doc/pdf/excel 等）由 /send 端点解析后存到 m.parsedAttachments，
+  //   上面已经合并进 rawContent（仅供 LLM）。message.attachments[] 仍保留供前端 UI 渲染缩略图。
+  // 这里只把图片以 image_url 形式嵌入（让模型走 vision）。
   if (m.attachments && m.attachments.length > 0) {
     const hasImage = m.attachments.some((att: any) =>
       att.type?.startsWith('image/') || att.name?.match(/\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i)
     );
     if (hasImage) {
       const content: any[] = [];
-      if (m.content && m.content.trim()) {
-        content.push({ type: 'text', text: m.content });
+      // rawContent 已包含 parsedAttachments 合并后的文本（如果有）
+      if (rawContent && typeof rawContent === 'string' && rawContent.trim()) {
+        content.push({ type: 'text', text: rawContent });
       }
       m.attachments.forEach((att: any) => {
         if (att.type?.startsWith('image/') || att.name?.match(/\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i)) {
@@ -543,9 +552,9 @@ export function transformMessage(m: any): Message {
           }
         }
       });
-      return { ...base, content: content.length > 0 ? content : m.content || '' };
+      return { ...base, content: content.length > 0 ? content : rawContent || '' };
     }
-    // 没有图片：直接用 m.content（已包含附件解析后的文本）
+    // 没有图片：直接用 rawContent（已包含 parsedAttachments 合并）
     return base;
   }
 

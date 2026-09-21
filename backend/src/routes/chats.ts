@@ -464,28 +464,27 @@ export async function ChatRoutes(fastify: FastifyInstance) {
     // 清理消息中的 @AgentName 提及
     const { cleanContent, mentions } = cleanMentions(content);
 
-    // 解析附件内容（性能关键：把 txt/doc/pdf/excel 内容合并进 content，
-    //   否则 LLM 只看到 "[附件: xxx]" 占位符，看不到真实内容 — 已多次反馈）
-    // 图片走 vision（OCR + image_url），文本类走 FileParserService 抽出文字
-    let finalContent = cleanContent;
+    // 解析附件内容（背景：附件内容不能进 UI 对话框，只能在 LLM 调用时合并）
+    //   - content 字段保持用户原文（UI 直接渲染）
+    //   - parsedAttachments 单独存（不暴露给前端，由 transformMessage 在 LLM 请求边界合并）
+    //   - attachments[] 保留供前端 UI 显示缩略图 / 文件名
+    let parsedAttachments: any[] = [];
     if (attachments && attachments.length > 0) {
       try {
-        const parsed = await parseAttachments(attachments);
-        if (parsed.length > 0) {
-          finalContent = buildMessageWithAttachments(cleanContent, parsed);
-        }
+        parsedAttachments = await parseAttachments(attachments);
       } catch (err: any) {
-        console.warn(`[Chat /send] 附件解析失败，保留原始占位符: ${err.message}`);
+        console.warn(`[Chat /send] 附件解析失败，跳过 LLM 注入: ${err.message}`);
       }
     }
 
     // 保存用户消息（双写：db.json + 项目文件）
-    // content 已包含附件解析后的文本；attachments 数组保留供前端 UI 渲染
+    // content: 用户原文（不进附件文本）；attachments: UI 用；parsedAttachments: 仅 LLM 用
     await appendMessageDual(chatId, {
       role: 'user',
-      content: finalContent,
+      content: cleanContent,
       mentions,
-      attachments: attachments || []
+      attachments: attachments || [],
+      parsedAttachments: parsedAttachments.length > 0 ? parsedAttachments : undefined,
     } as any, queryProjectId);
 
     // MEMORY.md 触发：仅 /send 时处理（resend 不重复触发）
