@@ -1,0 +1,1 @@
+powershell -Command "yarn dev 2>&1 | Tee-Object -FilePath dev.log"
