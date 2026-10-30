@@ -1,6 +1,6 @@
 # My-OpenClaw 项目记忆
 
-> 最后更新：2026-08-03
+> 最后更新：2026-10-30
 
 ## 项目概述
 
@@ -30,6 +30,13 @@
 - `backend/data/db.json` - 全局数据（项目列表、全局 Agent/Model/Skill、心跳配置）
 - `backend/data/system-commands.json` - 系统命令（自动生成，不要手动修改）
 - 各项目 `data/chats/*.json` - 按项目隔离的会话文件
+
+**会话真相来源**：项目文件 `data/chats/<id>.json` 是**真实数据源**，db.json 仅作冗余备份
+- 读：项目文件优先 → db.json 回退（`ChatStorageHelper.readChat`）
+- 写：只写项目文件，db.json 由 `DataSyncService` 定期兜底同步
+- **前提**：项目 workspace 必须能通过 `DbService.getProjectWorkspace(projectId)` 解析到，
+  否则写入被跳过、读取落空（见 Bug #13）——新建项目后务必确认该接口可用
+- db.json 已膨胀到 ~130MB，`DbService.load()` 需 ~660ms；热路径一律走项目文件（~19ms）
 
 ### 路径处理
 - `PathService.ts` - Windows ↔ WSL 路径转换
@@ -173,6 +180,24 @@
    - 新增末尾 -d "..." 匹配：扫描内层未转义引号，替换为 PowerShell 转义形式 "
    - 已处理：curl POST JSON body、双引号内嵌 JSON、单引号 JSON（跳过）
     - MiniMax 推理模型输出格式: `to=functions.read_file code<|message|>{...}<|call|>`
+13. ✅ 新建项目的会话消失 + LLM 收不到用户问题 → 已修复（2026-10-30，commit `1850862`）
+    - **根因**：`DbService.load()` 一旦 `this.data` 非 null 就返回缓存，`_loadUnchecked()` 进程生命周期内只执行一次，
+      而 `rebuildWorkspaceCache()` 只写在 `_loadUnchecked()` 里。`createProject`/`importProject` push 完
+      `db.projects` 只调 `save()`，`save()` 只更新 `fileMtime` 不重建索引 → **服务启动后新建的项目永远不在索引里**，
+      `getProjectWorkspace()` 返回 null
+    - **级联**：`createChatDual` 跳过项目文件写入 → `listChatsForProject` 提前 `return []`（列表空）
+      → `ProjectDataService.addMessage` 因文件不存在**静默丢弃** user 消息 → LLM 只收到 systemMessage
+      → 服务端报 `chat content is empty`，或答成"没有具体说明需要我做什么"
+    - **修复**：`DbService.save()` 写盘后重建索引（覆盖所有项目增删改路径）；
+      `ProjectDataService.addMessage` 文件不存在时打告警不再无声丢消息；
+      `ChatStorageHelper.appendMessageDual` db.json 未命中时扫描项目目录兜底；
+      前端 send 请求带 `projectId` 走快速路径
+    - **注意**：`DbService.getAllProjectWorkspaces()` 是同步方法却 fire-and-forget 调 `load()`，
+      缓存未建立时返回空数组（`readChat` 第 2 步扫描会落空）
+14. ✅ 附件 base64 超 1MB 被 fastify 打回 413 → 已修复（2026-10-30，commit `1850862`）
+    - fastify 默认 `bodyLimit` 1 MiB，而前端把附件 base64 直接塞 JSON body（比 binary 大 33%）
+      → 后端 413 直接拒绝，前端表现为"提交后页面空白 + LLM 没响应"（SSE 收不到任何 chunk）
+    - 修复：`bodyLimit` 提至 50 MiB + 前端 fetch 非 2xx 时把错误写进 assistant 消息（不再静默空白）
     - `extractToolCallsFromContent` 原有 3 种匹配模式（`<invoke>` / JS函数调用 / Markdown代码块），未覆盖此格式
     - 新增第 4 种模式正则：`/to=functions\.(\w+)\s+code<\|message\|>([\s\S]*?)<\|call\|>/gi`
 
