@@ -252,6 +252,24 @@ export class DbService {
         } catch {
           // 忽略 stat 失败，下次 load() 仍会基于 mtime 变化触发重建
         }
+
+        // 关键修复 (2026-10-30): 重建 projectId → workspace 索引。
+        //
+        // Bug: workspaceCache 只在 _loadUnchecked() 里构建，而 load() 一旦
+        //   this.data 非 null 就直接返回缓存，_loadUnchecked() 进程生命周期内
+        //   只执行一次（仅启动时）。因此「服务启动后新建的项目」永远不在索引里，
+        //   getProjectWorkspace() 返回 null。
+        //
+        // 连锁反应:
+        //   1. createChatDual: if (workspace) 不成立 → 跳过项目文件写入 → data/chats/ 空
+        //   2. listChatsForProject: if (!workspace) return [] → 列表接口返回空
+        //      （会话其实在 db.json 里，只是列表读不到）
+        //   3. readChat: 落到 db.json 兜底 → 单个会话仍能打开（"点得进但列表没有"）
+        //
+        // 修复: 写盘成功后重建索引。内存 this.data.projects 是最新真相，
+        //   rebuildWorkspaceCache() 从它重建即可覆盖 createProject /
+        //   importProject / updateProject / deleteProject / DataSyncService 全路径。
+        this.rebuildWorkspaceCache();
       }
     } catch (err: any) {
       console.error('[DbService] save() 失败:', err.message);

@@ -163,8 +163,25 @@ export function useChatActions(deps: ChatActionsDeps) {
       const response = await fetch(`http://localhost:3001/api/v1/chats/${chatId}/send`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: text, attachments: attachmentData }),
+        // 必须带 projectId（2026-10-30 修复）：
+        // 后端 appendMessageDual 靠它走项目文件快速路径。不带时会退化成
+        // db.json 全表查（130MB，~660ms），且当 chat 不在 db.json 里时
+        // 直接返回 null → user 消息被静默丢弃 → LLM 收到空历史
+        // （表现为"LLM 说没收到我的问题"）。
+        body: JSON.stringify({ content: text, attachments: attachmentData, projectId }),
       });
+      // 兜底 (2026-09-21)：fetch 返回非 2xx 时把错误写到 assistant 消息里，
+      //   否则 SSE 流没启动、用户只看到 "页面清空 + LLM 不响应"。
+      // 根因：fastify 默认 bodyLimit 1 MiB，附件 base64 容易超限返回 413。
+      // 后端已加 bodyLimit 50MB，但其它错误（500、网络断开）仍可能发生。
+      if (!response.ok) {
+        const errBody = await response.text().catch(() => '');
+        const errMsg = response.status === 413
+          ? `附件过大（${response.statusText || 'Request body too large'}）。请压缩附件或减少附件数量（后端单请求上限 50MB）。`
+          : `HTTP ${response.status}：${errBody.slice(0, 200) || response.statusText || '未知错误'}`;
+        setMessagesLocal(prev => prev.map(m => m.id === currentAssistantId ? { ...m, content: `错误: ${errMsg}`, status: "error" } : m));
+        return;
+      }
       await processSSEStream(response, currentAssistantId, {
         onChunk: (content, aid) => {
           setMessagesLocal(prev => prev.map(m =>

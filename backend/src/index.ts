@@ -20,7 +20,15 @@ import { bootstrapSystemCommands } from './services/systemBootstrap.js';
 import { restoreHeartbeats } from './services/HeartbeatService.js';
 import { DataSyncService } from './services/DataSyncService.js';
 
-const fastify = Fastify({ logger: true });
+// bodyLimit 50 MiB — 修复用户带附件提交后被 fastify 默认 1 MiB 限制打回 413 的问题
+// 背景：前端 send 端点把附件 base64 (dataUrl) 直接塞 JSON body，base64 比 binary 大 33%
+//   + JSON encoding 多倍，几个常见附件（pdf/xlsx/图片）就超限。前端 UI 看到的是"提交后页面
+//   空白 + LLM 没响应"，实际是后端 413 直接拒绝，processSSEStream 收不到任何 chunk。
+// 上限 50 MiB 覆盖：~30MB 文件转 base64 ~40MB JSON 仍 OK；超过此值应让前端单独处理（避免 DoS）。
+const fastify = Fastify({
+  logger: true,
+  bodyLimit: 50 * 1024 * 1024,
+});
 
 // --- Plugins (增强型跨域配置) ---
 await fastify.register(cors, {

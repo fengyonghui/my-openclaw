@@ -148,7 +148,17 @@ export class ProjectDataService {
   // 添加消息到会话
   addMessage(chatId: string, message: any): void {
     const chat = this.getChat(chatId);
-    if (!chat) return;
+    if (!chat) {
+      // 关键 (2026-10-30): 之前这里直接静默 return，导致消息无声丢失。
+      // 排查"LLM 说没收到我的问题"时，根因就是这一行 —— user 消息写入时
+      // chat 文件不存在（服务启动后新建的项目，workspace 缓存未失效导致
+      // 创建时跳过文件写入），消息被丢弃且无任何日志。
+      // 现在显式告警，日志里能直接看到"哪条消息没写进去"。
+      console.warn(
+        `[ProjectData] addMessage 失败：会话文件不存在，消息已丢弃 chatId=${chatId}, role=${message?.role}, workspace=${this.basePath}`
+      );
+      return;
+    }
 
     chat.messages.push({
       ...message,

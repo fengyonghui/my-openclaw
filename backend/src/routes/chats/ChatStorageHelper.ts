@@ -110,11 +110,34 @@ export async function appendMessageDual(chatId: string, message: any, projectId?
     // 兜底：仅在 caller 没传 projectId 时才全表查
     const allChats = await DbService.getChats();
     const chatInDb = allChats.find((c: any) => String(c.id) === String(chatId));
-    if (!chatInDb) {
-      console.error(`[ChatStorageHelper] Chat not found: ${chatId}`);
-      return null;
+    if (chatInDb) {
+      resolvedProjectId = chatInDb.projectId;
+    } else {
+      // 关键修复 (2026-10-30): db.json 里找不到时，不要直接 return null 丢弃消息。
+      // 改为扫描项目目录找 chatId 所属项目（与 readChat 第 2 步同策略）。
+      //
+      // 背景: chat 只存在于项目文件（db.json 尚未同步）时，旧逻辑返回 null，
+      //   user 消息被完全丢弃 → runChatLLMStream 读到空历史 → LLM 收到
+      //   空 messages → 报 "chat content is empty" 或答非所问。
+      const workspaces = DbService.getAllProjectWorkspaces();
+      for (const ws of workspaces) {
+        const filePath = path.join(ws, 'data', 'chats', `${chatId}.json`);
+        if (fs.existsSync(filePath)) {
+          try {
+            const dataService = new ProjectDataService(ws);
+            const chat = dataService.getChat(chatId);
+            if (chat?.projectId) {
+              resolvedProjectId = chat.projectId;
+              break;
+            }
+          } catch { /* 继续扫描下一个 */ }
+        }
+      }
+      if (!resolvedProjectId) {
+        console.error(`[ChatStorageHelper] Chat not found: ${chatId}（db.json 与项目目录均未命中，消息将被丢弃）`);
+        return null;
+      }
     }
-    resolvedProjectId = chatInDb.projectId;
   }
 
   // 性能优化 (2026-09-12): 跳过 db.json 写放大，仅写项目文件
