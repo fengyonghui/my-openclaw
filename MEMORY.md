@@ -245,6 +245,12 @@
          「目录归属」与「文件自述 projectId」是否一致，**以文件自述为准**并告警
     - **验证**：全盘扫描 247 个会话文件错位归零；onewindow-dv 列表 71 条可读；
       归位的 3 个会话内容完整；回归 14/14（改用 qwen3.5-plus，MiniMax 通道当时额度耗尽）
+17. ✅ 版本号漂移（package.json 0.1.0 vs 发布 v0.3.34）→ 已修复（2026-11-12）
+    - **根因**：`package-release.sh` 只给发布包写版本号，仓库自身的
+      root/backend/ui 三个 package.json 从不同步；AppShell.tsx 另有硬编码 '0.3.16'
+    - **修复**：三 package.json 对齐 0.3.34；AppShell 改为 import ui/package.json；
+      打包脚本打包前 sed 同步三个 package.json；.gitignore 补 dist.zip 规则
+    - **验证**：/api/version 返回 0.3.34；Vite 内联 import 正常；回归 14/14
 
 ## Agent 角色
 - `architect_agent.md` - 系统架构师
