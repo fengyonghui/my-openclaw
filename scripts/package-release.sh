@@ -61,12 +61,16 @@ EOF
 # Package as tar.gz
 tar -czvf "${OUTPUT}.tar.gz" "$OUTPUT"
 
-# Package as zip (if zip is available)
+# Package as zip: prefer zip, fall back to Windows bsdtar (-a picks zip format from .zip extension)
+# bsdtar ships with Windows 10+ (System32\tar.exe) and produces DEFLATE-compressed zips
 if command -v zip &> /dev/null; then
   zip -rq "${OUTPUT}.zip" "$OUTPUT"
   echo "Done: ${OUTPUT}.tar.gz + ${OUTPUT}.zip"
+elif command -v /c/Windows/System32/tar.exe &> /dev/null; then
+  /c/Windows/System32/tar.exe -a -cf "${OUTPUT}.zip" "$OUTPUT"
+  echo "Done: ${OUTPUT}.tar.gz + ${OUTPUT}.zip (via bsdtar)"
 else
-  echo "Done: ${OUTPUT}.tar.gz (zip not available)"
+  echo "Done: ${OUTPUT}.tar.gz (no zip tool available)"
 fi
 
 # Cleanup
