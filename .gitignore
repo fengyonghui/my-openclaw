@@ -6,6 +6,7 @@ data/db.json
 .idea/
 dist-package/
 my-openclaw-*-dist.tar.gz
+my-openclaw-*-dist.zip
 
 # ClawHub CLI state directory (lock.json 等)
 .clawhub/

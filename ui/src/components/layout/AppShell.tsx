@@ -14,9 +14,10 @@ import {
 } from 'lucide-react';
 import type { AppView } from '../../App';
 import { useState, useEffect } from 'react';
+import pkg from '../../../package.json';
 
-// 应用版本
-const version = '0.3.16';
+// 应用版本（与 ui/package.json 保持同步，发布脚本会统一更新）
+const version = pkg.version;
 
 type NavKey = Exclude<AppView, 'dashboard'> | 'chats';
 

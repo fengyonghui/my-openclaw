@@ -1,6 +1,6 @@
 {
   "name": "my-openclaw",
-  "version": "0.1.0",
+  "version": "0.3.34",
   "private": true,
   "description": "AI coding agent with project isolation and team collaboration",
   "scripts": {

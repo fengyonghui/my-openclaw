@@ -9,6 +9,11 @@ OUTPUT="my-openclaw-${VERSION}-dist"
 
 echo "Packaging my-openclaw ${VERSION}..."
 
+# Sync repo package.json versions to the release version
+# (so /api/version and the UI footer match the published release)
+sed -i "s/\"version\": \"[0-9.]*\"/\"version\": \"${VERSION#v}\"/" package.json backend/package.json ui/package.json
+grep -H '"version"' package.json backend/package.json ui/package.json
+
 # Clean up
 rm -rf "$OUTPUT" "${OUTPUT}.tar.gz" "${OUTPUT}.zip"
 
