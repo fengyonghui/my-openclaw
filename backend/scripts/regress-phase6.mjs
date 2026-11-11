@@ -16,6 +16,9 @@ const HOST = 'localhost';
 const PORT = 3001;
 const DB_PATH = 'backend/data/db.json';
 
+// 回归测试用的模型：MiniMax 通道额度耗尽时（429/402）换用其他可用模型
+const REGRESS_MODEL = process.env.REGRESS_MODEL || 'qwen3.5-plus';
+
 function req(method, path, body) {
   return new Promise((resolve, reject) => {
     const data = body ? JSON.stringify(body) : null;
@@ -97,7 +100,7 @@ const run = async () => {
     `status=${list.status} count=${listArr.length}`);
 
   const chat = JSON.parse((await req('POST', '/api/v1/chats', {
-    projectId: pid, title: '回归测试会话',
+    projectId: pid, title: '回归测试会话', modelId: REGRESS_MODEL,
   })).body);
   check('创建会话返回 id', !!chat.id, `id=${chat.id}`);
 
@@ -145,7 +148,7 @@ const run = async () => {
   const bigText = 'A'.repeat(1024 * 1024 + 500 * 1024); // ~1.5MB
   const b64 = Buffer.from(bigText, 'utf-8').toString('base64'); // ~2MB
   const chat2 = JSON.parse((await req('POST', '/api/v1/chats', {
-    projectId: pid, title: '附件测试',
+    projectId: pid, title: '附件测试', modelId: REGRESS_MODEL,
   })).body);
   // 附件随 /send 一起提交（attachments[] 字段）
   const up = await sendSse(chat2.id, {

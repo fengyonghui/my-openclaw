@@ -75,6 +75,33 @@ export class DbService {
   }
 
   /**
+   * 列出所有项目工作区 **及其 projectId**（2026-11-11）
+   *
+   * 为什么需要带 projectId 的版本：
+   *   getAllProjectWorkspaces() 只返回路径数组，丢掉了「这个路径属于哪个项目」。
+   *   调用方（ChatStorageHelper.readChat / appendMessageDual）在扫描时，
+   *   只能靠「在哪个目录找到了 chatId 文件」来定位会话 —— 于是当会话文件
+   *   因历史遗留放错目录时，扫描会命中错误目录，并把该错误固化：
+   *   后续每次读写都往错目录写。
+   *
+   *   实测事故：onewindow-dv 项目的 workspace 路径配置少了一层目录
+   *   （d:\workspace\onewindow-dv，实际是 d:\workspace\onewindow\onewindow-dv），
+   *   导致 2026-04 期间的 5 个会话被写进 my-openclaw / voice-monitor 目录。
+   *
+   * 有了 projectId，调用方就能校验「目录归属」与「文件自述归属」是否一致，
+   * 不一致时以文件自述为准并告警，而不是默默固化错位。
+   */
+  static getAllProjectWorkspaceEntries(): Array<{ projectId: string; workspace: string }> {
+    if (this.workspaceCacheMtime !== this.fileMtime) {
+      this.load().catch(() => {});
+    }
+    return Array.from(this.workspaceCache.entries()).map(([projectId, workspace]) => ({
+      projectId,
+      workspace,
+    }));
+  }
+
+  /**
    * 重建 projectId → workspace 索引（仅在 db.json 实际变化时调用）
    */
   private static rebuildWorkspaceCache() {

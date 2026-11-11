@@ -228,6 +228,23 @@
       （LLM 侧仍按 4000 截，两者独立）；截断时包 JSON envelope 保证 tool result 仍是合法 JSON
       —— MiniMax 严格校验，直接 slice 会破坏结构导致整条请求被拒
     - **验证**：`backend/scripts/regress-phase6.mjs` 14/14 通过（覆盖 Bug #13/#14 场景）
+16. ✅ 会话文件错位（跨项目目录）→ 已修复（2026-11-11）
+    - **现象**：5 个会话文件存放在错误的项目目录下
+      （my-openclaw 目录里 1 个 onewindow-dv + 2 个 openclaw-test 空壳；
+      voice-monitor 目录里 2 个 onewindow-dv）
+    - **根因**：`onewindow-dv` 项目在 db.json 里的 workspace 路径少了一层目录
+      （配的 `d:\workspace\onewindow-dv`，实际是 `d:\workspace\onewindow\onewindow-dv`），
+      路径解析不到时 `getAllProjectWorkspaces()` 的纯路径扫描会命中第一个有该 chatId 的目录，
+      把错位固化下来 —— 之后每次读写都写进错目录
+    - **修复**：
+      1. db.json 里 onewindow-dv 的 workspace 路径改为正确路径
+      2. 5 个错位文件移回 onewindow-dv（openclaw-test 空壳的 projectId 一并改写），
+         备份在 `D:\workspace\_chat-move-backup-20261111`
+      3. `DbService.getAllProjectWorkspaceEntries()` 新增带 projectId 的条目接口；
+         `ChatStorageHelper.readChat` / `appendMessageDual` 扫描时校验
+         「目录归属」与「文件自述 projectId」是否一致，**以文件自述为准**并告警
+    - **验证**：全盘扫描 247 个会话文件错位归零；onewindow-dv 列表 71 条可读；
+      归位的 3 个会话内容完整；回归 14/14（改用 qwen3.5-plus，MiniMax 通道当时额度耗尽）
 
 ## Agent 角色
 - `architect_agent.md` - 系统架构师

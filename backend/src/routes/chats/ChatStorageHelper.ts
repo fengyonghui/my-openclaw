@@ -42,16 +42,31 @@ export async function readChat(chatId: string, projectId?: string): Promise<any 
   // 2. 性能优化 (2026-09-14): 没传 projectId 时，扫描 workspaceCache 找 chatId
   // 对每个项目做 fs.existsSync 检查（毫秒级），命中后从项目文件读取。
   // 这样 runChatLLMStream 在没拿到 projectId 时也能读到最新内容。
-  const workspaces = DbService.getAllProjectWorkspaces();
-  for (const workspace of workspaces) {
-    const filePath = path.join(workspace, 'data', 'chats', `${chatId}.json`);
-    if (fs.existsSync(filePath)) {
-      try {
-        const dataService = new ProjectDataService(workspace);
-        const chat = dataService.getChat(chatId);
-        if (chat) return chat;
-      } catch { /* fall through */ }
-    }
+  //
+  // 2026-11-11: 用带 projectId 的版本，校验「目录归属」与「文件自述归属」是否一致。
+  //   不一致说明会话文件被放错目录（历史遗留，见 Bug #16）。
+  //   此时以**文件自述的 projectId** 为准 —— 文件内容才是会话的真实归属，
+  //   而目录只是它被错放的位置。旧的实现会直接 return 错目录里的文件，
+  //   把错位固化下来（后续读写都往错目录写）。
+  const entries = DbService.getAllProjectWorkspaceEntries();
+  for (const entry of entries) {
+    const filePath = path.join(entry.workspace, 'data', 'chats', `${chatId}.json`);
+    if (!fs.existsSync(filePath)) continue;
+
+    try {
+      const dataService = new ProjectDataService(entry.workspace);
+      const chat = dataService.getChat(chatId);
+      if (!chat) continue;
+
+      if (chat.projectId && chat.projectId !== entry.projectId) {
+        console.warn(
+          `[ChatStorageHelper] 会话 ${chatId} 存放位置与归属不符：文件在项目 "${entry.projectId}" 目录下，` +
+          `但文件自述属于 "${chat.projectId}"。以文件自述为准。` +
+          `（请检查该项目的 workspace 路径配置是否正确）`
+        );
+      }
+      return chat;
+    } catch { /* fall through */ }
   }
 
   // 3. 兜底：db.json（仅含启动时 DataSyncService 同步的旧数据，可能陈旧）
@@ -125,19 +140,31 @@ export async function appendMessageDual(chatId: string, message: any, projectId?
       // 背景: chat 只存在于项目文件（db.json 尚未同步）时，旧逻辑返回 null，
       //   user 消息被完全丢弃 → runChatLLMStream 读到空历史 → LLM 收到
       //   空 messages → 报 "chat content is empty" 或答非所问。
-      const workspaces = DbService.getAllProjectWorkspaces();
-      for (const ws of workspaces) {
-        const filePath = path.join(ws, 'data', 'chats', `${chatId}.json`);
-        if (fs.existsSync(filePath)) {
-          try {
-            const dataService = new ProjectDataService(ws);
-            const chat = dataService.getChat(chatId);
-            if (chat?.projectId) {
-              resolvedProjectId = chat.projectId;
-              break;
-            }
-          } catch { /* 继续扫描下一个 */ }
-        }
+      //
+      // 2026-11-11: 扫描时用带 projectId 的条目，校验目录归属与文件自述是否一致。
+      //   归属一律以**文件自述的 projectId** 为准 —— 目录只是文件被错放的位置，
+      //   文件内容才是会话的真实归属。旧实现「在哪个目录找到就写回哪个目录」，
+      //   会把错位固化：会话被错放一次后，每次读写都继续往错目录写。
+      const entries = DbService.getAllProjectWorkspaceEntries();
+      for (const entry of entries) {
+        const filePath = path.join(entry.workspace, 'data', 'chats', `${chatId}.json`);
+        if (!fs.existsSync(filePath)) continue;
+
+        try {
+          const dataService = new ProjectDataService(entry.workspace);
+          const chat = dataService.getChat(chatId);
+          if (!chat?.projectId) continue;
+
+          if (chat.projectId !== entry.projectId) {
+            console.warn(
+              `[ChatStorageHelper] 会话 ${chatId} 存放位置与归属不符：文件在项目 "${entry.projectId}" 目录下，` +
+              `但文件自述属于 "${chat.projectId}"。按文件自述的归属写入，避免继续写错目录。` +
+              `（请检查该项目的 workspace 路径配置是否正确）`
+            );
+          }
+          resolvedProjectId = chat.projectId;
+          break;
+        } catch { /* 继续扫描下一个 */ }
       }
       if (!resolvedProjectId) {
         console.error(`[ChatStorageHelper] Chat not found: ${chatId}（db.json 与项目目录均未命中，消息将被丢弃）`);
