@@ -27,6 +27,9 @@ data/chats/
 backend/data/db.json
 backend/data/session-events.jsonl
 
+# db.json 备份（瘦身迁移脚本生成，含用户历史会话，不应进版本控制）
+backend/data/db.json.bak*
+
 # 后端 dev log（PowerShell 重定向写入，UTF-16 LE 编码，不应进版本控制）
 backend/dev.log
 

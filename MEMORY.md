@@ -31,12 +31,21 @@
 - `backend/data/system-commands.json` - 系统命令（自动生成，不要手动修改）
 - 各项目 `data/chats/*.json` - 按项目隔离的会话文件
 
-**会话真相来源**：项目文件 `data/chats/<id>.json` 是**真实数据源**，db.json 仅作冗余备份
-- 读：项目文件优先 → db.json 回退（`ChatStorageHelper.readChat`）
-- 写：只写项目文件，db.json 由 `DataSyncService` 定期兜底同步
+**会话真相来源**：项目文件 `data/chats/<id>.json` 是**真实数据源**，db.json 只存**元数据索引**
+- 读：项目文件优先 → db.json 兜底（`ChatStorageHelper.readChat`）
+- 写：只写项目文件；db.json 由 `DataSyncService` 启动时同步（只存索引，不存正文）
 - **前提**：项目 workspace 必须能通过 `DbService.getProjectWorkspace(projectId)` 解析到，
   否则写入被跳过、读取落空（见 Bug #13）——新建项目后务必确认该接口可用
-- db.json 已膨胀到 ~130MB，`DbService.load()` 需 ~660ms；热路径一律走项目文件（~19ms）
+- db.json 已从 125MB 瘦身到 **0.36MB**（见 Bug #15）；`DbService.load()` 从 ~660ms 降到 ~10ms
+
+**db.json 瘦身后的会话条目结构**（`DbService.toChatIndex`）：
+`{id, projectId, agentId, modelId, title, name, createdAt, updatedAt, messageCount, sessionMemory?, _indexOnly}`
+- **不含 `messages` 正文** —— 正文只在项目文件里
+- `_indexOnly: true` 标记索引条目；`getChatWithBody()` 据此区分「有正文」与「只有索引」
+- `readChat` 兜底必须用 `getChatWithBody()`，用 `getChat()` 会把无正文的索引条目
+  当成合法会话返回 → LLM 收到空历史答非所问（与 Bug #13 同类症状）
+- **孤儿例外**：项目 workspace 目录已不存在的会话，正文只此一份，db.json 保留全文
+  （判定见 `DbService.shouldKeepChatBody`：项目文件确实存在才降级为索引）
 
 ### 路径处理
 - `PathService.ts` - Windows ↔ WSL 路径转换
@@ -200,6 +209,25 @@
     - 修复：`bodyLimit` 提至 50 MiB + 前端 fetch 非 2xx 时把错误写进 assistant 消息（不再静默空白）
     - `extractToolCallsFromContent` 原有 3 种匹配模式（`<invoke>` / JS函数调用 / Markdown代码块），未覆盖此格式
     - 新增第 4 种模式正则：`/to=functions\.(\w+)\s+code<\|message\|>([\s\S]*?)<\|call\|>/gi`
+15. ✅ db.json 膨胀到 125MB → 瘦身到 0.36MB → 已修复（2026-11-11）
+    - **根因**：db.json 的 `chats` 数组存的是会话**全文副本**，与项目文件重复
+      （184 条会话中 175 条项目文件里已有副本 —— 113MB 几乎全是冗余）；
+      且热路径 `appendMessageDual` 只写项目文件不写 db.json → 副本长期陈旧
+      （实测 27 条会话项目文件里的消息数比 db.json 更多）
+    - **第二个根因**：88MB 是 tool 执行结果，而发给 LLM 前
+      `ChatMessageBuilder.truncateToolContent` 已截到 4000 字符 —— LLM 永远看不到的部分
+    - **修复**：`DbService.toChatIndex()` 投影，db.json 只存元数据索引（去 messages 正文）；
+      `upsertChat` 写索引而非全文；`DataSyncService.syncChats()` 同步只推索引
+      （遍历源改用 db.json 的 projects 列表，不再硬编码 KNOWN_WORKSPACES 的 8 个项目）
+    - **孤儿例外**：项目 workspace 目录已不存在的会话（9 条）正文只此一份 → 保留全文
+      （`shouldKeepChatBody`：项目文件确实存在才降级为索引，否则保留正文防丢）
+    - **配套**：`getChatWithBody()` 区分「有正文」与「只有索引」，
+      `readChat` 兜底改用它 —— 用 `getChat()` 会把无正文索引条目当成合法会话，
+      LLM 收到空历史答非所问（与 Bug #13 同类症状）
+    - **存储侧截断**：`ProjectDataService.truncateStoredToolContent` 把 tool 结果截到 8000 字符
+      （LLM 侧仍按 4000 截，两者独立）；截断时包 JSON envelope 保证 tool result 仍是合法 JSON
+      —— MiniMax 严格校验，直接 slice 会破坏结构导致整条请求被拒
+    - **验证**：`backend/scripts/regress-phase6.mjs` 14/14 通过（覆盖 Bug #13/#14 场景）
 
 ## Agent 角色
 - `architect_agent.md` - 系统架构师

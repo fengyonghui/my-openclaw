@@ -55,7 +55,13 @@ export async function readChat(chatId: string, projectId?: string): Promise<any 
   }
 
   // 3. 兜底：db.json（仅含启动时 DataSyncService 同步的旧数据，可能陈旧）
-  return await DbService.getChat(chatId);
+  //
+  // 2026-11-11: db.json 瘦身后，多数会话在 db.json 里只剩元数据索引（无正文）。
+  // 必须用 getChatWithBody() 而不是 getChat() —— 后者会把「有 id 没正文」的
+  // 索引条目当成合法会话返回，runChatLLMStream 拿到空历史后
+  // LLM 会答非所问（与 2026-10-30 的 Bug #13 同类症状）。
+  // 返回 null = 正文确实不可得，上层应报「会话不存在」而非硬跑空历史。
+  return await DbService.getChatWithBody(chatId);
 }
 
 /**

@@ -107,13 +107,28 @@ export class DataSyncService {
   /**
    * 同步聊天数据
    * 从各项目工作区的 data/chats/ 目录读取
+   *
+   * 2026-11-11: 只同步「元数据索引」，不再把会话全文灌进 db.json。
+   *   原因：项目文件就是会话正文的唯一真相源，全文副本会让 db.json
+   *   膨胀到 125MB，且每次 save() 都要整体重写。详见 DbService.toChatIndex。
+   *   同时这里改为「按已知工作区扫描」而非写死 KNOWN_WORKSPACES 之外的项目 ——
+   *   实际上 KNOWN_WORKSPACES 只覆盖了 8 个项目，db.json 里还有其它项目的会话，
+   *   那些会话在项目文件存在时同样应降级为索引。
    */
   private static async syncChats() {
     const db = await DbService.load();
     const existingChatIds = new Set(db.chats.map((c: any) => String(c.id)));
     let added = 0;
+    let slimmed = 0;
 
-    for (const ws of KNOWN_WORKSPACES) {
+    // 遍历源用 db.json 的 projects 列表（含全部项目），而非硬编码的
+    // KNOWN_WORKSPACES —— 后者只覆盖 8 个项目，会漏掉 onewindow-dv、
+    // db_struct_sync 等，导致它们的会话无法被降级为索引。
+    const workspaces: Array<{ id: string; workspace: string }> = (db.projects || [])
+      .filter((p: any) => p?.id && p?.workspace)
+      .map((p: any) => ({ id: String(p.id), workspace: p.workspace }));
+
+    for (const ws of workspaces) {
       const chatsDir = join(ws.workspace, 'data', 'chats');
       if (!existsSync(chatsDir)) continue;
 
@@ -132,7 +147,8 @@ export class DataSyncService {
           // 确保 projectId 正确
           if (!chat.projectId) chat.projectId = ws.id;
 
-          db.chats.push(chat);
+          // 只存元数据索引 —— 正文已在项目文件里（就是刚读出来的这个文件）
+          db.chats.push(DbService.toChatIndex(chat));
           existingChatIds.add(chatId);
           added++;
         }
@@ -141,9 +157,31 @@ export class DataSyncService {
       }
     }
 
-    if (added > 0) {
+    // 已有条目降级：正文已在项目文件中的会话，db.json 里只保留元数据
+    // 统一走 DbService.toChatIndex()，保证降级后的条目结构与新写入的一致
+    // （含 _indexOnly 标记与 messageCount），而不是简单 delete messages。
+    for (let i = 0; i < db.chats.length; i++) {
+      const chat = db.chats[i];
+      const ws = workspaces.find(w => w.id === chat.projectId);
+      if (!ws) continue;                              // 项目不在列表里 → 保留正文（孤儿）
+      const projFile = join(ws.workspace, 'data', 'chats', `${chat.id}.json`);
+      if (!existsSync(projFile)) continue;             // 项目文件不在 → 保留正文（孤儿）
+
+      if (Array.isArray(chat.messages)) {
+        // 带正文 → 降级为索引
+        db.chats[i] = DbService.toChatIndex(chat);
+        slimmed++;
+      } else if (chat._indexOnly !== true) {
+        // 已是「无正文」但缺标记（早期版本用 delete messages 降级留下的）
+        // → 补齐为标准索引结构，保证幂等
+        db.chats[i] = DbService.toChatIndex(chat);
+        slimmed++;
+      }
+    }
+
+    if (added > 0 || slimmed > 0) {
       await DbService.save();
-      console.log(`  ✅ 同步聊天: +${added} 条`);
+      console.log(`  ✅ 同步聊天: +${added} 条, 降级为索引 ${slimmed} 条`);
     } else {
       console.log('  ✅ 聊天数据完整');
     }

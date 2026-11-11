@@ -16,6 +16,50 @@ export interface ProjectChat {
   updatedAt: string;
 }
 
+/**
+ * tool 结果内容的存储侧上限（字符数）。
+ *
+ * 2026-11-11: 之前 tool 结果原样落库，一个 shell_exec 输出就能撑出几 MB。
+ * 实测单个会话文件最大 12MB，其中 88% 是 tool 结果正文。
+ *
+ * 为什么是 8000 而非更小：
+ *   发给 LLM 时 ChatMessageBuilder.truncateToolContent 截到 4000 字符，
+ *   存储侧留 8000 是为了让「历史回看 / UI 展示」仍能看到比 LLM 更多的上下文，
+ *   同时把体积压到原来的 ~1%。两者独立：存储可以更宽，喂给模型的仍按 4000 截。
+ */
+const TOOL_CONTENT_MAX_CHARS = 8000;
+
+/**
+ * 截断 tool 消息的正文，避免超长工具输出把会话文件撑爆。
+ *
+ * 注意：tool result 的 content 必须是合法 JSON（MiniMax 严格校验
+ * "tool_call 必须紧跟 role=tool 的合法 JSON result"），所以这里
+ * 不能直接 slice —— 会破坏 JSON 结构导致整条请求被 API 拒绝。
+ * 做法是包一层 envelope：保留预览 + 标记截断，输出仍是合法 JSON。
+ */
+export function truncateStoredToolContent(message: any): any {
+  if (!message || message.role !== 'tool') return message;
+
+  const content = message.content;
+  if (typeof content !== 'string') return message;
+  if (content.length <= TOOL_CONTENT_MAX_CHARS) return message;
+
+  const preview = content.slice(0, TOOL_CONTENT_MAX_CHARS);
+  const trimmed = preview.trim();
+  const envelope = {
+    _truncated: true,
+    _originalLength: content.length,
+    _preview: preview,
+  };
+
+  // 原内容是 JSON → 用合法 JSON envelope 承载（保结构）
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    return { ...message, content: JSON.stringify(envelope) };
+  }
+  // 原内容是纯文本 → 文本 + 标记
+  return { ...message, content: preview + '\n\n[内容过长，已截断]' };
+}
+
 export class ProjectDataService {
   private basePath: string;
 
@@ -161,9 +205,11 @@ export class ProjectDataService {
     }
 
     chat.messages.push({
-      ...message,
-      id: Date.now().toString(),
-      timestamp: new Date().toISOString()
+      ...truncateStoredToolContent({
+        ...message,
+        id: Date.now().toString(),
+        timestamp: new Date().toISOString()
+      })
     });
     this.saveChat(chat);
   }

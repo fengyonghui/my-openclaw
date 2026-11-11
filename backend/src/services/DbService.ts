@@ -533,6 +533,28 @@ export class DbService {
     return db.chats.find((c: any) => String(c.id) === String(id));
   }
 
+  /**
+   * 取会话的「可用正文」：db.json 兜底路径专用。
+   *
+   * 2026-11-11: db.json 瘦身后，多数会话在 db.json 里只剩元数据索引
+   * （无 messages 正文）。readChat 的兜底步骤若直接返回索引条目，
+   * 调用方会拿到「有 id 没正文」的会话 —— 而 runChatLLMStream 会
+   * 把它当成合法会话继续跑，结果是 LLM 收到空历史、答非所问
+   * （与 2026-10-30 的 Bug #13 同类症状）。
+   *
+   * 所以这里显式区分：
+   *   - 有正文（孤儿会话保留副本）→ 返回完整会话
+   *   - 只有索引 → 返回 null，让上层明确知道「正文不可得」
+   *     （上层应继续走项目文件路径，而不是拿空历史硬跑）
+   */
+  static async getChatWithBody(id: string): Promise<any | null> {
+    const db = await this.load();
+    const chat = db.chats.find((c: any) => String(c.id) === String(id));
+    if (!chat) return null;
+    if (Array.isArray(chat.messages)) return chat;
+    return null;
+  }
+
   // 注意 (2026-09-14): 旧的 createChat(projectId, title, agentId) 生成与 ChatStorageHelper.createChatDual
   //   不同的 id，导致 DELETE 时 filter 找不到刚创建的会话。
   //   现已统一用 upsertChat(chat) 接受完整 chat 对象，确保 id 一致。
@@ -547,15 +569,103 @@ export class DbService {
     return db.chats;
   }
 
+  // ============================================================
+  // 会话投影（db.json 瘦身）
+  // ============================================================
+  //
+  // 背景 (2026-11-11):
+  //   db.json 的 chats 数组原本存的是会话「全文副本」，与项目文件
+  //   <workspace>/data/chats/<id>.json 重复。实测 184 条会话中 175 条
+  //   在项目文件里已有副本 —— db.json 的 113MB 几乎全是冗余。
+  //
+  //   三个叠加问题:
+  //   1. 体积：DbService.save() 每次都 JSON.stringify 整个 db，
+  //      单次写盘 125MB。而 save() 在会话增删改时都会触发。
+  //   2. 陈旧：热路径 appendMessageDual() 只写项目文件、不写 db.json，
+  //      所以 db.json 里的正文长期落后于真相源
+  //      （实测 27 条会话项目文件里的消息数比 db.json 更多）。
+  //   3. 浪费：88MB 是 tool 执行结果，而发给 LLM 前已被
+  //      ChatMessageBuilder.truncateToolContent 截到 4000 字符 ——
+  //      LLM 永远看不到剩下那部分，落库保存纯属浪费。
+  //
+  // 方案：db.json 只保留会话「元数据索引」，消息正文以项目文件为唯一真相源。
+  //   - 正文读取：ChatStorageHelper.readChat 已是「项目文件优先 → db.json 兜底」，
+  //     本改造不影响该顺序。
+  //   - 正文兜底：项目 workspace 已不存在的孤儿会话（历史遗留），
+  //     其正文只存在于 db.json，必须保留 —— 见 keepBody 判断。
+  //
+  // keepBody 判定（保留正文，仅限真正的孤儿）:
+  //   项目 workspace 不存在 → 项目文件不可能存在 → 正文只此一份 → 保留。
+  //   workspace 存在 → 正文应由项目文件承载 → db.json 只留元数据。
+
+  /** 会话元数据索引条目：不含 messages 正文 */
+  static toChatIndex(chat: any): any {
+    return {
+      id: chat.id,
+      projectId: chat.projectId,
+      agentId: chat.agentId,
+      modelId: chat.modelId,
+      title: chat.title ?? chat.name,
+      name: chat.name,
+      createdAt: chat.createdAt,
+      updatedAt: chat.updatedAt,
+      messageCount: Array.isArray(chat.messages) ? chat.messages.length : 0,
+      // 会话级记忆（L1）：体积很小（184 条会话合计仅 92KB），且是有效数据，
+      // 不能随 messages 正文一起丢掉 —— 保留它可以多一层冗余保险
+      ...(Array.isArray(chat.sessionMemory) && chat.sessionMemory.length
+        ? { sessionMemory: chat.sessionMemory }
+        : {}),
+      // 正文缺失标记：供 readChat 兜底时判断能否直接使用
+      _indexOnly: true,
+    };
+  }
+
+  /**
+   * 判断该会话是否必须保留正文副本。
+   *
+   * 2026-11-11: 判定依据是「项目文件是否真的存在」，而不只是「workspace 目录是否存在」。
+   *   原因：createChatDual / writeChatDual 是先写项目文件、再 upsert 到 db.json。
+   *   如果项目文件写入失败（workspace 不存在 / 磁盘错误），正文就只剩 db.json 这一份；
+   *   此时若降级为索引，正文会彻底丢失 —— 属于不可接受的数据丢失。
+   *   所以只有确认项目文件存在，才敢把 db.json 里的正文降级为元数据索引。
+   *
+   *   注意这里直接查 this.data.projects 而非 workspaceCache ——
+   *   workspaceCache 只在 _loadUnchecked()/save() 里重建，而启动时
+   *   DataSyncService.syncOnStartup() 跑在 DbService.load() 之前，
+   *   此时缓存可能还是空的 → 会把正常会话误判成孤儿而保留正文。
+   */
+  private static shouldKeepChatBody(chat: any): boolean {
+    if (!chat?.projectId) return true;      // 无项目归属 → 无法定位项目文件
+    const project = (this.data?.projects || []).find(
+      (p: any) => String(p.id) === String(chat.projectId)
+    );
+    if (!project?.workspace) return true;    // 项目不在列表里 → 正文无处可寻
+    if (!existsSync(project.workspace)) return true;  // workspace 目录已不存在 → 孤儿
+
+    // 项目文件存在 → 正文由项目文件承载，db.json 可安全降级为索引
+    const projFile = path.join(project.workspace, 'data', 'chats', `${chat.id}.json`);
+    return !existsSync(projFile);
+  }
+
   // 性能优化 (2026-09-12): 替换或插入会话，用于 ChatStorageHelper 双写 db.json 路径
   // 与 PATCH /:id 行为一致：找到则合并，未找到则 unshift 插入
+  //
+  // 2026-11-11: 存元数据索引而非全文（见上方「会话投影」注释）。
+  //   孤儿会话（workspace 已不存在）保留正文，避免正文彻底丢失。
   static async upsertChat(chat: any) {
     const db = await this.load();
+    const keepBody = this.shouldKeepChatBody(chat);
+    const stored = keepBody ? chat : this.toChatIndex(chat);
+
     const idx = db.chats.findIndex((c: any) => String(c.id) === String(chat.id));
     if (idx === -1) {
-      db.chats.unshift(chat);
+      db.chats.unshift(stored);
     } else {
-      Object.assign(db.chats[idx], chat);
+      // 已存在的条目：保留其原有正文（可能是孤儿正文），
+      // 仅更新元数据字段，避免孤儿正文被索引条目覆盖丢失
+      const prev = db.chats[idx];
+      Object.assign(prev, stored);
+      if (keepBody && !prev.messages) prev.messages = chat.messages;
     }
     await this.save();
     return chat;

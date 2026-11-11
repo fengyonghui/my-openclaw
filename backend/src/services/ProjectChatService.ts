@@ -4,6 +4,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { truncateStoredToolContent } from './ProjectDataService.js';
 
 export class ProjectChatService {
   
@@ -62,9 +63,11 @@ export class ProjectChatService {
     }
 
     chat.messages.push({
-      ...message,
-      id: message.id || Date.now().toString(),  // prefer frontend-provided id
-      timestamp: new Date().toISOString()
+      ...truncateStoredToolContent({
+        ...message,
+        id: message.id || Date.now().toString(),  // prefer frontend-provided id
+        timestamp: new Date().toISOString()
+      })
     });
     
     await this.saveChatToProject(projectWorkspace, chat);
