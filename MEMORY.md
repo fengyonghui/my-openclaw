@@ -251,6 +251,20 @@
     - **修复**：三 package.json 对齐 0.3.34；AppShell 改为 import ui/package.json；
       打包脚本打包前 sed 同步三个 package.json；.gitignore 补 dist.zip 规则
     - **验证**：/api/version 返回 0.3.34；Vite 内联 import 正常；回归 14/14
+18. ✅ release 泄漏维护者项目列表 + 硬编码 API Key → 已修复（2026-11-12）
+    - **现象**：新机器跑 v0.3.34 出现 8 个「恢复项目」（维护者的项目）
+    - **根因**：DataSyncService.ts 硬编码 KNOWN_WORKSPACES（8 个项目路径）
+      + syncModels / MemoryAutoSaveService 硬编码 API Key 默认值，全部编译进包
+    - **修复**：
+      1. 项目恢复改读 `backend/data/known-workspaces.json`（本机私有，gitignore，
+         不进 release；缺失 = 空列表，新机器靠 UI 正常建项目）
+      2. Key 只从 OPENCLAW_API_KEY 环境变量 / 项目模型配置取，缺失警告并跳过
+      3. package-release.sh 打包后隐私安全检查：包内禁止 db.json /
+         known-workspaces.json / session-events，dist JS 禁止硬编码 Key
+    - **验证**：模拟 fresh install（移走两文件重启）→ 零「恢复项目」、
+      /projects 返回 []；dev 数据恢复后 11 项目回归；包内 grep 泄漏为 0
+    - **注意**：known-workspaces.json 是 dev 机新产物，重装系统后需从
+      db.json 的 projects 重建（一条 node 命令可提取）
 
 ## Agent 角色
 - `architect_agent.md` - 系统架构师
