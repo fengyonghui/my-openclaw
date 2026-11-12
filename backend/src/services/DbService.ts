@@ -933,7 +933,12 @@ export class DbService {
 
     const globalAgentsDir = GLOBAL_AGENTS_DIR;
     const globalFileName = await this.findGlobalAgentFile(agentId);
-    if (!globalFileName) throw new Error('全局 Agent 不存在: ' + agentId);
+    if (!globalFileName) {
+      if (!existsSync(globalAgentsDir)) {
+        throw new Error(`全局 Agent 目录缺失: ${globalAgentsDir}（release 包未包含 backend/agents/）`);
+      }
+      throw new Error(`全局 Agent 不存在: ${agentId}`);
+    }
 
     const projAgentsDir = this.getProjectAgentsDir(project.workspace);
     const projAgentFile = path.join(projAgentsDir, globalFileName);

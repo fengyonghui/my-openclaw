@@ -65,6 +65,14 @@ export function AgentsPage({ projectId, onSaved }: { projectId: string; onSaved?
       const newEnabledIds = await res.json();
       setProjectData({ ...projectData, enabledAgentIds: newEnabledIds });
       onSaved?.();
+    } else {
+      const raw = await res.text();
+      let detail = raw;
+      try {
+        const parsed = JSON.parse(raw);
+        detail = parsed.error || parsed.message || raw;
+      } catch {}
+      alert(`切换成员失败: ${detail}`);
     }
   };
 

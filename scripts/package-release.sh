@@ -25,6 +25,9 @@ mkdir -p "$OUTPUT/ui"
 cp -r backend/dist "$OUTPUT/backend/"
 cp -r ui/dist "$OUTPUT/ui/"
 
+# Copy global agents (runtime resource — enable/disable team members reads these files)
+cp -r backend/agents "$OUTPUT/backend/"
+
 # Copy backend/package.json (needed for: npm install --prefix backend)
 cp backend/package.json "$OUTPUT/backend/"
 
