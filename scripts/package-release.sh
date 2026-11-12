@@ -81,3 +81,19 @@ fi
 
 # Cleanup
 rm -rf "$OUTPUT"
+
+# Safety check: ensure no runtime data or private config leaked into the package
+# (db.json / known-workspaces.json hold user projects, chats, and API keys)
+LEAK=$(unzip -l "${OUTPUT}.zip" 2>/dev/null | grep -E "data/db\.json|known-workspaces\.json|session-events" || true)
+if [ -n "$LEAK" ]; then
+  echo "ERROR: private data leaked into the package:"
+  echo "$LEAK"
+  exit 1
+fi
+# Safety check: no hardcoded API key in packaged JS
+KEY_LEAK=$(unzip -p "${OUTPUT}.zip" "*backend/dist/*.js" 2>/dev/null | grep -c "REDACTED_API_KEY" || true)
+if [ "$KEY_LEAK" -gt 0 ]; then
+  echo "ERROR: hardcoded API key found in packaged backend code"
+  exit 1
+fi
+echo "✅ Package privacy check passed (no user data, no hardcoded keys)"

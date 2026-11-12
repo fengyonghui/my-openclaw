@@ -28,6 +28,9 @@ data/chats/
 backend/data/db.json
 backend/data/session-events.jsonl
 
+# 本机私有的工作空间恢复配置（DataSyncService 启动时读取，绝不进 release）
+backend/data/known-workspaces.json
+
 # db.json 备份（瘦身迁移脚本生成，含用户历史会话，不应进版本控制）
 backend/data/db.json.bak*
 

@@ -394,9 +394,23 @@ export async function autoSaveMemory(
   );
   if (meaningfulMessages.length < 2) return;
 
-  // 4. 调用 LLM
-  let apiKey = process.env.API_KEY || process.env.OPENAI_API_KEY || 'REDACTED_API_KEY';
-  if (!apiKey || apiKey === 'your-api-key') apiKey = 'REDACTED_API_KEY';
+  // 4. 调用 LLM —— API Key 优先从项目默认模型配置取（与主对话链路同源），
+  //    环境变量兜底；不能在源码里写默认 Key，否则随 release 包泄漏
+  let apiKey = '';
+  try {
+    const db = await DbService.load();
+    const projectId = String(project.id || '');
+    const proj = (db.projects || []).find((p: any) => String(p.id) === projectId);
+    const model = (db.availableModels || []).find(
+      (m: any) => String(m.id) === String(proj?.defaultModel)
+    ) || db.availableModels?.[0];
+    apiKey = String(model?.apiKey || '');
+  } catch {}
+  if (!apiKey) apiKey = String(process.env.API_KEY || process.env.OPENAI_API_KEY || process.env.OPENCLAW_API_KEY || '');
+  if (!apiKey) {
+    console.log('[MemoryAutoSave] 无可用 API Key（项目模型未配置 apiKey，环境变量也未设置），跳过本轮提取');
+    return;
+  }
 
   const result = await extractMemoryPoints(project, meaningfulMessages.slice(-10), apiKey);
   if (!result || result.points.length === 0) {

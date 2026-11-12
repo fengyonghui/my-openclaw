@@ -4,25 +4,39 @@
  * 功能：
  * 1. 扫描所有项目的 data/chats/ 目录
  * 2. 将缺失的聊天记录同步到数据库
- * 3. 确保项目列表完整（从日志和工作空间目录恢复）
+ * 3. 确保项目列表完整（从本地配置文件、日志和工作空间目录恢复）
+ *
+ * 注意：known-workspaces.json 是本机私有的数据恢复配置（gitignore，
+ * 不进 release 包）—— 项目列表的机器特定信息不能硬编码在源码里，
+ * 否则 release 到新机器上会把维护者的项目"恢复"出来。
  */
 
-import { readdir, readFile, writeFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { readdir, readFile } from 'node:fs/promises';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DbService } from '../services/DbService.js';
 
-// 已知的工作空间目录（从日志和配置中恢复）
-const KNOWN_WORKSPACES: Array<{ id: string; name: string; workspace: string }> = [
-  { id: 'my-openclaw', name: 'my-openclaw', workspace: 'd:/workspace/my-openclaw' },
-  { id: 'voice-monitor', name: 'voice-monitor', workspace: 'd:/workspace/onewindow/voice-monitor' },
-  { id: 'onewindow-mcp', name: 'onewindow-mcp', workspace: 'd:/workspace/onewindow/onewindow-mcp' },
-  { id: 'onewindow-dify', name: 'onewindow-dify', workspace: 'd:/workspace/onewindow/onewindow-dify' },
-  { id: 'test', name: 'test', workspace: 'd:/workspace/test' },
-  { id: 'stock', name: 'stock', workspace: 'd:/workspace/stock' },
-  { id: 'ai-material-preview', name: 'ai-material-preview', workspace: 'd:/workspace/onewindow/ai-material-preview' },
-  { id: 'tools', name: 'tools', workspace: 'd:/workspace/tools' },
-];
+interface WorkspaceEntry {
+  id: string;
+  name: string;
+  workspace: string;
+}
+
+/**
+ * 读取本机私有的工作空间恢复配置 data/known-workspaces.json。
+ * 文件不存在（如 release 新装环境）返回空列表 —— 恢复流程跳过，
+ * 项目列表靠用户在 UI 里正常创建。
+ */
+function loadKnownWorkspaces(): WorkspaceEntry[] {
+  const path = join(process.cwd(), 'data', 'known-workspaces.json');
+  if (!existsSync(path)) return [];
+  try {
+    return JSON.parse(readFileSync(path, 'utf-8')) as WorkspaceEntry[];
+  } catch (err: any) {
+    console.warn('[DataSync] known-workspaces.json 解析失败，跳过恢复:', err.message);
+    return [];
+  }
+}
 
 export class DataSyncService {
   /**
@@ -52,14 +66,15 @@ export class DataSyncService {
     const existingIds = new Set(db.projects.map((p: any) => String(p.id)));
     const missing: Array<{ id: string; name: string; workspace: string }> = [];
 
-    // 从已知工作空间检查
-    KNOWN_WORKSPACES.forEach(ws => {
+    // 从本机私有配置检查（known-workspaces.json，gitignore 不进 release）
+    const knownWorkspaces = loadKnownWorkspaces();
+    knownWorkspaces.forEach(ws => {
       if (!existingIds.has(ws.id)) {
         missing.push(ws);
       }
     });
 
-    // 从 session 日志中提取项目ID
+    // 从 session 日志中提取项目ID（日志只在产生它的机器上存在，天然机器隔离）
     const logPath = join(process.cwd(), 'data', 'session-events.jsonl');
     if (existsSync(logPath)) {
       const content = await readFile(logPath, 'utf-8');
@@ -68,11 +83,12 @@ export class DataSyncService {
         try {
           const obj = JSON.parse(line);
           if (obj.projectId && !existingIds.has(obj.projectId)) {
-            missing.push({
-              id: obj.projectId,
-              name: obj.projectId,
-              workspace: join('d:/workspace', obj.projectId)
-            });
+            // 只在 known-workspaces.json 有该项目的记录时才恢复 ——
+            // 不再猜 d:/workspace/<id> 这种维护者机器专属的路径
+            const known = knownWorkspaces.find(w => w.id === obj.projectId);
+            if (known) {
+              missing.push(known);
+            }
           }
         } catch {}
       });
@@ -195,8 +211,14 @@ export class DataSyncService {
     const db = await DbService.load();
 
     if (!db.availableModels || db.availableModels.length === 0) {
-      // 添加默认模型（MiniMax-M3，API Key 从环境变量读取）
-      const apiKey = process.env.OPENCLAW_API_KEY || 'REDACTED_API_KEY';
+      // 添加默认模型（MiniMax-M3）。API Key 必须来自环境变量 OPENCLAW_API_KEY ——
+      // 不能在源码里放默认值，否则会随 release 包泄漏维护者的 Key
+      const apiKey = process.env.OPENCLAW_API_KEY;
+      if (!apiKey) {
+        console.warn('  ⚠️ 未配置 OPENCLAW_API_KEY 环境变量，跳过默认模型创建');
+        console.warn('     （可在系统环境变量或 backend/.env 中配置后重启）');
+        return;
+      }
       db.availableModels = [{
         id: 'minimax-m3',
         name: 'MiniMax-M3',
