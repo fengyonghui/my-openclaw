@@ -40,6 +40,12 @@ cp scripts/start-windows.ps1 "$OUTPUT/"
 cp scripts/start-linux.sh "$OUTPUT/"
 chmod +x "$OUTPUT/start-linux.sh"
 
+# Substitute %VERSION% placeholder in startup scripts
+sed -i "s/%VERSION%/${VERSION#v}/g" "$OUTPUT/start-windows.cmd" "$OUTPUT/start-windows.ps1" "$OUTPUT/start-linux.sh"
+
+# Ensure the .cmd script has CRLF line endings (sed strips \r; cmd.exe needs CRLF)
+sed -i 's/$/\r/' "$OUTPUT/start-windows.cmd"
+
 # Create a clean root package.json
 cat > "$OUTPUT/package.json" << EOF
 {

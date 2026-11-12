@@ -1,6 +1,6 @@
 # ============================================
-# my-openclaw - Windows 一键启动脚本 (PowerShell)
-# 右键 "使用 PowerShell 运行" 或双击运行
+# my-openclaw - Windows Startup Script (PowerShell)
+# Right-click "Run with PowerShell" or double-click
 # ============================================
 
 $ErrorActionPreference = "Stop"
@@ -10,7 +10,7 @@ Write-Host "  my-openclaw Startup Script" -ForegroundColor Cyan
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host ""
 
-# 检查 Node.js
+# Check Node.js
 try {
     $nodeVersion = node --version
     Write-Host "[OK] Node.js version: $nodeVersion" -ForegroundColor Green
@@ -23,7 +23,7 @@ try {
 
 Write-Host ""
 
-# 安装依赖（如果 node_modules 不存在）
+# Install dependencies if node_modules is missing
 $backendModules = Join-Path $PSScriptRoot "backend\node_modules"
 if (-not (Test-Path $backendModules)) {
     Write-Host "[INFO] Installing backend dependencies..." -ForegroundColor Yellow
@@ -33,7 +33,7 @@ if (-not (Test-Path $backendModules)) {
     Write-Host ""
 }
 
-# 启动后端
+# Start backend
 Write-Host "[INFO] Starting server on http://localhost:3001" -ForegroundColor Green
 Write-Host "        Press Ctrl+C to stop" -ForegroundColor Yellow
 Write-Host ""
