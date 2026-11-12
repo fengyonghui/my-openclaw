@@ -265,6 +265,18 @@
       /projects 返回 []；dev 数据恢复后 11 项目回归；包内 grep 泄漏为 0
     - **注意**：known-workspaces.json 是 dev 机新产物，重装系统后需从
       db.json 的 projects 重建（一条 node 命令可提取）
+19. ✅ release 包缺 backend/agents/ → 启用团队成员 500 → 已修复（2026-11-12）
+    - **根因**：GLOBAL_AGENTS_DIR = backend/agents/ 是运行时资源目录，
+      打包脚本只复制 backend/dist + ui/dist，包里没有 agents/ →
+      findGlobalAgentFile 读目录失败 → throw「全局 Agent 不存在」→ 500
+    - **修复**：打包补 `cp -r backend/agents`；toggle 错误信息区分
+      「目录缺失」与「Agent 不存在」；AgentsPage toggle 失败时 alert 后端详情
+      （原来静默失败，UI 无反馈）
+    - **验证**：解压新包独立起实例（3101 端口）：/agents/global 返回 4 个
+      Agent、逐一 toggle 全 200、停用正确删文件、错误路径可读；
+      启动日志零「恢复项目」
+    - **教训**：release 打包必须包含所有运行时资源目录（agents/），
+      而非只有 dist/ —— 用「解压新包 + 独立实例 + 真实 API」验证最可靠
 
 ## Agent 角色
 - `architect_agent.md` - 系统架构师
