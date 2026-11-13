@@ -66,7 +66,7 @@ export default function App() {
   if (!projectId) return <div className="min-h-screen bg-slate-50 overflow-hidden">{pageContent}</div>;
 
   return (
-    <ProjectProvider projectId={projectId}>
+    <ProjectProvider projectId={projectId} refreshKey={refreshKey}>
       <>
         {/* Chat overlay: rendered inside React tree */}
         {view === 'chat' && activeChatId && (

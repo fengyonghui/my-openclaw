@@ -35,10 +35,12 @@ export function useProject() {
 
 interface ProjectProviderProps {
   projectId: string;
+  /** 外层递增的刷新信号：设置页保存（如启用团队成员）后刷新 context 缓存 */
+  refreshKey?: number;
   children: ReactNode;
 }
 
-export function ProjectProvider({ projectId, children }: ProjectProviderProps) {
+export function ProjectProvider({ projectId, refreshKey, children }: ProjectProviderProps) {
   const [project, setProject] = useState<Project | null>(null);
   const [agents, setAgents] = useState<any[]>([]);
   const [skills, setSkills] = useState<any[]>([]);
@@ -80,7 +82,7 @@ export function ProjectProvider({ projectId, children }: ProjectProviderProps) {
 
   useEffect(() => {
     fetchProjectData();
-  }, [projectId]);
+  }, [projectId, refreshKey]);
 
   const refreshProject = () => {
     fetchProjectData();
