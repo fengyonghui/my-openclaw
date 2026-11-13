@@ -277,6 +277,16 @@
       启动日志零「恢复项目」
     - **教训**：release 打包必须包含所有运行时资源目录（agents/），
       而非只有 dist/ —— 用「解压新包 + 独立实例 + 真实 API」验证最可靠
+20. ✅ 启用成员后新对话找不到成员（ProjectContext 缓存）→ 已修复（2026-11-13）
+    - **根因**：ProjectProvider 的 useEffect 只依赖 [projectId]，设置页
+      toggle 成员后 refreshKey++ 但没传给 Provider —— ChatDetailPage
+      从 context 读到的还是挂载时空的 agents 缓存
+    - **修复**：ProjectProvider 加 refreshKey prop（App.tsx 传入），
+      useEffect 依赖 [projectId, refreshKey]；后端数据链路本来就正确
+    - **验证**：tsc + Vite 热更新 + release 独立实例
+      （建项目→toggle→立即查 /agents 返回该成员）
+    - **教训**：App 级 context 的刷新信号必须贯通所有数据缓存层，
+      否则「设置页保存了但对话页看不到」这类陈旧缓存 bug 会反复出现
 
 ## Agent 角色
 - `architect_agent.md` - 系统架构师
